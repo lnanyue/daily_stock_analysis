@@ -2,14 +2,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReportDetails } from '../ReportDetails';
 
-const writeTextMock = vi.fn();
-let originalClipboard: Navigator['clipboard'] | undefined;
-
 describe('ReportDetails', () => {
+  const writeTextMock = vi.fn().mockResolvedValue(undefined);
+  let originalClipboard: Navigator['clipboard'] | undefined;
+
   beforeEach(() => {
     vi.useFakeTimers();
-    writeTextMock.mockReset();
-    writeTextMock.mockResolvedValue(undefined);
+    writeTextMock.mockClear();
     originalClipboard = navigator.clipboard;
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -28,13 +27,18 @@ describe('ReportDetails', () => {
     vi.useRealTimers();
   });
 
-  it('shows copied feedback only for the panel that was copied', async () => {
+  it('keeps copied feedback scoped to the panel that was copied', async () => {
     const details = {
-      rawResult: { signal: 'buy' },
-      contextSnapshot: { source: 'cache' },
+      rawResult: { score: 82 },
+      contextSnapshot: { window: '30d' },
     };
 
-    render(<ReportDetails details={details} />);
+    render(
+      <ReportDetails
+        recordId={7}
+        details={details}
+      />,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '原始分析结果' }));
     fireEvent.click(screen.getByRole('button', { name: '分析快照' }));
@@ -63,5 +67,10 @@ describe('ReportDetails', () => {
     });
 
     expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(2);
+  });
+
+  it('does not render when details and record id are both absent', () => {
+    const { container } = render(<ReportDetails />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

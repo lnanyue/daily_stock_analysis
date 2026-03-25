@@ -14,6 +14,7 @@ export interface AnalysisRequest {
   stockName?: string;
   originalQuery?: string;
   selectionSource?: 'manual' | 'autocomplete' | 'import' | 'image';
+  notify?: boolean;
 }
 
 // ============ Report Types ============
@@ -64,6 +65,22 @@ export interface ReportStrategy {
   takeProfit?: string;
 }
 
+export interface RelatedBoard {
+  name: string;
+  code?: string;
+  type?: string;
+}
+
+export interface SectorRankingItem {
+  name: string;
+  changePct?: number;
+}
+
+export interface SectorRankings {
+  top?: SectorRankingItem[];
+  bottom?: SectorRankingItem[];
+}
+
 /** Details section */
 export interface ReportDetails {
   newsContent?: string;
@@ -71,6 +88,8 @@ export interface ReportDetails {
   contextSnapshot?: Record<string, unknown>;
   financialReport?: Record<string, unknown>;
   dividendMetrics?: Record<string, unknown>;
+  belongBoards?: RelatedBoard[];
+  sectorRankings?: SectorRankings;
 }
 
 /** Full analysis report */

@@ -2,6 +2,7 @@ import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { ReportDetails as ReportDetailsType, ReportLanguage } from '../../types/analysis';
 import { Card } from '../common';
+import { DashboardPanelHeader } from '../dashboard';
 import { getReportText, normalizeReportLanguage } from '../../utils/reportLanguage';
 
 interface ReportDetailsProps {
@@ -80,7 +81,7 @@ export const ReportDetails: React.FC<ReportDetailsProps> = ({
         >
           {copiedPanels[panel] ? text.copied : text.copy}
         </button>
-        <pre className="text-xs text-secondary-text font-mono overflow-x-auto p-3 bg-base rounded-lg max-h-80 overflow-y-auto text-left w-0 min-w-full">
+        <pre className="text-xs text-foreground font-mono overflow-x-auto p-3 bg-base rounded-lg max-h-80 overflow-y-auto text-left w-0 min-w-full">
           {jsonStr}
         </pre>
       </div>
@@ -89,10 +90,11 @@ export const ReportDetails: React.FC<ReportDetailsProps> = ({
 
   return (
     <Card variant="bordered" padding="md" className="home-panel-card text-left">
-      <div className="mb-3 flex items-baseline gap-2">
-        <span className="label-uppercase">{text.transparency}</span>
-        <h3 className="mt-0.5 text-base font-semibold text-foreground">{text.traceability}</h3>
-      </div>
+      <DashboardPanelHeader
+        eyebrow={text.transparency}
+        title={text.traceability}
+        className="mb-3"
+      />
 
       {/* Record ID */}
       {recordId && (

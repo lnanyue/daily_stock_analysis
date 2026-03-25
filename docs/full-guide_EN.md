@@ -249,10 +249,13 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 > - **US/HK stocks**: Returns `not_supported` fallback block.
 > - Any exception uses fail-open logic, only logs errors without affecting the main technical/news/chip pipeline.
 > - **Field contracts**:
+>   - `fundamental_context.belong_boards` = related board list for the stock (currently populated for A-shares only; `[]` when unavailable);
 >   - `fundamental_context.boards.data` = `sector_rankings` (sector rise/fall leaderboard, structure `{top, bottom}`);
 >   - `get_stock_info.belong_boards` = list of sectors the individual stock belongs to;
 >   - `get_stock_info.boards` is a compatibility alias, value is identical to `belong_boards` (removal considered only in major version updates);
 >   - `get_stock_info.sector_rankings` stays consistent with `fundamental_context.boards.data`.
+>   - `AnalysisReport.details.belong_boards` = related board list in structured report details;
+>   - `AnalysisReport.details.sector_rankings` = sector leaderboard in structured report details for board-linkage display.
 > - **Sector leaderboard** uses a fixed fallback order: consistent with global priority.
 > - **Timeout control** is a `best-effort` soft timeout: the stage will quickly degrade and continue execution based on the budget, but does not guarantee a hard interrupt of underlying third-party network calls.
 > - `FUNDAMENTAL_STAGE_TIMEOUT_SECONDS=1.5` indicates the target budget for the newly added fundamental stage, not a strict hard SLA.
@@ -435,6 +438,8 @@ python main.py --schedule
 crontab -e
 # Add: 0 18 * * 1-5 cd /path/to/project && python main.py
 ```
+
+> Note: Scheduled mode reloads the saved `STOCK_LIST` before each run. If you also pass `--stocks`, it will not pin future scheduled executions to the startup snapshot; use a normal one-off run when you want to analyze a temporary stock list.
 
 ---
 

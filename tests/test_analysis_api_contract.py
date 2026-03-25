@@ -135,6 +135,121 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertEqual(report.details.financial_report["report_date"], "2025-12-31")
         self.assertEqual(report.details.dividend_metrics["ttm_dividend_yield_pct"], 2.5)
 
+    def test_build_analysis_report_extracts_related_board_fields_from_snapshot(self) -> None:
+        if _build_analysis_report is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        report = _build_analysis_report(
+            report_data={
+                "meta": {},
+                "summary": {},
+                "strategy": {},
+                "details": {},
+            },
+            query_id="q1",
+            stock_code="600519",
+            stock_name="贵州茅台",
+            context_snapshot={
+                "enhanced_context": {
+                    "fundamental_context": {
+                        "belong_boards": [{"name": "白酒", "type": "行业"}],
+                        "boards": {
+                            "data": {
+                                "top": [{"name": "白酒", "change_pct": 2.5}],
+                                "bottom": [],
+                            }
+                        },
+                    }
+                }
+            },
+            fallback_fundamental_payload=None,
+        )
+
+        self.assertEqual(report.details.belong_boards, [{"name": "白酒", "type": "行业"}])
+        self.assertEqual(report.details.sector_rankings["top"][0]["name"], "白酒")
+        self.assertEqual(report.details.sector_rankings["top"][0]["change_pct"], 2.5)
+
+    def test_build_analysis_report_normalizes_related_board_payloads(self) -> None:
+        if _build_analysis_report is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        report = _build_analysis_report(
+            report_data={
+                "meta": {},
+                "summary": {},
+                "strategy": {},
+                "details": {},
+            },
+            query_id="q1",
+            stock_code="600519",
+            stock_name="贵州茅台",
+            context_snapshot={
+                "enhanced_context": {
+                    "fundamental_context": {
+                        "belong_boards": [
+                            {"name": " 白酒 ", "type": " 行业 ", "code": " BK0815 "},
+                            {"name": "   "},
+                            "bad-item",
+                        ],
+                        "boards": {
+                            "data": {
+                                "top": {"name": "坏数据"},
+                                "bottom": [
+                                    {"name": " 消费 ", "change_pct": "-1.2%"},
+                                    {"name": None, "change_pct": 1},
+                                    "bad-item",
+                                ],
+                            }
+                        },
+                    }
+                }
+            },
+            fallback_fundamental_payload=None,
+        )
+
+        self.assertEqual(
+            report.details.belong_boards,
+            [{"name": "白酒", "type": "行业", "code": "BK0815"}],
+        )
+        self.assertEqual(
+            report.details.sector_rankings,
+            {
+                "top": [],
+                "bottom": [{"name": "消费", "change_pct": -1.2}],
+            },
+        )
+
+    def test_build_analysis_report_keeps_failed_board_rankings_unavailable(self) -> None:
+        if _build_analysis_report is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        report = _build_analysis_report(
+            report_data={
+                "meta": {},
+                "summary": {},
+                "strategy": {},
+                "details": {},
+            },
+            query_id="q1",
+            stock_code="600519",
+            stock_name="贵州茅台",
+            context_snapshot={
+                "enhanced_context": {
+                    "fundamental_context": {
+                        "belong_boards": [{"name": "白酒"}],
+                        "boards": {
+                            "status": "failed",
+                            "data": {},
+                        },
+                    }
+                }
+            },
+            fallback_fundamental_payload=None,
+        )
+
+        self.assertEqual(report.details.belong_boards, [{"name": "白酒"}])
+        self.assertIsNone(report.details.sector_rankings)
+
     def test_build_analysis_report_preserves_report_language(self) -> None:
         if _build_analysis_report is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
@@ -292,6 +407,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     report_type="detailed",
                     force_refresh=False,
                     async_mode=True,
+                    notify=True,
                 ),
                 config=SimpleNamespace(),
             )
@@ -305,6 +421,77 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             selection_source="manual",
             report_type="detailed",
             force_refresh=False,
+            notify=True,
+        )
+
+    def test_trigger_analysis_accepts_hk_suffix_code_from_autocomplete(self) -> None:
+        if trigger_analysis is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        queue = MagicMock()
+        queue.submit_tasks_batch.return_value = ([], [])
+
+        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+            response = trigger_analysis(
+                request=SimpleNamespace(
+                    stock_code="00700.HK",
+                    stock_codes=None,
+                    stock_name="腾讯控股",
+                    original_query="00700",
+                    selection_source="autocomplete",
+                    report_type="detailed",
+                    force_refresh=False,
+                    async_mode=True,
+                ),
+                config=SimpleNamespace(),
+            )
+
+        self.assertEqual(response.status_code, 202)
+        resolve_mock.assert_not_called()
+        queue.submit_tasks_batch.assert_called_once_with(
+            stock_codes=["00700.HK"],
+            stock_name="腾讯控股",
+            original_query="00700",
+            selection_source="autocomplete",
+            report_type="detailed",
+            force_refresh=False,
+            notify=True,
+        )
+
+    def test_trigger_analysis_accepts_hk_prefixed_code(self) -> None:
+        if trigger_analysis is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        queue = MagicMock()
+        queue.submit_tasks_batch.return_value = ([], [])
+
+        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+            response = trigger_analysis(
+                request=SimpleNamespace(
+                    stock_code="HK00700",
+                    stock_codes=None,
+                    stock_name=None,
+                    original_query="HK00700",
+                    selection_source="manual",
+                    report_type="detailed",
+                    force_refresh=False,
+                    async_mode=True,
+                ),
+                config=SimpleNamespace(),
+            )
+
+        self.assertEqual(response.status_code, 202)
+        resolve_mock.assert_not_called()
+        queue.submit_tasks_batch.assert_called_once_with(
+            stock_codes=["HK00700"],
+            stock_name=None,
+            original_query="HK00700",
+            selection_source="manual",
+            report_type="detailed",
+            force_refresh=False,
+            notify=True,
         )
 
     def test_trigger_analysis_allows_stock_names_with_star_and_hyphen(self) -> None:
@@ -326,6 +513,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     report_type="detailed",
                     force_refresh=False,
                     async_mode=True,
+                    notify=True,
                 ),
                 config=SimpleNamespace(),
             )
@@ -338,6 +526,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             selection_source="manual",
             report_type="detailed",
             force_refresh=False,
+            notify=True,
         )
 
     def test_trigger_analysis_accepts_resolvable_free_text_input(self) -> None:
@@ -359,6 +548,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     report_type="detailed",
                     force_refresh=False,
                     async_mode=True,
+                    notify=True,
                 ),
                 config=SimpleNamespace(),
             )
@@ -371,6 +561,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             selection_source="manual",
             report_type="detailed",
             force_refresh=False,
+            notify=True,
         )
 
     def test_trigger_analysis_preserves_batch_metadata(self) -> None:
@@ -391,6 +582,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     report_type="detailed",
                     force_refresh=False,
                     async_mode=True,
+                    notify=True,
                 ),
                 config=SimpleNamespace(),
             )
@@ -403,6 +595,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             selection_source="import",
             report_type="detailed",
             force_refresh=False,
+            notify=True,
         )
 
     def test_trigger_analysis_rejects_cross_request_duplicate_for_equivalent_code_shapes(self) -> None:
@@ -426,6 +619,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                         report_type="detailed",
                         force_refresh=False,
                         async_mode=True,
+                        notify=True,
                     ),
                     config=SimpleNamespace(),
                 )
@@ -439,6 +633,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                         report_type="detailed",
                         force_refresh=False,
                         async_mode=True,
+                        notify=True,
                     ),
                     config=SimpleNamespace(),
                 )
@@ -477,6 +672,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     report_type="detailed",
                     force_refresh=False,
                     async_mode=True,
+                    notify=True,
                 ),
                 config=SimpleNamespace(),
             )
@@ -489,6 +685,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             selection_source="import",
             report_type="detailed",
             force_refresh=False,
+            notify=True,
         )
 
     def test_spa_fallback_returns_json_404_for_bare_api_path(self) -> None:
