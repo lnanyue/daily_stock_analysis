@@ -16,10 +16,8 @@ daily_stock_analysis/
 │   └── ...
 ├── data_provider/       # 多数据源适配器
 ├── bot/                 # 机器人交互模块
-├── api/                 # FastAPI 后端服务
-├── apps/dsa-web/        # React 前端
-├── docker/              # Docker 配置
 ├── docs/                # 项目文档
+├── docs/DEPLOY.md       # 服务器部署指南
 └── .github/workflows/   # GitHub Actions
 ```
 
@@ -28,14 +26,12 @@ daily_stock_analysis/
 - [项目结构](#项目结构)
 - [GitHub Actions 详细配置](#github-actions-详细配置)
 - [环境变量完整列表](#环境变量完整列表)
-- [Docker 部署](#docker-部署)
 - [本地运行详细配置](#本地运行详细配置)
 - [定时任务配置](#定时任务配置)
 - [通知渠道详细配置](#通知渠道详细配置)
 - [数据源配置](#数据源配置)
 - [高级功能](#高级功能)
 - [回测功能](#回测功能)
-- [本地 WebUI 管理界面](#本地-webui-管理界面)
 
 ---
 
@@ -96,7 +92,7 @@ daily_stock_analysis/
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
 | `SINGLE_STOCK_NOTIFY` | 单股推送模式：设为 `true` 则每分析完一只股票立即推送 | 可选 |
-| `REPORT_TYPE` | 报告类型：`simple`(精简)、`full`(完整)、`brief`(3-5句概括)，Docker环境推荐设为 `full` | 可选 |
+| `REPORT_TYPE` | 报告类型：`simple`(精简)、`full`(完整)、`brief`(3-5句概括)，云服务器部署推荐设为 `full` | 可选 |
 | `REPORT_LANGUAGE` | 报告输出语言：`zh`(默认中文) / `en`(英文)；会同步影响 Prompt、模板、通知 fallback 与 Web 报告页固定文案 | 可选 |
 | `REPORT_SUMMARY_ONLY` | 仅分析结果摘要：设为 `true` 时只推送汇总，不含个股详情；多股时适合快速浏览（默认 false，Issue #262） | 可选 |
 | `REPORT_TEMPLATES_DIR` | Jinja2 模板目录（相对项目根，默认 `templates`） | 可选 |
@@ -302,102 +298,9 @@ daily_stock_analysis/
 
 ---
 
-## Docker 部署
+## 服务器部署
 
-Dockerfile 使用多阶段构建，前端会在构建镜像时自动打包并内置到 `static/`。
-如需覆盖静态资源，可挂载本地 `static/` 到容器内 `/app/static`。
-
-### 快速启动
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/ZhuLinsen/daily_stock_analysis.git
-cd daily_stock_analysis
-
-# 2. 配置环境变量
-cp .env.example .env
-vim .env  # 填入 API Key 和配置
-
-# 3. 启动容器
-docker-compose -f ./docker/docker-compose.yml up -d server     # Web 服务模式（推荐，提供 API 与 WebUI）
-docker-compose -f ./docker/docker-compose.yml up -d analyzer   # 定时任务模式
-docker-compose -f ./docker/docker-compose.yml up -d            # 同时启动两种模式
-
-# 4. 访问 WebUI
-# http://localhost:8000
-
-# 5. 查看日志
-docker-compose -f ./docker/docker-compose.yml logs -f server
-```
-
-### 运行模式说明
-
-| 命令 | 说明 | 端口 |
-|------|------|------|
-| `docker-compose -f ./docker/docker-compose.yml up -d server` | Web 服务模式，提供 API 与 WebUI | 8000 |
-| `docker-compose -f ./docker/docker-compose.yml up -d analyzer` | 定时任务模式，每日自动执行 | - |
-| `docker-compose -f ./docker/docker-compose.yml up -d` | 同时启动两种模式 | 8000 |
-
-### Docker Compose 配置
-
-`docker-compose.yml` 使用 YAML 锚点复用配置：
-
-```yaml
-version: '3.8'
-
-x-common: &common
-  build:
-    context: ..
-    dockerfile: docker/Dockerfile
-  restart: unless-stopped
-  env_file:
-    - ../.env
-  environment:
-    - TZ=Asia/Shanghai
-  volumes:
-    - ../data:/app/data
-    - ../logs:/app/logs
-    - ../reports:/app/reports
-    - ../.env:/app/.env
-
-services:
-  # 定时任务模式
-  analyzer:
-    <<: *common
-    container_name: stock-analyzer
-
-  # FastAPI 模式
-  server:
-    <<: *common
-    container_name: stock-server
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "8000"]
-    ports:
-      - "8000:8000"
-```
-
-### 常用命令
-
-```bash
-# 查看运行状态
-docker-compose -f ./docker/docker-compose.yml ps
-
-# 查看日志
-docker-compose -f ./docker/docker-compose.yml logs -f server
-
-# 停止服务
-docker-compose -f ./docker/docker-compose.yml down
-
-# 重建镜像（代码更新后）
-docker-compose -f ./docker/docker-compose.yml build --no-cache
-docker-compose -f ./docker/docker-compose.yml up -d server
-```
-
-### 手动构建镜像
-
-```bash
-docker build -f docker/Dockerfile -t stock-analysis .
-docker run -d --env-file .env -p 8000:8000 -v ./data:/app/data stock-analysis python main.py --serve-only --host 0.0.0.0 --port 8000
-```
+服务器部署请参考独立的 [部署指南](DEPLOY.md)，包含直接部署、Systemd 服务、GitHub Actions 三种方式。
 
 ---
 
@@ -497,7 +400,7 @@ python main.py --schedule --no-run-immediately
 
 #### 环境变量方式
 
-你也可以通过环境变量配置定时行为（适用于 Docker 或 .env）：
+你也可以通过环境变量配置定时行为（适用于 .env）：
 
 | 变量名 | 说明 | 默认值 | 示例 |
 |--------|------|:-------:|:-----:|
@@ -505,13 +408,6 @@ python main.py --schedule --no-run-immediately
 | `SCHEDULE_TIME` | 每日执行时间 (HH:MM) | `18:00` | `09:30` |
 | `SCHEDULE_RUN_IMMEDIATELY` | 启动服务时是否立即运行一次 | `true` | `false` |
 | `TRADING_DAY_CHECK_ENABLED` | 交易日检查：非交易日跳过执行；设为 `false` 可强制执行 | `true` | `false` |
-
-例如在 Docker 中配置：
-
-```bash
-# 设置启动时不立即分析
-docker run -e SCHEDULE_ENABLED=true -e SCHEDULE_RUN_IMMEDIATELY=false ...
-```
 
 #### 交易日判断（Issue #373）
 
@@ -861,86 +757,7 @@ python main.py --debug
 
 ---
 
-## FastAPI API 服务
-
-FastAPI 提供 RESTful API 服务，支持配置管理和触发分析。
-
-### 启动方式
-
-| 命令 | 说明 |
-|------|------|
-| `python main.py --serve` | 启动 API 服务 + 执行一次完整分析 |
-| `python main.py --serve-only` | 仅启动 API 服务，手动触发分析 |
-
-### 功能特性
-
-- 📝 **配置管理** - 查看/修改自选股列表
-- 🚀 **快速分析** - 通过 API 接口触发分析
-- 📊 **实时进度** - 分析任务状态实时更新，支持多任务并行
-- 📈 **回测验证** - 评估历史分析准确率，查询方向胜率与模拟收益
-- 🔗 **API 文档** - 访问 `/docs` 查看 Swagger UI
-
-### API 接口
-
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/v1/analysis/analyze` | POST | 触发股票分析 |
-| `/api/v1/analysis/tasks` | GET | 查询任务列表 |
-| `/api/v1/analysis/status/{task_id}` | GET | 查询任务状态 |
-| `/api/v1/history` | GET | 查询分析历史 |
-| `/api/v1/backtest/run` | POST | 触发回测 |
-| `/api/v1/backtest/results` | GET | 查询回测结果（分页） |
-| `/api/v1/backtest/performance` | GET | 获取整体回测表现 |
-| `/api/v1/backtest/performance/{code}` | GET | 获取单股回测表现 |
-| `/api/v1/stocks/extract-from-image` | POST | 从图片提取股票代码（multipart，超时 60s） |
-| `/api/v1/stocks/parse-import` | POST | 解析 CSV/Excel/剪贴板（multipart file 或 JSON `{"text":"..."}`，文件≤2MB，文本≤100KB） |
-| `/api/health` | GET | 健康检查 |
-| `/docs` | GET | API Swagger 文档 |
-
-> 说明：`POST /api/v1/analysis/analyze` 在 `async_mode=false` 时仅支持单只股票；批量 `stock_codes` 需使用 `async_mode=true`。异步 `202` 响应对单股返回 `task_id`，对批量返回 `accepted` / `duplicates` 汇总结构。
-
-**调用示例**：
-```bash
-# 健康检查
-curl http://127.0.0.1:8000/api/health
-
-# 触发分析（A股）
-curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"stock_code": "600519"}'
-
-# 查询任务状态
-curl http://127.0.0.1:8000/api/v1/analysis/status/<task_id>
-
-# 触发回测（全部股票）
-curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
-  -H 'Content-Type: application/json' \
-  -d '{"force": false}'
-
-# 触发回测（指定股票）
-curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
-  -H 'Content-Type: application/json' \
-  -d '{"code": "600519", "force": false}'
-
-# 查询整体回测表现
-curl http://127.0.0.1:8000/api/v1/backtest/performance
-
-# 查询单股回测表现
-curl http://127.0.0.1:8000/api/v1/backtest/performance/600519
-
-# 分页查询回测结果
-curl "http://127.0.0.1:8000/api/v1/backtest/results?page=1&limit=20"
-```
-
-### 自定义配置
-
-修改默认端口或允许局域网访问：
-
-```bash
-python main.py --serve-only --host 0.0.0.0 --port 8888
-```
-
-### 支持的股票代码格式
+## 支持的股票代码格式
 
 | 类型 | 格式 | 示例 |
 |------|------|------|
@@ -949,14 +766,6 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 | 港股 | hk + 5位数字 | `hk00700`、`hk09988` |
 | 美股 | 1-5 字母（可选 .X 后缀） | `AAPL`、`TSLA`、`BRK.B` |
 | 美股指数 | SPX/DJI/IXIC 等 | `SPX`、`DJI`、`NASDAQ`、`VIX` |
-
-### 注意事项
-
-- 浏览器访问：`http://127.0.0.1:8000`（或您配置的端口）
-- 在云服务器上部署后，不知道浏览器该输入什么地址？请看 [云服务器 Web 界面访问指南](deploy-webui-cloud.md)
-- 分析完成后自动推送通知到配置的渠道
-- 此功能在 GitHub Actions 环境中会自动禁用
-- 另见 [openclaw Skill 集成指南](openclaw-skill-integration.md)
 
 ---
 

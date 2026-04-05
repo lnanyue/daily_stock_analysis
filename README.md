@@ -7,7 +7,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
 
 <p>
   <a href="https://trendshift.io/repositories/18527" target="_blank"><img src="https://trendshift.io/api/badge/repositories/18527" alt="ZhuLinsen%2Fdaily_stock_analysis | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -46,18 +45,14 @@
 | 历史记录 | 批量管理 | 支持多选、全选及批量删除历史分析记录，优化管理效率与 UI/UX 体验 |
 | 回测 | AI 回测验证 | 自动评估历史分析准确率，支持按股票与分析日期查看”AI 预测 vs 次日实际（1 日窗口）”和准确率 |
 | 资讯 | 公司公告 + 资金流 | IntelAgent 新增公告抓取与主力资金流维度（上交所/深交所/cninfo + A 股主力资金流）用于补强舆情链路 |
-| **Agent 问股** | **策略对话** | **多轮策略问答，支持均线金叉/缠论/波浪等 11 种内置策略，Web/Bot/API 全链路** |
+| **Agent 问股** | **策略对话** | **多轮策略问答，支持均线金叉/缠论/波浪等 11 种内置策略，Bot 全链路** |
 | 推送 | 多渠道通知 | 企业微信、飞书、Telegram、Discord、Slack、钉钉、邮件、Pushover |
 | 自动化 | 定时运行 | GitHub Actions 定时执行，无需服务器 |
 
 > 历史报告详情会优先展示 AI 返回的原始「狙击点位」文本，避免区间价、条件说明等复杂内容在历史回看时被压缩成单个数字。
 
-> Web 界面做小调整：首页进一步收敛了样式层级与移动端滚动体验，修复bug；问股页为 AI 回复新增消息复制按钮，并补强了会话导出、通知发送、历史删除和追问参数保护；首页「原始分析结果 / 分析快照」复制反馈改为按面板独立。
 
-> Web 管理认证支持运行时开关；如果系统中已保留管理员密码，重新开启认证时必须提供当前密码，避免在认证关闭窗口内直接获取新的管理员会话。
-> 多进程/多 worker 部署时，认证开关仅在当前进程即时生效；需重启或滚动重启全部 worker 以统一状态。
-
-> 持仓管理补充说明：卖出录入现在会在写入前校验可用持仓，超售会直接拒绝；如果历史里误录了交易 / 资金流水 / 公司行为，可在 Web `/portfolio` 页的事件列表中直接删除后恢复快照。高并发写入场景下，直接持仓写接口可能返回 `409 portfolio_busy`，提示账本正在处理另一笔变更；CSV 导入仍保持逐条提交与部分成功语义。
+</parameter_replace_all>
 
 ### 技术栈与数据来源
 
@@ -99,7 +94,7 @@
 
 > 详细配置说明见 [LLM 配置指南](docs/LLM_CONFIG_GUIDE.md)（三层配置、渠道模式、YAML高级配置、Vision、Agent、排错），GitHub Actions用户也可以实现YAML高级配置。进阶用户可配置 `LITELLM_MODEL`、`LITELLM_FALLBACK_MODELS` 或 `LLM_CHANNELS` 多渠道模式。
 
-> 现在推荐把多模型配置统一写成 `LLM_CHANNELS + LLM_<NAME>_PROTOCOL/BASE_URL/API_KEY/MODELS/ENABLED`。Web 设置页和 `.env` 使用同一套字段，便于相互切换。
+> 现在推荐把多模型配置统一写成 `LLM_CHANNELS + LLM_<NAME>_PROTOCOL/BASE_URL/API_KEY/MODELS/ENABLED`。`.env` 使用同一套字段，便于相互切换。
 
 > 💡 **推荐 [AIHubMix](https://aihubmix.com/?aff=CfMq)**：一个 Key 即可使用 Gemini、GPT、Claude、DeepSeek 等全球主流模型，无需科学上网，含免费模型（glm-5、gpt-4o-free 等），付费模型高稳定性无限并发。本项目可享 **10% 充值优惠**。
 
@@ -113,7 +108,7 @@
 | `OPENAI_BASE_URL` | OpenAI 兼容 API 地址（如 `https://api.deepseek.com/v1`） | 可选 |
 | `OPENAI_MODEL` | 模型名称（如 `gemini-3.1-pro-preview`、`gemini-3-flash-preview`、`gpt-5.2`） | 可选 |
 | `OPENAI_VISION_MODEL` | 图片识别专用模型（部分第三方模型不支持图像；不填则用 `OPENAI_MODEL`） | 可选 |
-| `OLLAMA_API_BASE` | Ollama 本地服务地址（如 `http://localhost:11434`），本地/Docker 部署时使用，**不要**用 `OPENAI_BASE_URL` 配置 Ollama，详见 [LLM 配置指南 - Ollama](docs/LLM_CONFIG_GUIDE.md#示例-4使用-ollama-本地模型) | 可选 |
+| `OLLAMA_API_BASE` | Ollama 本地服务地址（如 `http://localhost:11434`），**不要**用 `OPENAI_BASE_URL` 配置 Ollama，详见 [LLM 配置指南 - Ollama](docs/LLM_CONFIG_GUIDE.md#示例-4使用-ollama-本地模型) | 可选 |
 
 > 注：AI 优先级 Gemini > Anthropic > OpenAI（含 AIHubmix）> Ollama，至少配置一个。`AIHUBMIX_KEY` 无需配置 `OPENAI_BASE_URL`，系统自动适配。图片识别需 Vision 能力模型。DeepSeek 思考模式（deepseek-reasoner、deepseek-r1、qwq、deepseek-chat）按模型名自动识别，无需额外配置。**Ollama 本地模型**（无需 API Key）必须使用 `OLLAMA_API_BASE`，误用 `OPENAI_BASE_URL` 会导致 404。
 
@@ -148,7 +143,7 @@
 | `SCHEDULE_RUN_IMMEDIATELY` | 定时模式启动时是否立即执行一次分析 | 可选 |
 | `RUN_IMMEDIATELY` | 非定时模式启动时是否立即执行一次分析 | 可选 |
 | `SINGLE_STOCK_NOTIFY` | 单股推送模式：设为 `true` 则每分析完一只股票立即推送 | 可选 |
-| `REPORT_TYPE` | 报告类型：`simple`(精简)、`full`(完整)、`brief`(3-5句概括)，Docker环境推荐设为 `full` | 可选 |
+| `REPORT_TYPE` | 报告类型：`simple`(精简)、`full`(完整)、`brief`(3-5句概括)，云服务器部署推荐设为 `full` | 可选 |
 | `REPORT_LANGUAGE` | 报告输出语言：`zh`(默认中文) / `en`(英文)；会同步影响 Prompt、Markdown 模板、通知 fallback 与 Web 报告页固定文案 | 可选 |
 | `REPORT_SUMMARY_ONLY` | 仅分析结果摘要：设为 `true` 时只推送汇总，不含个股详情 | 可选 |
 | `REPORT_TEMPLATES_DIR` | Jinja2 模板目录（相对项目根，默认 `templates`） | 可选 |
@@ -240,7 +235,7 @@
 > - **环境变量方式**：在 `.env` 或 GitHub Secrets 中设置，影响所有运行方式（定时触发、手动触发、本地运行）
 > - **UI 勾选方式**：仅在 GitHub Actions 手动触发时可见，不影响定时任务，适合临时需求
 
-### 方式二：本地运行 / Docker 部署
+### 方式二：本地运行
 
 ```bash
 # 克隆项目
@@ -256,23 +251,7 @@ cp .env.example .env && vim .env
 python main.py
 ```
 
-如果你不用 Web，推荐直接在 `.env` 里按条写渠道：
-
-```env
-LLM_CHANNELS=primary
-LLM_PRIMARY_PROTOCOL=openai
-LLM_PRIMARY_BASE_URL=https://api.deepseek.com/v1
-LLM_PRIMARY_API_KEY=sk-xxxxxxxx
-LLM_PRIMARY_MODELS=deepseek-chat
-LITELLM_MODEL=openai/deepseek-chat
-```
-
-保存后也可以在 Web 设置页继续编辑同一组字段；不会要求额外配置文件。
-
-如果同时启用了 `LITELLM_CONFIG`，YAML 仍然是运行时主模型 / fallback / Vision 的唯一来源；渠道编辑器只保存渠道条目，不会覆盖 YAML 的运行时选择。
-
-> Docker 部署、定时任务配置请参考 [完整指南](docs/full-guide.md)
-> 桌面客户端打包请参考 [桌面端打包说明](docs/desktop-package.md)
+> 定期任务配置、部署等请参考 [完整指南](docs/full-guide.md)
 
 ## 📱 推送效果
 
@@ -328,94 +307,18 @@ LITELLM_MODEL=openai/deepseek-chat
 > 邮件通知当前基于 SMTP 授权码/基础认证；若 Outlook / Exchange 账号或租户强制 OAuth2，当前版本暂不支持。
 
 
-## 🖥️ Web 界面
+### 🤖 Bot 策略问股
 
-![img.png](sources/fastapi_server.png)
+通过 Bot 命令 `/ask` 进行策略分析（支持多股对比）、`/chat` 自由对话。
 
-包含完整的配置管理、任务监控和手动分析功能。
-
-**可选密码保护**：在 `.env` 中设置 `ADMIN_AUTH_ENABLED=true` 可启用 Web 登录，首次访问在网页设置初始密码，保护 Settings 中的 API 密钥等敏感配置。系统设置现支持运行时开启或关闭认证；关闭认证不会删除已保存密码，后续可直接重新启用。认证开启时，`POST /api/v1/auth/logout` 也需要有效会话；如果会话已经过期，前端会直接回到登录页。详见 [完整指南](docs/full-guide.md)。
-
-### 智能导入
-
-在 **设置 → 基础设置** 中找到「智能导入」区块，支持三种方式添加自选股：
-
-1. **图片**：拖拽或选择自选股截图（如 APP 持仓页、行情列表），Vision AI 自动识别代码+名称，并给出置信度
-2. **文件**：上传 CSV 或 Excel (.xlsx)，自动解析代码/名称列
-3. **粘贴**：从 Excel 或表格复制后粘贴，点击「解析」即可
-
-**预览与合并**：高置信度默认勾选，中/低置信度需手动勾选；支持按代码去重、清空、全选；仅合并已勾选且解析成功的项。
-
-**配置与限制**：
-- 图片需配置 Vision API（`GEMINI_API_KEY`、`ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY` 至少一个）
-- 图片：JPG/PNG/WebP/GIF，≤5MB；文件：≤2MB；粘贴文本：≤100KB
-
-**API**：`POST /api/v1/stocks/extract-from-image`（图片）、`POST /api/v1/stocks/parse-import`（文件/粘贴）。详见 [完整指南](docs/full-guide.md)。
-
-### 智能搜索补全 (MVP)
-
-首页分析输入框已升级为”类搜索引擎”补全框，显著降低记忆负担：
-
-- **多维匹配**：支持输入股票代码、中文名、拼音缩写或别名（如 `gzmt` -> 贵州茅台、`tencent` -> 腾讯控股、`aapl` -> Apple Inc.）。
-- **多市场覆盖**：本地索引已覆盖 **A股、港股、美股** 三个市场；通过 Tushare 或 AkShare 数据源生成，支持按需更新索引。
-- **自动降级逻辑**：
-  - **新股/异常**：若索引未及时更新或加载失败，系统将无缝退回普通输入模式，确保分析链路 100% 可用。
-  - **未命中**：搜索未命中时，用户直接按回车即可走原有手动输入流程，完全不影响分析。
-
-> 💡 **索引更新提示**：如需更新索引数据，可通过 `scripts/fetch_tushare_stock_list.py` 获取最新股票列表，再运行 `scripts/generate_index_from_csv.py` 重新生成索引文件。详见 [Tushare 股票列表获取工具使用说明](docs/TUSHARE_STOCK_LIST_GUIDE.md)。
-
-**LLM 用量查询**：`GET /api/v1/usage/summary?period=today|month|all`，返回按调用类型和模型分组的 token 消耗汇总（`total_calls`、`total_tokens`、`by_call_type`、`by_model`）。
-
-**分析 API 说明**：`POST /api/v1/analysis/analyze` 在 `async_mode=false` 时仅支持单只股票；批量 `stock_codes` 需要 `async_mode=true`。异步 `202` 响应对单股返回 `task_id`，对批量返回 `accepted` / `duplicates` 汇总结构；空白股票代码会在服务端过滤，若过滤后为空则返回 `400`。未知 `/api` 路径（含 `/api` 本身）返回 JSON `404`，不再回退到前端页面。详见 [API 规范](docs/architecture/api_spec.json)。
-
-### 历史报告详情
-
-在首页历史记录中选择一条分析记录后，点击「完整分析报告」按钮可在右侧抽屉中查看与推送通知格式一致的完整 Markdown 分析报告，包含舆情情报、核心结论、数据透视、作战计划等完整内容。
-
-报告头部提供两种复制方式：
-
-- 「复制 Markdown 源码」：保留原始 Markdown 结构，适合二次编辑、技术社区分享和笔记归档。
-- 「复制纯文本」：去除常见 Markdown 格式符号，适合微信、群聊等纯文本分享场景。
-
-### 🤖 Agent 策略问股
-
-在 `.env` 中设置 `AGENT_MODE=true` 后启动服务，访问 `/chat` 页面即可开始多轮策略问答。
-
-> 对用户侧文案，本项目仍以“策略”为主称呼；代码、配置和 API 主字段统一使用 `skill`，可理解为“可复用的策略能力包”。
+> 对用户侧文案，本项目仍以”策略”为主称呼；代码、配置统一使用 `skill`，可理解为”可复用的策略能力包”。
 
 - **选择策略**：均线金叉、缠论、波浪理论、多头趋势等 11 种内置策略
 - **自然语言提问**：如「用缠论分析 600519」，Agent 自动调用实时行情、K线、技术指标、新闻等工具
-- **流式进度反馈**：实时展示 AI 思考路径（行情获取 → 技术分析 → 新闻搜索 → 生成结论）
-- **多轮对话**：支持追问上下文，会话历史持久化保存
-- **导出与发送**：可将会话导出为 .md 文件，或发送到已配置的通知渠道
-- **后台执行**：切换页面不中断分析，完成时 Dock 问股图标显示角标
-- **Bot 命令**：`/ask` 技能分析（支持多股对比）、`/chat` 自由对话
 - **自定义策略（Skill）**：在 `strategies/` 目录下新建 YAML 文件或在自定义 skill 目录中放入 `SKILL.md` bundle，即可添加新的交易策略，无需写代码
-- **多 Agent 架构**（实验性）：设置 `AGENT_ARCH=multi` 启用 Technical → Intel → Risk → Specialist → Decision 多 Agent 级联编排，通过 `AGENT_ORCHESTRATOR_MODE` 控制深度（quick/standard/full/specialist）。其中 `strategy` / `skill` 仍作为旧值兼容并会自动归一化到 `specialist`。超时或中间阶段 JSON 解析失败时，系统会优先保留已完成阶段结果并降级生成最小可用仪表盘，避免整份报告直接退回默认占位。详见 [完整配置指南](docs/full-guide.md)
 - **Intel 增强字段兼容说明**：`capital_flow_signal` 为新增扩展字段（`inflow/outflow/neutral/not_available`），用于描述 A 股资金流方向，未返回时不会影响后续阶段；下游解析建议以 `risk_alerts` 与 `positive_catalysts` 为主，新增字段可忽略，兼容历史客户端。
 
-> **注意**：配置了任意 AI API Key 后，Agent 对话功能自动可用，无需手动设置 `AGENT_MODE=true`。如需显式关闭可设置 `AGENT_MODE=false`。每次对话会产生 LLM API 调用费用。若你手动修改了 `.env` 中的模型主备配置（如 `LITELLM_MODEL` / `AGENT_LITELLM_MODEL` / `LITELLM_FALLBACK_MODELS` / `LLM_CHANNELS`），需要重启服务或触发配置重载后，新进程才会按新模型生效。
-
-### 启动方式
-
-1. **启动服务**（默认会自动编译前端）
-   ```bash
-   python main.py --webui       # 启动 Web 界面 + 执行定时分析
-   python main.py --webui-only  # 仅启动 Web 界面
-   ```
-   启动时会在 `apps/dsa-web` 自动执行 `npm install && npm run build`。
-   如需关闭自动构建，设置 `WEBUI_AUTO_BUILD=false`，并改为手动执行：
-   ```bash
-   cd ./apps/dsa-web
-   npm install && npm run build
-   cd ../..
-   ```
-
-访问 `http://127.0.0.1:8000` 即可使用。
-
-> 在云服务器上部署后，不知道浏览器该输入什么地址？请看 [云服务器 Web 界面访问指南](docs/deploy-webui-cloud.md)。
-
-> 也可以使用 `python main.py --serve` (等效命令)
+> **注意**：配置了任意 AI API Key 后，Agent 对话功能自动可用。每次对话会产生 LLM API 调用费用。若你手动修改了 `.env` 中的模型主备配置（如 `LITELLM_MODEL` / `AGENT_LITELLM_MODEL` / `LITELLM_FALLBACK_MODELS` / `LLM_CHANNELS`），修改后重新运行生效。
 
 ## 🗺️ Roadmap
 

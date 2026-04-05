@@ -78,9 +78,8 @@ docs: 更新 README 部署说明
 
 | 检查项 | 说明 | 必须通过 |
 |--------|------|:--------:|
+| ai-governance | AI 协作资产检查（AGENTS.md / CLAUDE.md / skills 等） | ✅ |
 | backend-gate | `scripts/ci_gate.sh`（py_compile + flake8 严重错误 + 本地核心脚本 + offline pytest） | ✅ |
-| docker-build | Docker 镜像构建与关键模块导入 smoke | ✅ |
-| web-gate | 前端变更时执行 `npm run lint` + `npm run build` | ✅（触发时） |
 | network-smoke | 定时/手动执行 `pytest -m network` + `test.sh quick`（非阻断） | ❌（观测项） |
 
 **本地运行检查：**
@@ -90,12 +89,6 @@ docs: 更新 README 部署说明
 pip install -r requirements.txt
 pip install flake8 pytest
 ./scripts/ci_gate.sh
-
-# 前端 gate（如修改了 apps/dsa-web）
-cd apps/dsa-web
-npm ci
-npm run lint
-npm run build
 ```
 
 ## 📋 优先贡献方向

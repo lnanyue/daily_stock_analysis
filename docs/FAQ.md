@@ -94,10 +94,7 @@
 
 **解决方案**：
 1. 确保 `.env` 文件位于项目根目录
-2. **Docker 部署**：修改后需重启容器
-   ```bash
-   docker-compose down && docker-compose up -d
-   ```
+2. **本地/服务器部署**：修改后重启进程
 3. **GitHub Actions**：`.env` 文件不生效，必须在 Secrets/Variables 中配置
 4. 检查是否有多个 `.env` 文件（如 `.env.local`）导致覆盖
 
@@ -223,54 +220,19 @@ OPENAI_MODEL=deepseek-chat
 
 ---
 
-## 🐳 Docker 相关
+## 🌐 网络相关
 
-### Q13: Docker 容器启动后立即退出？
-
-**解决方案**：
-1. 查看容器日志：
-   ```bash
-   docker logs <container_id>
-   ```
-2. 常见原因：
-   - 环境变量未正确配置
-   - `.env` 文件格式错误（如有多余空格）
-   - 依赖包版本冲突
-
----
-
-### Q14: Docker 中 API 服务无法访问？
-
-**解决方案**：
-1. 确保启动命令包含 `--host 0.0.0.0`（不能是 127.0.0.1）
-2. 检查端口映射是否正确：
-   ```yaml
-   ports:
-     - "8000:8000"
-   ```
-
----
-
-### Q14.1: Docker 中网络/DNS 解析失败（如 api.tushare.pro、searchapi.eastmoney.com 无法解析）？
+### Q13: 网络/DNS 解析失败（如 api.tushare.pro、searchapi.eastmoney.com 无法解析）？
 
 **现象**：日志显示 `Temporary failure in name resolution` 或 `NameResolutionError`，股票数据 API 和大模型 API 均无法访问。
 
-**原因**：自定义 bridge 网络下，容器使用 Docker 内置 DNS，在旁路由、特定网络环境时可能解析失败。
+**原因**：服务器 DNS 配置问题，在特定网络环境下可能解析失败。
 
 **解决方案**（按优先级尝试）：
 
-1. **显式配置 DNS**：在 `docker/docker-compose.yml` 的 `x-common` 下添加：
-   ```yaml
-   dns:
-     - 223.5.5.5
-     - 119.29.29.29
-     - 8.8.8.8
-   ```
-   然后执行 `docker-compose down` 和 `docker-compose up -d --force-recreate` 重新创建容器。
-
-2. **改用 host 网络模式**：若上述仍无效，可在 `server` 服务下添加 `network_mode: host`，并移除 `ports` 映射。使用 host 模式时，`ports` 无效，**端口由 `command` 中的 `--port` 指定**。若宿主机默认端口已占用，可修改为其他端口（如 `.env` 中设置 `API_PORT=8080`），访问对应 `http://localhost:8080`。
-
-> 📌 相关 Issue: [#372](https://github.com/ZhuLinsen/daily_stock_analysis/issues/372)
+1. **修改系统 DNS**：将服务器 DNS 改为公共 DNS（如 223.5.5.5、119.29.29.29、8.8.8.8）
+2. **检查代理配置**：确保 `USE_PROXY`、`PROXY_HOST`、`PROXY_PORT` 配置正确
+3. **测试网络连通性**：`curl -v https://api.tushare.pro`
 
 ---
 

@@ -7,7 +7,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
 
 <p>
   <a href="https://trendshift.io/repositories/18527" target="_blank"><img src="https://trendshift.io/api/badge/repositories/18527" alt="ZhuLinsen%2Fdaily_stock_analysis | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -115,7 +114,7 @@
 | `CUSTOM_WEBHOOK_URLS` | 自定義 Webhook（支持釘釘等，多個用逗號分隔） | 可選 |
 | `CUSTOM_WEBHOOK_BEARER_TOKEN` | 自定義 Webhook 的 Bearer Token（用於需要認證的 Webhook） | 可選 |
 | `SINGLE_STOCK_NOTIFY` | 單股推送模式：設為 `true` 則每分析完一隻股票立即推送 | 可選 |
-| `REPORT_TYPE` | 報告類型：`simple`(精簡) 或 `full`(完整)，Docker環境推薦設為 `full` | 可選 |
+| `REPORT_TYPE` | 報告類型：`simple`(精簡) 或 `full`(完整)，推薦設為 `full` | 可選 |
 | `REPORT_LANGUAGE` | 報告輸出語言：`zh`(預設中文) / `en`(英文)；會同步影響 Prompt、Markdown 模板、通知 fallback 與 Web 報告頁固定文案 | 可選 |
 | `ANALYSIS_DELAY` | 個股分析和大盤分析之間的延遲（秒），避免API限流，如 `10` | 可選 |
 
@@ -154,9 +153,9 @@
 
 默認每個工作日 **18:00（北京時間）** 自動執行
 
-### 方式二：本地運行 / Docker 部署
+### 方式二：本地運行
 
-> 📖 本地運行、Docker 部署詳細步驟請參考 [完整配置指南](full-guide.md)
+> 📖 本地運行詳細步驟請參考 [完整配置指南](full-guide.md)
 
 ## 📱 推送效果
 
@@ -264,12 +263,8 @@ daily_stock_analysis/
 │   ├── notification.py  # 消息推送
 │   ├── storage.py       # 數據存儲
 │   └── ...
-├── api/                 # FastAPI API 模塊
 ├── bot/                 # 機器人模塊
 ├── data_provider/       # 數據源適配器
-├── docker/              # Docker 配置
-│   ├── Dockerfile
-│   └── docker-compose.yml
 ├── docs/                # 項目文檔
 │   ├── full-guide.md    # 完整配置指南
 │   └── ...

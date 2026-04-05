@@ -7,7 +7,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
 
 <p>
   <a href="https://trendshift.io/repositories/18527" target="_blank"><img src="https://trendshift.io/api/badge/repositories/18527" alt="ZhuLinsen%2Fdaily_stock_analysis | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -91,7 +90,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `OPENAI_API_KEY` | OpenAI-compatible API Key (supports DeepSeek, Qwen, etc.) | Optional |
 | `OPENAI_BASE_URL` | OpenAI-compatible API endpoint (e.g., `https://api.deepseek.com/v1`) | Optional |
 | `OPENAI_MODEL` | Model name (e.g., `deepseek-chat`) | Optional |
-| `OLLAMA_API_BASE` | Ollama local service address (e.g. `http://localhost:11434`), for local/Docker deployment; **do not** use `OPENAI_BASE_URL` for Ollama, see [LLM Config Guide - Ollama](LLM_CONFIG_GUIDE_EN.md#example-4-using-ollama-local-models) | Optional |
+| `OLLAMA_API_BASE` | Ollama local service address (e.g. `http://localhost:11434`); **do not** use `OPENAI_BASE_URL` for Ollama, see [LLM Config Guide - Ollama](LLM_CONFIG_GUIDE_EN.md#example-4-using-ollama-local-models) | Optional |
 
 > *Note: Configure at least one of `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `OLLAMA_API_BASE` (local). **Ollama** requires `OLLAMA_API_BASE`; using `OPENAI_BASE_URL` causes 404.
 
@@ -119,7 +118,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `CUSTOM_WEBHOOK_URLS` | Custom Webhook URLs (supports DingTalk, etc., comma-separated) | Optional |
 | `CUSTOM_WEBHOOK_BEARER_TOKEN` | Bearer token for custom webhooks (if required) | Optional |
 | `SINGLE_STOCK_NOTIFY` | Send notification immediately after each stock | Optional |
-| `REPORT_TYPE` | `simple`, `full`, or `brief` (Docker recommended: `full`) | Optional |
+| `REPORT_TYPE` | `simple`, `full`, or `brief` | Optional |
 | `REPORT_LANGUAGE` | Report output language: `zh` (default Chinese) / `en` (English); affects prompt instructions, Markdown templates, notification fallbacks, and fixed labels in the Web report view | Optional |
 | `ANALYSIS_DELAY` | Delay between stocks and market review (seconds) | Optional |
 
@@ -421,48 +420,13 @@ DEBUG=false                    # Enable debug logging
 
 ---
 
-## 🧩 FastAPI Web Service (Optional)
+### 🤖 Bot Strategy Chat
 
-Enable the FastAPI service for configuration management and triggering analysis when running locally.
+Use Bot commands `/ask` for strategy analysis and `/chat` for free conversation.
 
-### Startup Methods
-
-| Command | Description |
-|---------|-------------|
-| `python main.py --serve` | Start API service + run full analysis once |
-| `python main.py --serve-only` | Start API service only, manually trigger analysis |
-
-- URL: `http://127.0.0.1:8000`
-- API docs: `http://127.0.0.1:8000/docs`
-
-### Features
-
-- 📝 **Configuration Management** - View/modify watchlist
-- 🚀 **Quick Analysis** - Trigger analysis via API
-- 📊 **Real-time Progress** - Analysis task status updates in real-time, supports parallel tasks
-- 🤖 **Agent Strategy Chat** - Use `/ask`, `/chat`, `/history`, `/strategies`, and `/research` for multi-turn Q&A, history, strategy listing, and deep research (enable with `AGENT_MODE=true`)
-- 🧩 **Intel compatibility** - `capital_flow_signal` is an additive Intel output field; clients that do not consume it can ignore it safely, while existing fields such as `risk_alerts` and `positive_catalysts` remain unchanged.
-- 📈 **Backtest Validation** - Evaluate historical analysis accuracy, query direction win rate and simulated returns
-
-### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/analysis/analyze` | POST | Trigger stock analysis |
-| `/api/v1/analysis/tasks` | GET | Query task list |
-| `/api/v1/analysis/status/{task_id}` | GET | Query task status |
-| `/api/v1/history` | GET | Query analysis history |
-| `/api/v1/backtest/run` | POST | Trigger backtest |
-| `/api/v1/backtest/results` | GET | Query backtest results (paginated) |
-| `/api/v1/backtest/performance` | GET | Get overall backtest performance |
-| `/api/v1/backtest/performance/{code}` | GET | Get per-stock backtest performance |
-| `/api/v1/agent/skills` | GET | Get available built-in/custom strategy skills |
-| `/api/v1/agent/chat/stream` | POST (SSE) | Stream multi-turn Agent strategy chat |
-| `/api/health` | GET | Health check |
-
-> Note: `POST /api/v1/analysis/analyze` supports only one stock when `async_mode=false`; batch `stock_codes` requires `async_mode=true`. The async `202` response returns a single `task_id` for one stock, or an `accepted` / `duplicates` summary for batch requests.
-
-> For detailed instructions, see [Full Guide - API Service](full-guide_EN.md#fastapi-api-service)
+- **Select Strategy**: MA crossover, Chan theory, Elliott wave, bullish trend, etc.
+- **Custom Strategies (Skills)**: Place YAML files or `SKILL.md` bundles under `strategies/` to add new trading strategies without writing code
+- **Intel compatibility**: `capital_flow_signal` is an additive Intel output field; clients that do not consume it can ignore it safely
 
 ---
 
