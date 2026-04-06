@@ -65,19 +65,18 @@ class TelegramSender:
         chat_id = self._telegram_config['chat_id']
         message_thread_id = self._telegram_config.get('message_thread_id')
         
-        try:
-            # Telegram API 端点
-            api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            
-            # Telegram 消息最大长度 4096 字符
-            max_length = 4096
-            
-            if len(content) <= max_length:
-                # 单条消息发送
-                return await self._send_telegram_message(api_url, chat_id, content, message_thread_id)
-            else:
-                # 分段发送长消息
-                return await self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id)
+        # Telegram API 端点
+        api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+        # Telegram 消息最大长度 4096 字符
+        max_length = 4096
+
+        if len(content) <= max_length:
+            # 单条消息发送
+            return await self._send_telegram_message(api_url, chat_id, content, message_thread_id)
+        else:
+            # 分段发送长消息
+            return await self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id)
     
     async def _send_telegram_message(self, api_url: str, chat_id: str, text: str, message_thread_id: Optional[str] = None) -> bool:
         """Send a single Telegram message via async client."""
