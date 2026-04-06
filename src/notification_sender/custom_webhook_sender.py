@@ -82,8 +82,8 @@ class CustomWebhookSender:
                 else:
                     logger.error(f"自定义 Webhook {i+1} 推送失败")
                     
-            except Exception as e:
-                logger.error(f"自定义 Webhook {i+1} 推送异常: {e}")
+            except Exception:
+                logger.exception(f"自定义 Webhook {i+1} 推送异常")
         
         logger.info(f"自定义 Webhook 推送完成：成功 {success_count}/{len(self._custom_webhook_urls)}")
         return success_count > 0
@@ -130,8 +130,8 @@ class CustomWebhookSender:
                         logger.warning(
                             "自定义 Webhook %d 不支持图片，且无回退内容，跳过", i + 1
                         )
-            except Exception as e:
-                logger.error("自定义 Webhook %d 图片推送异常: %s", i + 1, e)
+            except Exception:
+                logger.exception("自定义 Webhook %d 图片推送异常", i + 1)
         return success_count > 0
 
     async def _post_custom_webhook(self, url: str, payload: dict, timeout: int | None = None) -> bool:

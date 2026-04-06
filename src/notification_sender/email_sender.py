@@ -219,8 +219,8 @@ class EmailSender:
         except smtplib.SMTPConnectError as e:
             logger.error(f"邮件发送失败：无法连接 SMTP 服务器 - {e}")
             return False
-        except Exception as e:
-            logger.error(f"发送邮件失败: {e}")
+        except Exception:
+            logger.exception("发送邮件失败")
             return False
         finally:
             self._close_server(server)
@@ -283,8 +283,8 @@ class EmailSender:
             server.send_message(msg)
             logger.info("邮件（内联图片）发送成功，收件人: %s", receivers)
             return True
-        except Exception as e:
-            logger.error("邮件（内联图片）发送失败: %s", e)
+        except Exception:
+            logger.exception("邮件（内联图片）发送失败")
             return False
         finally:
             self._close_server(server)

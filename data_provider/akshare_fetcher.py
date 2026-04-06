@@ -1857,6 +1857,31 @@ class AkshareFetcher(BaseFetcher):
             logger.debug(f"[Akshare] 获取涨停池失败: {e}")
             return []
 
+    def get_value_metrics(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取价值投资核心指标 (巴菲特/芒格关注)
+        """
+        try:
+            logger.info(f"[API调用] 获取 {stock_code} 核心财务指标...")
+            # 1. 主要财务指标
+            df_indicator = ak.stock_financial_analysis_indicator_em(symbol=stock_code.split('.')[0])
+            if df_indicator is None or df_indicator.empty:
+                return {}
+            
+            # 取最近 4 个季度的平均 ROE 和 毛利率
+            recent = df_indicator.head(4)
+            return {
+                'avg_roe': recent['净资产收益率(加权)(%)'].mean(),
+                'avg_net_margin': recent['净利率(%)'].mean(),
+                'avg_gross_margin': recent['毛利率(%)'].mean(),
+                'debt_ratio': recent['资产负债率(%)'].iloc[0],
+                'cash_flow_ratio': recent['总资产周转率(次)'].iloc[0], # 简化替代
+                'report_date': recent['报告期'].iloc[0]
+            }
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取财务核心指标失败: {e}")
+            return {}
+
 
 if __name__ == "__main__":
     # 测试代码

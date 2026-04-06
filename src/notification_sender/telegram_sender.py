@@ -78,12 +78,6 @@ class TelegramSender:
             else:
                 # 分段发送长消息
                 return await self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id)
-                
-        except Exception as e:
-            logger.error(f"发送 Telegram 消息失败: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
-            return False
     
     async def _send_telegram_message(self, api_url: str, chat_id: str, text: str, message_thread_id: Optional[str] = None) -> bool:
         """Send a single Telegram message via async client."""
@@ -127,8 +121,8 @@ class TelegramSender:
                             if response.status_code == 200 and response.json().get('ok'):
                                 logger.info("Telegram 消息发送成功（纯文本）")
                                 return True
-                        except Exception as e:
-                            logger.error(f"Telegram plain-text fallback failed: {e}")
+                        except Exception:
+                            logger.exception("Telegram plain-text fallback failed")
                     
                     return False
             elif response.status_code == 429:
@@ -141,8 +135,8 @@ class TelegramSender:
                 logger.error(f"Telegram 请求失败: HTTP {response.status_code}")
                 logger.error(f"响应内容: {response.text}")
                 return False
-        except Exception as e:
-            logger.error(f"Telegram 网络请求异常: {e}")
+        except Exception:
+            logger.exception("Telegram 网络请求异常")
             return False
     
     async def _send_telegram_chunked(self, api_url: str, chat_id: str, content: str, max_length: int, message_thread_id: Optional[str] = None) -> bool:
@@ -194,24 +188,20 @@ class TelegramSender:
         message_thread_id = self._telegram_config.get('message_thread_id')
         api_url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
         
-        try:
-            data = {"chat_id": chat_id}
-            if message_thread_id:
-                data['message_thread_id'] = message_thread_id
-                
-            files = {"photo": ("report.png", image_bytes, "image/png")}
+        data = {"chat_id": chat_id}
+        if message_thread_id:
+            data['message_thread_id'] = message_thread_id
             
-            client = await get_sender_http_client()
-            response = await client.post(api_url, data=data, files=files)
-            
-            if response.status_code == 200 and response.json().get('ok'):
-                logger.info("Telegram 图片发送成功")
-                return True
-            logger.error("Telegram 图片发送失败: %s", response.text[:200])
-            return False
-        except Exception as e:
-            logger.error("Telegram 图片发送异常: %s", e)
-            return False
+        files = {"photo": ("report.png", image_bytes, "image/png")}
+        
+        client = await get_sender_http_client()
+        response = await client.post(api_url, data=data, files=files)
+        
+        if response.status_code == 200 and response.json().get('ok'):
+            logger.info("Telegram 图片发送成功")
+            return True
+        logger.error("Telegram 图片发送失败: %s", response.text[:200])
+        return False
 
     def _convert_to_telegram_markdown(self, text: str) -> str:
         """

@@ -69,25 +69,21 @@ class PushplusSender:
             date_str = datetime.now().strftime('%Y-%m-%d')
             title = f"📈 股票分析报告 - {date_str}"
 
-        try:
-            content_bytes = len(content.encode('utf-8'))
-            if content_bytes > self._pushplus_max_bytes:
-                logger.info(
-                    "PushPlus 消息内容超长(%s字节/%s字符)，将分批发送",
-                    content_bytes,
-                    len(content),
-                )
-                return await self._send_pushplus_chunked(
-                    api_url,
-                    content,
-                    title,
-                    self._pushplus_max_bytes,
-                )
+        content_bytes = len(content.encode('utf-8'))
+        if content_bytes > self._pushplus_max_bytes:
+            logger.info(
+                "PushPlus 消息内容超长(%s字节/%s字符)，将分批发送",
+                content_bytes,
+                len(content),
+            )
+            return await self._send_pushplus_chunked(
+                api_url,
+                content,
+                title,
+                self._pushplus_max_bytes,
+            )
 
-            return await self._send_pushplus_message(api_url, content, title)
-        except Exception as e:
-            logger.error(f"发送 PushPlus 消息失败: {e}")
-            return False
+        return await self._send_pushplus_message(api_url, content, title)
 
     async def _send_pushplus_message(self, api_url: str, content: str, title: str) -> bool:
         payload = {

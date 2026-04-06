@@ -1,10 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Exception hierarchy for error classification.
+Exception hierarchy for error classification across the notification layer.
 
-All retryable / non-retryable errors inherit from a common base so callers
-can catch them uniformly without swallowing unexpected exception types.
+Callers should classify I/O errors by raising:
+  - **RetryableError**  : temporary failures (timeout, connect error, 429, DNS blip)
+  - **NonRetryableError**: permanent failures (auth failure, 4xx except 429, invalid config)
+
+Any **other** exception type reaching the retry boundary is treated as retryable and
+logged with full traceback so that new failure modes are not silently swallowed.
 """
+
+import inspect
+
+logger = None  # lazy-init to avoid import-time circular dependency
+
+def _get_logger():
+    global logger
+    if logger is None:
+        import logging
+        logger = logging.getLogger(__name__)
+    return logger
 
 
 class RetryableError(Exception):
@@ -12,4 +27,5 @@ class RetryableError(Exception):
 
 
 class NonRetryableError(Exception):
-    """Permanent failure that will not be fixed by retrying (auth failure, invalid config, server error 5xx)."""
+    """Permanent failure that will not be fixed by retrying
+    (auth failure, invalid config, unsupported HTTP method, etc.)."""

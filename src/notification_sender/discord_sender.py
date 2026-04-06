@@ -89,28 +89,23 @@ class DiscordSender:
             是否发送成功
         """
         from .async_base import get_sender_http_client
-        try:
-            payload = {
-                'content': content,
-                'username': 'A股分析机器人',
-                'avatar_url': 'https://picsum.photos/200'
-            }
-            
-            client = await get_sender_http_client()
-            response = await client.post(
-                self._discord_config['webhook_url'],
-                json=payload
-            )
-            
-            if response.status_code in [200, 204]:
-                logger.info("Discord Webhook 消息发送成功")
-                return True
-            else:
-                logger.error(f"Discord Webhook 发送失败: {response.status_code} {response.text}")
-                return False
-        except Exception as e:
-            logger.error(f"Discord Webhook 发送异常: {e}")
-            return False
+        payload = {
+            'content': content,
+            'username': 'A股分析机器人',
+            'avatar_url': 'https://picsum.photos/200'
+        }
+        
+        client = await get_sender_http_client()
+        response = await client.post(
+            self._discord_config['webhook_url'],
+            json=payload
+        )
+        
+        if response.status_code in [200, 204]:
+            logger.info("Discord Webhook 消息发送成功")
+            return True
+        logger.error(f"Discord Webhook 发送失败: {response.status_code} {response.text}")
+        return False
     
     async def _send_discord_bot(self, content: str) -> bool:
         """
@@ -123,27 +118,22 @@ class DiscordSender:
             是否发送成功
         """
         from .async_base import get_sender_http_client
-        try:
-            headers = {
-                'Authorization': f'Bot {self._discord_config["bot_token"]}',
-                'Content-Type': 'application/json'
-            }
-            
-            payload = {
-                'content': content
-            }
-            
-            url = f'https://discord.com/api/v10/channels/{self._discord_config["channel_id"]}/messages'
-            
-            client = await get_sender_http_client()
-            response = await client.post(url, json=payload, headers=headers)
-            
-            if response.status_code == 200:
-                logger.info("Discord Bot 消息发送成功")
-                return True
-            else:
-                logger.error(f"Discord Bot 发送失败: {response.status_code} {response.text}")
-                return False
-        except Exception as e:
-            logger.error(f"Discord Bot 发送异常: {e}")
-            return False
+        headers = {
+            'Authorization': f'Bot {self._discord_config["bot_token"]}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'content': content
+        }
+        
+        url = f'https://discord.com/api/v10/channels/{self._discord_config["channel_id"]}/messages'
+        
+        client = await get_sender_http_client()
+        response = await client.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 200:
+            logger.info("Discord Bot 消息发送成功")
+            return True
+        logger.error(f"Discord Bot 发送失败: {response.status_code} {response.text}")
+        return False

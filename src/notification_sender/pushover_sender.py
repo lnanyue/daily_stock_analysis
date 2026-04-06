@@ -112,35 +112,26 @@ class PushoverSender:
             title: 消息标题
             priority: 优先级 (-2 ~ 2，默认 0)
         """
-        try:
-            payload = {
-                "token": api_token,
-                "user": user_key,
-                "message": message,
-                "title": title,
-                "priority": priority,
-            }
-            
-            client = await get_sender_http_client()
-            response = await client.post(api_url, data=payload)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('status') == 1:
-                    logger.info("Pushover 消息发送成功")
-                    return True
-                else:
-                    errors = result.get('errors', ['未知错误'])
-                    logger.error(f"Pushover 返回错误: {errors}")
-                    return False
-            else:
-                logger.error(f"Pushover 请求失败: HTTP {response.status_code}")
-                logger.debug(f"响应内容: {response.text}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"发送 Pushover 消息失败: {e}")
+        payload = {
+            "token": api_token,
+            "user": user_key,
+            "message": message,
+            "title": title,
+            "priority": priority,
+        }
+
+        client = await get_sender_http_client()
+        response = await client.post(api_url, data=payload)
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('status') == 1:
+                logger.info("Pushover 消息发送成功")
+                return True
+            logger.error(f"Pushover 返回错误: {result.get('errors', ['未知错误'])}")
             return False
+        logger.error(f"Pushover 请求失败: HTTP {response.status_code}")
+        return False
     
     async def _send_pushover_chunked(
         self, 
