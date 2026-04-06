@@ -1784,36 +1784,77 @@ class AkshareFetcher(BaseFetcher):
             logger.debug(f"[Akshare] 获取研报数据失败: {e}")
             return {}
 
-    def get_latest_telegraph(self, keywords: List[str] = None) -> List[Dict]:
+    def get_money_flow(self, stock_code: str) -> Dict[str, Any]:
         """
-        获取财联社电报情报
+        获取个股主力资金流向 (实时)
         """
         try:
-            logger.info("[API调用] 获取财联社实时电报...")
-            df = ak.stock_telegraph_cls()
+            logger.info(f"[API调用] 获取 {stock_code} 资金流向...")
+            # 东方财富个股资金流向
+            df = ak.stock_individual_fund_flow(stock=stock_code.split('.')[0], market=stock_code.split('.')[1].lower() if '.' in stock_code else 'sh')
+            if df is None or df.empty:
+                return {}
+            
+            # 取最新一条
+            latest = df.iloc[0]
+            return {
+                'main_inflow': latest.get('主力净流入-净额'),
+                'main_pct': latest.get('主力净流入-净占比'),
+                'huge_inflow': latest.get('超大单净流入-净额'),
+                'large_inflow': latest.get('大单净流入-净额'),
+                'medium_inflow': latest.get('中单净流入-净额'),
+                'small_inflow': latest.get('小单净流入-净额'),
+            }
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取资金流向失败: {e}")
+            return {}
+
+    def get_northbound_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取北向资金（沪深股通）持股动向
+        """
+        try:
+            logger.info(f"[API调用] 获取 {stock_code} 北向资金动向...")
+            df = ak.stock_hsgt_individual_em(symbol=stock_code.split('.')[0])
+            if df is None or df.empty:
+                return {}
+            
+            # 获取最近 5 天的平均持股比例变动
+            df = df.head(5)
+            return {
+                'hold_ratio': df.iloc[0].get('持股比例'),
+                'change_5d': df['当日持股股数'].diff(-1).sum() if len(df) > 1 else 0,
+                'is_buying': df.iloc[0].get('当日持股股数', 0) > df.iloc[1].get('当日持股股数', 0) if len(df) > 1 else False
+            }
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取北向资金失败: {e}")
+            return {}
+
+    def get_limit_up_pool(self) -> List[Dict]:
+        """
+        获取当日涨停池（识别市场最强题材）
+        """
+        try:
+            logger.info("[API调用] 获取涨停池分析梯队...")
+            # 使用今日日期
+            date_str = datetime.now().strftime('%Y%m%d')
+            df = ak.stock_zt_pool_em(date=date_str)
             if df is None or df.empty:
                 return []
             
+            # 统计题材分布
+            themes = df['所属行业'].value_counts().head(5).to_dict()
+            
             results = []
-            # 默认取前 20 条进行关键词过滤
-            for _, row in df.head(20).iterrows():
-                content = row['内容']
-                title = row['标题']
-                
-                # 如果指定了关键词，则进行过滤
-                if keywords:
-                    match = any(kw in content or kw in title for kw in keywords)
-                    if not match:
-                        continue
-                
+            for theme, count in themes.items():
                 results.append({
-                    'time': row['发布时间'],
-                    'title': title,
-                    'content': content
+                    'name': theme,
+                    'count': count,
+                    'leaders': df[df['所属行业'] == theme]['名称'].head(2).tolist()
                 })
             return results
         except Exception as e:
-            logger.debug(f"[Akshare] 获取财联社电报失败: {e}")
+            logger.debug(f"[Akshare] 获取涨停池失败: {e}")
             return []
 
 

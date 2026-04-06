@@ -138,7 +138,7 @@ class StockAnalysisPipeline:
         logger.info("已启用技术分析引擎（均线/趋势/量价指标）")
         # 打印实时行情/筹码配置状态
         if self.config.enable_realtime_quote:
-            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})\")")
+            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
         if self.config.enable_chip_distribution:
@@ -238,6 +238,21 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
 
+            # Step 2.5: 基本面能力聚合（必须在 A 股深度情报增强之前，因为电报过滤依赖板块信息）
+            fundamental_context = None
+            try:
+                # ★ wrap sync call
+                fundamental_context = await anyio.to_thread.run_sync(
+                    self.fetcher_manager.get_fundamental_context,
+                    code,
+                    getattr(self.config, 'fundamental_stage_timeout_seconds', 1.5)
+                )
+            except Exception as e:
+                logger.warning(f"{stock_name}({code}) 基本面聚合失败: {e}")
+                fundamental_context = self.fetcher_manager.build_failed_fundamental_context(code, str(e))
+
+            fundamental_context = self._attach_belong_boards_to_fundamental_context(code, fundamental_context)
+
             # === A股深度情报增强 (LH榜/研报/电报) ===
             a_stock_intelligence = ""
             if not is_us_stock_code(code) and hasattr(self.fetcher_manager, "_fetchers"):
@@ -279,27 +294,54 @@ class StockAnalysisPipeline:
                     except Exception as e:
                         logger.debug(f"获取 A股深度情报失败: {e}")
 
+            # === A股资金面与题材增强 (主力/北向/涨停池) ===
+            money_flow_intelligence = ""
+            if not is_us_stock_code(code) and ak_fetcher:
+                try:
+                    # 1. 主力资金流向
+                    flow = await anyio.to_thread.run_sync(ak_fetcher.get_money_flow, code)
+                    if flow and flow.get('main_inflow'):
+                        money_flow_intelligence += f"\n### 主力资金流向\n- 今日主力净流入: {flow['main_inflow']:.2f}万 (占比 {flow['main_pct']:.2f}%)\n"
+                        money_flow_intelligence += f"- 超大单净流入: {flow['huge_inflow']:.2f}万, 大单净流入: {flow['large_inflow']:.2f}万\n"
+                    
+                    # 2. 北向资金
+                    nb = await anyio.to_thread.run_sync(ak_fetcher.get_northbound_data, code)
+                    if nb and nb.get('hold_ratio'):
+                        status = "增持" if nb['is_buying'] else "减持"
+                        money_flow_intelligence += f"### 北向资金 (外资)\n- 当前持股比例: {nb['hold_ratio']:.2f}%\n- 近期动向: 处于{status}状态\n"
+
+                    # 3. 市场热点题材 (涨停池)
+                    themes = await anyio.to_thread.run_sync(ak_fetcher.get_limit_up_pool)
+                    if themes:
+                        money_flow_intelligence += "### 当日最强题材梯队\n"
+                        for t in themes[:3]:
+                            money_flow_intelligence += f"- {t['name']} ({t['count']}家涨停): 龙头={', '.join(t['leaders'])}\n"
+                    
+                    if money_flow_intelligence:
+                        logger.info(f"{stock_name}({code}) 成功获取 A股资金题材增强")
+                except Exception as e:
+                    logger.debug(f"获取 A股资金面数据失败: {e}")
+
+            # === 视觉形态文字化 (K线特征描述) ===
+            visual_description = ""
+            if trend_result:
+                visual_description = f"\n### 视觉K线形态描述\n- 当前趋势: {trend_result.trend_status.value}\n"
+                if trend_result.ma_alignment == "bullish":
+                    visual_description += "- 形态特征: 均线呈现典型【多头排列】，价格处于上升通道。\n"
+                elif trend_result.ma_alignment == "bearish":
+                    visual_description += "- 形态特征: 均线呈现典型【空头排列】，空方占据主导。\n"
+                
+                if trend_result.signal_score > 70:
+                    visual_description += "- 动能观察: 量价配合良好，具备向上突破的视觉张力。\n"
+                elif trend_result.signal_score < 40:
+                    visual_description += "- 动能观察: 价格跌破关键支撑，视觉上呈现破位下行态势。\n"
+
             use_agent = getattr(self.config, 'agent_mode', False)
             if not use_agent:
                 configured_skills = getattr(self.config, 'agent_skills', [])
                 if configured_skills and configured_skills != ['all']:
                     use_agent = True
                     logger.info(f"{stock_name}({code}) Auto-enabled agent mode due to configured skills: {configured_skills}")
-
-            # Step 2.5: 基本面能力聚合
-            fundamental_context = None
-            try:
-                # ★ wrap sync call
-                fundamental_context = await anyio.to_thread.run_sync(
-                    self.fetcher_manager.get_fundamental_context,
-                    code,
-                    getattr(self.config, 'fundamental_stage_timeout_seconds', 1.5)
-                )
-            except Exception as e:
-                logger.warning(f"{stock_name}({code}) 基本面聚合失败: {e}")
-                fundamental_context = self.fetcher_manager.build_failed_fundamental_context(code, str(e))
-
-            fundamental_context = self._attach_belong_boards_to_fundamental_context(code, fundamental_context)
 
             # Step 3: 趋势分析
             trend_result: Optional[TrendAnalysisResult] = None
@@ -397,6 +439,12 @@ class StockAnalysisPipeline:
             # Step 7: AI 分析
             if a_stock_intelligence:
                 news_context = (news_context or "") + "\n\n" + a_stock_intelligence
+            
+            if money_flow_intelligence:
+                news_context = (news_context or "") + "\n\n" + money_flow_intelligence
+            
+            if visual_description:
+                news_context = (news_context or "") + "\n\n" + visual_description
             
             # ★ wrap sync LLM call
             result = await anyio.to_thread.run_sync(self.analyzer.analyze, enhanced_context, news_context)
