@@ -13,6 +13,7 @@ import requests
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class PushplusSender:
         self._pushplus_token = getattr(config, 'pushplus_token', None)
         self._pushplus_topic = getattr(config, 'pushplus_topic', None)
         self._pushplus_max_bytes = getattr(config, 'pushplus_max_bytes', 20000)
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
     def send_to_pushplus(self, content: str, title: Optional[str] = None) -> bool:
         """
@@ -97,7 +99,7 @@ class PushplusSender:
         if self._pushplus_topic:
             payload["topic"] = self._pushplus_topic
 
-        response = requests.post(api_url, json=payload, timeout=10)
+        response = requests.post(api_url, json=payload, timeout=self._timeout)
 
         if response.status_code == 200:
             result = response.json()

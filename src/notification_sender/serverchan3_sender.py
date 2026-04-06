@@ -12,6 +12,7 @@ from datetime import datetime
 import re
 
 from src.config import Config
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class Serverchan3Sender:
             config: 配置对象
         """
         self._serverchan3_sendkey = getattr(config, 'serverchan3_sendkey', None)
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
     def send_to_serverchan3(self, content: str, title: Optional[str] = None) -> bool:
         """
@@ -87,7 +89,7 @@ class Serverchan3Sender:
             headers = {
                 'Content-Type': 'application/json;charset=utf-8'
             }
-            response = requests.post(url, json=params, headers=headers, timeout=10)
+            response = requests.post(url, json=params, headers=headers, timeout=self._timeout)
 
             if response.status_code == 200:
                 result = response.json()

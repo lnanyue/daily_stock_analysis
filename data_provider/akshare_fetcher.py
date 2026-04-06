@@ -32,7 +32,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
-import requests
+import httpx
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -61,34 +61,23 @@ logger = logging.getLogger(__name__)
 SINA_REALTIME_ENDPOINT = "hq.sinajs.cn/list"
 TENCENT_REALTIME_ENDPOINT = "qt.gtimg.cn/q"
 
+# 共享工具
+from .utils import (
+    classify_http_error,
+    build_realtime_failure_message,
+    pick_random_user_agent,
+    RealtimeCache,
+    DEFAULT_USER_AGENTS,
+)
 
-# User-Agent 池，用于随机轮换
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-]
+# 向后兼容别名
+USER_AGENTS = DEFAULT_USER_AGENTS
 
-
-# 缓存实时行情数据（避免重复请求）
-# TTL 设为 20 分钟 (1200秒)：
-# - 批量分析场景：通常 30 只股票在 5 分钟内分析完，20 分钟足够覆盖
-# - 实时性要求：股票分析不需要秒级实时数据，20 分钟延迟可接受
-# - 防封禁：减少 API 调用频率
-_realtime_cache: Dict[str, Any] = {
-    'data': None,
-    'timestamp': 0,
-    'ttl': 1200  # 20分钟缓存有效期
-}
-
-# ETF 实时行情缓存
-_etf_realtime_cache: Dict[str, Any] = {
-    'data': None,
-    'timestamp': 0,
-    'ttl': 1200  # 20分钟缓存有效期
-}
+# 缓存实例 — 通过 dict-like 访问兼容现有 cache['data'] 调用
+_realtime_cache = RealtimeCache(ttl=1200).data or {'data': None, 'timestamp': 0, 'ttl': 1200}
+_etf_realtime_cache = {'data': None, 'timestamp': 0, 'ttl': 1200}
+# 注意：以上仍使用 dict 格式以保持现有 _realtime_cache['data'] 访问方式兼容性
+# 后续可逐步改用 RealtimeCache(ttl=1200) 实例
 
 
 def _is_etf_code(stock_code: str) -> bool:
@@ -186,69 +175,6 @@ def _to_sina_tx_symbol(stock_code: str) -> str:
     if base.startswith(("6", "5", "90")):
         return f"sh{base}"
     return f"sz{base}"
-
-
-def _classify_realtime_http_error(exc: Exception) -> Tuple[str, str]:
-    """
-    Classify Sina/Tencent realtime quote failures into stable categories.
-    """
-    detail = str(exc).strip() or type(exc).__name__
-    lowered = detail.lower()
-
-    remote_disconnect_keywords = (
-        "remotedisconnected",
-        "remote end closed connection without response",
-        "connection aborted",
-        "connection broken",
-        "protocolerror",
-        "chunkedencodingerror",
-    )
-    timeout_keywords = (
-        "timeout",
-        "timed out",
-        "readtimeout",
-        "connecttimeout",
-    )
-    rate_limit_keywords = (
-        "banned",
-        "blocked",
-        "频率",
-        "rate limit",
-        "too many requests",
-        "429",
-        "限制",
-        "forbidden",
-        "403",
-    )
-
-    if any(keyword in lowered for keyword in remote_disconnect_keywords):
-        return "remote_disconnect", detail
-    if isinstance(exc, (TimeoutError, requests.exceptions.Timeout)) or any(
-        keyword in lowered for keyword in timeout_keywords
-    ):
-        return "timeout", detail
-    if any(keyword in lowered for keyword in rate_limit_keywords):
-        return "rate_limit_or_anti_bot", detail
-    if isinstance(exc, requests.exceptions.RequestException):
-        return "request_error", detail
-    return "unknown_request_error", detail
-
-
-def _build_realtime_failure_message(
-    source_name: str,
-    endpoint: str,
-    stock_code: str,
-    symbol: str,
-    category: str,
-    detail: str,
-    elapsed: float,
-    error_type: str,
-) -> str:
-    return (
-        f"{source_name} 实时行情接口失败: endpoint={endpoint}, stock_code={stock_code}, "
-        f"symbol={symbol}, category={category}, error_type={error_type}, "
-        f"elapsed={elapsed:.2f}s, detail={detail}"
-    )
 
 
 class AkshareFetcher(BaseFetcher):
@@ -948,14 +874,15 @@ class AkshareFetcher(BaseFetcher):
             logger.info(
                 f"[API调用] 新浪财经接口获取 {stock_code} 实时行情: endpoint={SINA_REALTIME_ENDPOINT}, symbol={symbol}"
             )
-            
+
             self._enforce_rate_limit()
-            response = requests.get(url, headers=headers, timeout=10)
-            response.encoding = 'gbk'
+            with httpx.Client() as client:
+                response = client.get(url, headers=headers, timeout=10.0)
+            content = response.content.decode('gbk')
             api_elapsed = time.time() - api_start
             
             if response.status_code != 200:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="新浪",
                     endpoint=SINA_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -970,9 +897,9 @@ class AkshareFetcher(BaseFetcher):
                 return None
             
             # 解析数据：var hq_str_sh600519="贵州茅台,1866.000,1870.000,..."
-            content = response.text.strip()
+            content = content.strip()
             if '=""' in content or not content:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="新浪",
                     endpoint=SINA_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -990,7 +917,7 @@ class AkshareFetcher(BaseFetcher):
             data_start = content.find('"')
             data_end = content.rfind('"')
             if data_start == -1 or data_end == -1:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="新浪",
                     endpoint=SINA_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -1008,7 +935,7 @@ class AkshareFetcher(BaseFetcher):
             fields = data_str.split(',')
             
             if len(fields) < 32:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="新浪",
                     endpoint=SINA_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -1059,8 +986,8 @@ class AkshareFetcher(BaseFetcher):
             
         except Exception as e:
             api_elapsed = time.time() - api_start
-            category, detail = _classify_realtime_http_error(e)
-            failure_message = _build_realtime_failure_message(
+            category, detail = classify_http_error(e)
+            failure_message = build_realtime_failure_message(
                 source_name="新浪",
                 endpoint=SINA_REALTIME_ENDPOINT,
                 stock_code=stock_code,
@@ -1099,14 +1026,15 @@ class AkshareFetcher(BaseFetcher):
             logger.info(
                 f"[API调用] 腾讯财经接口获取 {stock_code} 实时行情: endpoint={TENCENT_REALTIME_ENDPOINT}, symbol={symbol}"
             )
-            
+
             self._enforce_rate_limit()
-            response = requests.get(url, headers=headers, timeout=10)
-            response.encoding = 'gbk'
+            with httpx.Client() as client:
+                response = client.get(url, headers=headers, timeout=10.0)
+            content = response.content.decode('gbk')
             api_elapsed = time.time() - api_start
             
             if response.status_code != 200:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="腾讯",
                     endpoint=TENCENT_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -1120,9 +1048,9 @@ class AkshareFetcher(BaseFetcher):
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
             
-            content = response.text.strip()
+            content = content.strip()
             if '=""' in content or not content:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="腾讯",
                     endpoint=TENCENT_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -1140,7 +1068,7 @@ class AkshareFetcher(BaseFetcher):
             data_start = content.find('"')
             data_end = content.rfind('"')
             if data_start == -1 or data_end == -1:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="腾讯",
                     endpoint=TENCENT_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -1158,7 +1086,7 @@ class AkshareFetcher(BaseFetcher):
             fields = data_str.split('~')
 
             if len(fields) < 45:
-                failure_message = _build_realtime_failure_message(
+                failure_message = build_realtime_failure_message(
                     source_name="腾讯",
                     endpoint=TENCENT_REALTIME_ENDPOINT,
                     stock_code=stock_code,
@@ -1210,8 +1138,8 @@ class AkshareFetcher(BaseFetcher):
             
         except Exception as e:
             api_elapsed = time.time() - api_start
-            category, detail = _classify_realtime_http_error(e)
-            failure_message = _build_realtime_failure_message(
+            category, detail = classify_http_error(e)
+            failure_message = build_realtime_failure_message(
                 source_name="腾讯",
                 endpoint=TENCENT_REALTIME_ENDPOINT,
                 stock_code=stock_code,

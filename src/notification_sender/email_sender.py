@@ -17,6 +17,7 @@ import smtplib
 
 from src.config import Config
 from src.formatters import markdown_to_html_document
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class EmailSender:
             'receivers': config.email_receivers or ([config.email_sender] if config.email_sender else []),
         }
         self._stock_email_groups = getattr(config, 'stock_email_groups', None) or []
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
     def _is_email_configured(self) -> bool:
         """检查邮件配置是否完整（只需邮箱和授权码）"""
@@ -190,10 +192,10 @@ class EmailSender:
             # 根据配置选择连接方式
             if use_ssl:
                 # SSL 连接（端口 465）
-                server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30)
+                server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=self._timeout)
             else:
                 # TLS 连接（端口 587）
-                server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+                server = smtplib.SMTP(smtp_server, smtp_port, timeout=self._timeout)
                 server.starttls()
             
             server.login(sender, password)
@@ -256,9 +258,9 @@ class EmailSender:
                 use_ssl = True
 
             if use_ssl:
-                server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30)
+                server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=self._timeout)
             else:
-                server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+                server = smtplib.SMTP(smtp_server, smtp_port, timeout=self._timeout)
                 server.starttls()
             server.login(sender, password)
             server.send_message(msg)

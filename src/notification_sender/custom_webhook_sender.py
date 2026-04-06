@@ -11,6 +11,7 @@ import requests
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes, slice_at_max_bytes
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class CustomWebhookSender:
         self._custom_webhook_urls = getattr(config, 'custom_webhook_urls', []) or []
         self._custom_webhook_bearer_token = getattr(config, 'custom_webhook_bearer_token', None)
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
  
     def send_to_custom(self, content: str) -> bool:
         """
@@ -73,7 +75,7 @@ class CustomWebhookSender:
 
                 # 其他 Webhook：单次发送
                 payload = self._build_custom_webhook_payload(url, content)
-                if self._post_custom_webhook(url, payload, timeout=30):
+                if self._post_custom_webhook(url, payload):
                     logger.info(f"自定义 Webhook {i+1} 推送成功")
                     success_count += 1
                 else:
@@ -104,7 +106,7 @@ class CustomWebhookSender:
                             f"Bearer {self._custom_webhook_bearer_token}"
                         )
                     response = requests.post(
-                        url, data=data, files=files, headers=headers, timeout=30,
+                        url, data=data, files=files, headers=headers, timeout=self._timeout,
                         verify=self._webhook_verify_ssl
                     )
                     if response.status_code in (200, 204):
@@ -118,7 +120,7 @@ class CustomWebhookSender:
                 else:
                     if fallback_content:
                         payload = self._build_custom_webhook_payload(url, fallback_content)
-                        if self._post_custom_webhook(url, payload, timeout=30):
+                        if self._post_custom_webhook(url, payload):
                             logger.info(
                                 "自定义 Webhook %d（图片不支持，回退文本）推送成功", i + 1
                             )
@@ -131,7 +133,9 @@ class CustomWebhookSender:
                 logger.error("自定义 Webhook %d 图片推送异常: %s", i + 1, e)
         return success_count > 0
 
-    def _post_custom_webhook(self, url: str, payload: dict, timeout: int = 30) -> bool:
+    def _post_custom_webhook(self, url: str, payload: dict, timeout: int | None = None) -> bool:
+        if timeout is None:
+            timeout = self._timeout
         headers = {
             'Content-Type': 'application/json; charset=utf-8',
             'User-Agent': 'StockAnalysis/1.0',
@@ -224,7 +228,7 @@ class CustomWebhookSender:
                 hard_budget = max(200, budget - (body_bytes - max_bytes) - 200)
                 payload["markdown"]["text"], _ = slice_at_max_bytes(payload["markdown"]["text"], hard_budget)
 
-            if self._post_custom_webhook(url, payload, timeout=30):
+            if self._post_custom_webhook(url, payload):
                 ok += 1
             else:
                 logger.error(f"钉钉分批发送失败: 第 {idx+1}/{total} 批")

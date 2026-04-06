@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
 
 import pandas as pd
-import requests
+import httpx
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -166,7 +166,8 @@ class TushareFetcher(BaseFetcher):
                 'params': kwargs,
                 'fields': fields,
             }
-            res = requests.post(TUSHARE_API_URL, json=req_params, timeout=_timeout)
+            with httpx.Client() as client:
+                res = client.post(TUSHARE_API_URL, json=req_params, timeout=_timeout)
             if res.status_code != 200:
                 raise Exception(f"Tushare API HTTP {res.status_code}")
             result = _json.loads(res.text)

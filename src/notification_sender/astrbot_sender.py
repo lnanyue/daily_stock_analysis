@@ -13,6 +13,7 @@ import requests
 
 from src.config import Config
 from src.formatters import markdown_to_html_document
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class AstrbotSender:
             'astrbot_token': getattr(config, 'astrbot_token', None),
         }
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
     def _is_astrbot_configured(self) -> bool:
         """检查 AstrBot 配置是否完整（支持 Bot 或 Webhook）"""
@@ -88,7 +90,7 @@ class AstrbotSender:
                 ).hexdigest()
             url = self._astrbot_config['astrbot_url']
             response = requests.post(
-                url, json=payload, timeout=10,
+                url, json=payload, timeout=self._timeout,
                 headers={
                     "Content-Type": "application/json",
                     "X-Signature": signature,

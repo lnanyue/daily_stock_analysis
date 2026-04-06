@@ -15,9 +15,14 @@ A股自选股智能分析系统 - 通知层
    - Pushover（手机/桌面推送）
 """
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
+
+# 统一超时配置（秒）— 所有通知渠道的默认超时值
+NOTIFICATION_DEFAULT_TIMEOUT_SEC = 20
 
 from src.config import get_config
 from src.analyzer import AnalysisResult
@@ -146,6 +151,11 @@ class NotificationService(
         # 仅分析结果摘要（Issue #262）：true 时只推送汇总，不含个股详情
         self._report_summary_only = getattr(config, 'report_summary_only', False)
         self._history_compare_cache: Dict[Tuple[int, Tuple[Tuple[str, str], ...]], Dict[str, List[Dict[str, Any]]]] = {}
+
+        # 统一超时配置（Issue #289）：所有通知渠道共享默认超时
+        self._notification_timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
+        # 重试配置
+        self._notification_max_retries = getattr(config, 'notification_max_retries', 2)
 
         # 初始化各渠道
         AstrbotSender.__init__(self, config)
@@ -1620,76 +1630,113 @@ class NotificationService(
         channel_names = self.get_channel_names()
         logger.info(f"正在向 {len(self._available_channels)} 个渠道发送通知：{channel_names}")
 
-        success_count = 0
-        fail_count = 0
-
+        # 构建各渠道的发送任务（包含图片决策）
+        channel_tasks: List[Tuple[NotificationChannel, str, Any, bool]] = []
         for channel in self._available_channels:
-            channel_name = ChannelDetector.get_channel_name(channel)
             use_image = self._should_use_image_for_channel(channel, image_bytes)
-            try:
-                if channel == NotificationChannel.WECHAT:
-                    if use_image:
-                        result = self._send_wechat_image(image_bytes)
-                    else:
-                        result = self.send_to_wechat(content)
-                elif channel == NotificationChannel.FEISHU:
-                    result = self.send_to_feishu(content)
-                elif channel == NotificationChannel.TELEGRAM:
-                    if use_image:
-                        result = self._send_telegram_photo(image_bytes)
-                    else:
-                        result = self.send_to_telegram(content)
-                elif channel == NotificationChannel.EMAIL:
-                    receivers = None
-                    if email_send_to_all and self._stock_email_groups:
-                        receivers = self.get_all_email_receivers()
-                    elif email_stock_codes and self._stock_email_groups:
-                        receivers = self.get_receivers_for_stocks(email_stock_codes)
-                    if use_image:
-                        result = self._send_email_with_inline_image(
-                            image_bytes, receivers=receivers
-                        )
-                    else:
-                        result = self.send_to_email(content, receivers=receivers)
-                elif channel == NotificationChannel.PUSHOVER:
-                    result = self.send_to_pushover(content)
-                elif channel == NotificationChannel.PUSHPLUS:
-                    result = self.send_to_pushplus(content)
-                elif channel == NotificationChannel.SERVERCHAN3:
-                    result = self.send_to_serverchan3(content)
-                elif channel == NotificationChannel.CUSTOM:
-                    if use_image:
-                        result = self._send_custom_webhook_image(
-                            image_bytes, fallback_content=content
-                        )
-                    else:
-                        result = self.send_to_custom(content)
-                elif channel == NotificationChannel.DISCORD:
-                    result = self.send_to_discord(content)
-                elif channel == NotificationChannel.SLACK:
-                    if use_image:
-                        result = self._send_slack_image(
-                            image_bytes, fallback_content=content
-                        )
-                    else:
-                        result = self.send_to_slack(content)
-                elif channel == NotificationChannel.ASTRBOT:
-                    result = self.send_to_astrbot(content)
-                else:
-                    logger.warning(f"不支持的通知渠道: {channel}")
-                    result = False
+            channel_tasks.append((channel, content, image_bytes if use_image else None, use_image))
 
-                if result:
-                    success_count += 1
-                else:
+        # 并发发送各渠道（带重试）
+        max_workers = min(4, len(channel_tasks)) if channel_tasks else 1
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self._send_channel_with_retry, ch, cnt, img): ch
+                for ch, cnt, img, _ in channel_tasks
+            }
+            success_count = 0
+            fail_count = 0
+            for future in as_completed(futures):
+                channel = futures[future]
+                channel_name = ChannelDetector.get_channel_name(channel)
+                try:
+                    if future.result():
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                except Exception as e:
+                    logger.error(f"{channel_name} 发送异常: {e}")
                     fail_count += 1
-
-            except Exception as e:
-                logger.error(f"{channel_name} 发送失败: {e}")
-                fail_count += 1
 
         logger.info(f"通知发送完成：成功 {success_count} 个，失败 {fail_count} 个")
         return success_count > 0 or context_success
+
+    def _send_channel_with_retry(
+        self,
+        channel: NotificationChannel,
+        content: str,
+        image_bytes: Optional[bytes] = None,
+    ) -> bool:
+        """
+        对单个渠道进行发送，失败时指数退避重试。
+
+        Args:
+            channel: 通知渠道
+            content: 消息内容
+            image_bytes: 图片数据（None 表示发送文本）
+
+        Returns:
+            是否发送成功
+        """
+        max_retries = self._notification_max_retries
+        for attempt in range(max_retries + 1):
+            try:
+                result = self._send_single_channel(channel, content, image_bytes)
+                if result:
+                    return True
+            except Exception as e:
+                channel_name = ChannelDetector.get_channel_name(channel)
+                if attempt < max_retries:
+                    delay = min(0.5 * (2 ** attempt), 30)
+                    logger.warning(
+                        f"{channel_name} 发送失败，{delay:.1f}s 后重试 ({attempt + 1}/{max_retries}): {e}"
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"{channel_name} 发送失败，已重试 {max_retries} 次: {e}")
+        return False
+
+    def _send_single_channel(
+        self,
+        channel: NotificationChannel,
+        content: str,
+        image_bytes: Optional[bytes] = None,
+    ) -> bool:
+        """向单个渠道发送消息（无重试）。"""
+        if channel == NotificationChannel.WECHAT:
+            if image_bytes:
+                return self._send_wechat_image(image_bytes)
+            return self.send_to_wechat(content)
+        elif channel == NotificationChannel.FEISHU:
+            return self.send_to_feishu(content)
+        elif channel == NotificationChannel.TELEGRAM:
+            if image_bytes:
+                return self._send_telegram_photo(image_bytes)
+            return self.send_to_telegram(content)
+        elif channel == NotificationChannel.EMAIL:
+            receivers = None
+            # email 场景下 receivers 需要外部传入，此处不处理
+            return self.send_to_email(content, receivers=None)
+        elif channel == NotificationChannel.PUSHOVER:
+            return self.send_to_pushover(content)
+        elif channel == NotificationChannel.PUSHPLUS:
+            return self.send_to_pushplus(content)
+        elif channel == NotificationChannel.SERVERCHAN3:
+            return self.send_to_serverchan3(content)
+        elif channel == NotificationChannel.CUSTOM:
+            if image_bytes:
+                return self._send_custom_webhook_image(image_bytes, fallback_content=content)
+            return self.send_to_custom(content)
+        elif channel == NotificationChannel.DISCORD:
+            return self.send_to_discord(content)
+        elif channel == NotificationChannel.SLACK:
+            if image_bytes:
+                return self._send_slack_image(image_bytes, fallback_content=content)
+            return self.send_to_slack(content)
+        elif channel == NotificationChannel.ASTRBOT:
+            return self.send_to_astrbot(content)
+        else:
+            logger.warning(f"不支持的通知渠道: {channel}")
+            return False
    
     def save_report_to_file(
         self, 

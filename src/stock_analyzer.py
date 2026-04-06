@@ -219,16 +219,14 @@ class StockTrendAnalyzer:
             logger.warning(f"{code} 数据不足，无法进行趋势分析")
             result.risk_factors.append("数据不足，无法完成分析")
             return result
-        
-        # 确保数据按日期排序
-        df = df.sort_values('date').reset_index(drop=True)
-        
-        # 计算均线
-        df = self._calculate_mas(df)
 
-        # 计算 MACD 和 RSI
-        df = self._calculate_macd(df)
-        df = self._calculate_rsi(df)
+        # 确保数据按日期排序，并做一次 copy 避免修改调用方的 DataFrame
+        df = df.sort_values('date').reset_index(drop=True).copy()
+
+        # 计算均线、MACD、RSI（各方法直接原地修改 df）
+        self._calculate_mas(df)
+        self._calculate_macd(df)
+        self._calculate_rsi(df)
 
         # 获取最新数据
         latest = df.iloc[-1]
@@ -261,30 +259,17 @@ class StockTrendAnalyzer:
 
         return result
     
-    def _calculate_mas(self, df: pd.DataFrame) -> pd.DataFrame:
-        """计算均线"""
-        df = df.copy()
+    def _calculate_mas(self, df: pd.DataFrame) -> None:
+        """计算均线（原地修改 df）"""
         df['MA5'] = df['close'].rolling(window=5).mean()
         df['MA10'] = df['close'].rolling(window=10).mean()
         df['MA20'] = df['close'].rolling(window=20).mean()
         if len(df) >= 60:
             df['MA60'] = df['close'].rolling(window=60).mean()
-        else:
-            df['MA60'] = df['MA20']  # 数据不足时使用 MA20 替代
-        return df
+        # else: MA60 remains NaN — calling code should check for NaN before use
 
-    def _calculate_macd(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        计算 MACD 指标
-
-        公式：
-        - EMA(12)：12日指数移动平均
-        - EMA(26)：26日指数移动平均
-        - DIF = EMA(12) - EMA(26)
-        - DEA = EMA(DIF, 9)
-        - MACD = (DIF - DEA) * 2
-        """
-        df = df.copy()
+    def _calculate_macd(self, df: pd.DataFrame) -> None:
+        """计算 MACD 指标（原地修改 df）"""
 
         # 计算快慢线 EMA
         ema_fast = df['close'].ewm(span=self.MACD_FAST, adjust=False).mean()
@@ -299,17 +284,8 @@ class StockTrendAnalyzer:
         # 计算柱状图
         df['MACD_BAR'] = (df['MACD_DIF'] - df['MACD_DEA']) * 2
 
-        return df
-
-    def _calculate_rsi(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        计算 RSI 指标
-
-        公式：
-        - RS = 平均上涨幅度 / 平均下跌幅度
-        - RSI = 100 - (100 / (1 + RS))
-        """
-        df = df.copy()
+    def _calculate_rsi(self, df: pd.DataFrame) -> None:
+        """计算 RSI 指标（原地修改 df）"""
 
         for period in [self.RSI_SHORT, self.RSI_MID, self.RSI_LONG]:
             # 计算价格变化
@@ -327,10 +303,7 @@ class StockTrendAnalyzer:
             rs = avg_gain / avg_loss
             rsi = 100 - (100 / (1 + rs))
 
-            # 填充 NaN 值
-            rsi = rsi.fillna(50)  # 默认中性值
-
-            # 添加到 DataFrame
+            # NaN 表示历史数据不足，不填充默认值，由分析器上层处理
             col_name = f'RSI_{period}'
             df[col_name] = rsi
 
@@ -412,7 +385,7 @@ class StockTrendAnalyzer:
         
         偏好：缩量回调 > 放量上涨 > 缩量上涨 > 放量下跌
         """
-        if len(df) < 5:
+        if len(df) < 6:
             return
         
         latest = df.iloc[-1]
@@ -562,6 +535,11 @@ class StockTrendAnalyzer:
 
         # 以中期 RSI(12) 为主进行判断
         rsi_mid = result.rsi_12
+
+        # NaN 保护：数据不足时跳过 RSI 判断
+        if rsi_mid != rsi_mid:  # NaN check
+            result.rsi_signal = "数据不足"
+            return
 
         # 判断 RSI 状态
         if rsi_mid > self.RSI_OVERBOUGHT:

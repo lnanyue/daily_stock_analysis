@@ -12,6 +12,7 @@ import requests
 
 from src.config import Config
 from src.formatters import markdown_to_plain_text
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class PushoverSender:
             'user_key': getattr(config, 'pushover_user_key', None),
             'api_token': getattr(config, 'pushover_api_token', None),
         }
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
     def _is_pushover_configured(self) -> bool:
         """检查 Pushover 配置是否完整"""
@@ -118,7 +120,7 @@ class PushoverSender:
                 "priority": priority,
             }
             
-            response = requests.post(api_url, data=payload, timeout=30)
+            response = requests.post(api_url, data=payload, timeout=self._timeout)
             
             if response.status_code == 200:
                 result = response.json()

@@ -9,11 +9,14 @@ Wechat 发送提醒服务
 import logging
 import base64
 import hashlib
+from typing import Optional
+
 import requests
 import time
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,7 @@ class WechatSender:
         self._wechat_max_bytes = getattr(config, 'wechat_max_bytes', 4000)
         self._wechat_msg_type = getattr(config, 'wechat_msg_type', 'markdown')
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
     def send_to_wechat(self, content: str) -> bool:
         """
@@ -92,15 +96,20 @@ class WechatSender:
             return False
 
     def _send_wechat_image(self, image_bytes: bytes) -> bool:
-        """Send image via WeChat Work webhook msgtype image (Issue #289)."""
+        """Send image via WeChat Work webhook msgtype image (Issue #289).
+
+        If the image exceeds the 2MB limit, attempt to compress it using PIL.
+        """
         if not self._wechat_url:
             return False
         if len(image_bytes) > WECHAT_IMAGE_MAX_BYTES:
-            logger.warning(
-                "企业微信图片超限 (%d > %d bytes)，拒绝发送，调用方应 fallback 为文本",
-                len(image_bytes), WECHAT_IMAGE_MAX_BYTES,
-            )
-            return False
+            image_bytes = self._compress_image(image_bytes)
+            if image_bytes is None:
+                logger.warning(
+                    "企业微信图片超限 (%d > %d bytes)，且无法压缩，回退为文本",
+                    len(image_bytes), WECHAT_IMAGE_MAX_BYTES,
+                )
+                return False
         try:
             b64 = base64.b64encode(image_bytes).decode("ascii")
             md5_hash = hashlib.md5(image_bytes).hexdigest()
@@ -109,7 +118,7 @@ class WechatSender:
                 "image": {"base64": b64, "md5": md5_hash},
             }
             response = requests.post(
-                self._wechat_url, json=payload, timeout=30, verify=self._webhook_verify_ssl
+                self._wechat_url, json=payload, timeout=self._timeout, verify=self._webhook_verify_ssl
             )
             if response.status_code == 200:
                 result = response.json()
@@ -123,6 +132,47 @@ class WechatSender:
         except Exception as e:
             logger.error("企业微信图片发送异常: %s", e)
             return False
+
+    def _compress_image(self, image_bytes: bytes) -> Optional[bytes]:
+        """尝试压缩图片至 2MB 以下（使用 PIL 调整质量）。"""
+        try:
+            from io import BytesIO
+
+            from PIL import Image
+        except ImportError:
+            logger.debug("PIL 未安装，无法压缩图片，请安装: pip install Pillow")
+            return None
+
+        try:
+            img = Image.open(BytesIO(image_bytes))
+            # 先尝试缩小尺寸
+            max_dim = 1280
+            if img.width > max_dim or img.height > max_dim:
+                img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+
+            # 逐步降低质量至 2MB 以下
+            quality = 85
+            while quality >= 30:
+                buf = BytesIO()
+                fmt = "JPEG" if img.mode != "RGBA" else "PNG"
+                save_kwargs = {"quality": quality} if fmt == "JPEG" else {}
+                if fmt == "JPEG" and img.mode == "RGBA":
+                    img = img.convert("RGB")
+                img.save(buf, format=fmt, **save_kwargs)
+                compressed = buf.getvalue()
+                if len(compressed) <= WECHAT_IMAGE_MAX_BYTES:
+                    logger.info(
+                        "图片已压缩: %d -> %d bytes (quality=%d)",
+                        len(image_bytes), len(compressed), quality,
+                    )
+                    return compressed
+                quality -= 10
+
+            logger.warning("图片压缩失败: 无法降至 %d bytes 以下", WECHAT_IMAGE_MAX_BYTES)
+            return None
+        except Exception as e:
+            logger.warning("图片压缩失败: %s", e)
+            return None
     
     def _send_wechat_message(self, content: str) -> bool:
         """发送企业微信消息"""
@@ -131,7 +181,7 @@ class WechatSender:
         response = requests.post(
             self._wechat_url,
             json=payload,
-            timeout=10,
+            timeout=self._timeout,
             verify=self._webhook_verify_ssl
         )
         

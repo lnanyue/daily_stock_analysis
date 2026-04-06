@@ -12,6 +12,7 @@ import time
 
 from src.config import Config
 from src.formatters import format_feishu_markdown, chunk_content_by_max_bytes
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class FeishuSender:
         self._feishu_url = getattr(config, 'feishu_webhook_url', None)
         self._feishu_max_bytes = getattr(config, 'feishu_max_bytes', 20000)
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
     
           
     def send_to_feishu(self, content: str) -> bool:
@@ -121,7 +123,7 @@ class FeishuSender:
             response = requests.post(
                 self._feishu_url,
                 json=payload,
-                timeout=30,
+                timeout=self._timeout,
                 verify=self._webhook_verify_ssl
             )
 

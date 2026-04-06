@@ -31,7 +31,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
-import requests  # 引入 requests 以捕获异常
+import requests  # 保留 requests 以捕获 efinance 内部异常
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -54,6 +54,11 @@ except (ValueError, TypeError):
 from patch.eastmoney_patch import eastmoney_patch
 from src.config import get_config
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
+from .utils import (
+    classify_http_error,
+    DEFAULT_USER_AGENTS,
+    build_history_failure_message,
+)
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,
     get_realtime_circuit_breaker,
@@ -109,14 +114,8 @@ logger = logging.getLogger(__name__)
 EASTMONEY_HISTORY_ENDPOINT = "push2his.eastmoney.com/api/qt/stock/kline/get"
 
 
-# User-Agent 池，用于随机轮换
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-]
+# 向后兼容别名，统一从 utils 读取
+USER_AGENTS = DEFAULT_USER_AGENTS
 
 
 # 缓存实时行情数据（避免重复请求）
@@ -191,46 +190,20 @@ def _ef_call_with_timeout(func, *args, timeout=None, **kwargs):
 def _classify_eastmoney_error(exc: Exception) -> Tuple[str, str]:
     """
     Classify Eastmoney request failures into stable log categories.
+    Wraps the shared classify_http_error() with requests-specific type checks
+    for efinance's internal requests library usage.
     """
-    message = str(exc).strip()
-    lowered = message.lower()
+    message = str(exc).strip() or type(exc).__name__
 
-    remote_disconnect_keywords = (
-        'remotedisconnected',
-        'remote end closed connection without response',
-        'connection aborted',
-        'connection broken',
-        'protocolerror',
-    )
-    timeout_keywords = (
-        'timeout',
-        'timed out',
-        'readtimeout',
-        'connecttimeout',
-    )
-    rate_limit_keywords = (
-        'banned',
-        'blocked',
-        '频率',
-        'rate limit',
-        'too many requests',
-        '429',
-        '限制',
-        'forbidden',
-        '403',
-    )
-
-    if any(keyword in lowered for keyword in remote_disconnect_keywords):
-        return "remote_disconnect", message
-    if isinstance(exc, (TimeoutError, requests.exceptions.Timeout)) or any(
-        keyword in lowered for keyword in timeout_keywords
-    ):
+    # Type-based checks needed because efinance internally uses requests
+    if isinstance(exc, (TimeoutError, requests.exceptions.Timeout)):
         return "timeout", message
-    if any(keyword in lowered for keyword in rate_limit_keywords):
-        return "rate_limit_or_anti_bot", message
     if isinstance(exc, requests.exceptions.RequestException):
-        return "request_error", message
-    return "unknown_request_error", message
+        # Keyword fallback for non-timeout request errors
+        category, _ = classify_http_error(exc)
+        return category, message
+    # Delegate to shared keyword-based classification
+    return classify_http_error(exc)
 
 
 class EfinanceFetcher(BaseFetcher):
@@ -279,6 +252,7 @@ class EfinanceFetcher(BaseFetcher):
         elapsed: float,
         is_etf: bool = False,
     ) -> Tuple[str, str]:
+        # 使用东财特有分类（含 requests 类型判断），其余复用通用格式
         category, detail = _classify_eastmoney_error(exc)
         instrument_type = "ETF" if is_etf else "stock"
         message = (

@@ -10,6 +10,7 @@ import requests
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_words
+from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class DiscordSender:
             'channel_id': getattr(config, 'discord_main_channel_id', None),
             'webhook_url': getattr(config, 'discord_webhook_url', None),
         }
+        self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         self._discord_max_words = getattr(config, 'discord_max_words', 2000)
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
     
@@ -90,7 +92,7 @@ class DiscordSender:
             response = requests.post(
                 self._discord_config['webhook_url'],
                 json=payload,
-                timeout=10,
+                timeout=self._timeout,
                 verify=self._webhook_verify_ssl
             )
             
@@ -125,7 +127,7 @@ class DiscordSender:
             }
             
             url = f'https://discord.com/api/v10/channels/{self._discord_config["channel_id"]}/messages'
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            response = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
             
             if response.status_code == 200:
                 logger.info("Discord Bot 消息发送成功")
