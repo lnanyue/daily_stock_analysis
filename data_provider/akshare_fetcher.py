@@ -28,7 +28,6 @@ import os
 import random
 import time
 import asyncio
-import anyio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
@@ -731,13 +730,13 @@ class AkshareFetcher(BaseFetcher):
             logger.debug(f"[API跳过] {stock_code} 是美股，Akshare 不支持美股实时行情")
             return None
         elif _is_hk_code(stock_code):
-            return await anyio.to_thread.run_sync(self._get_hk_realtime_quote, stock_code)
+            return await asyncio.to_thread(self._get_hk_realtime_quote, stock_code)
         elif _is_etf_code(stock_code):
             source_key = "akshare_etf"
             if not circuit_breaker.is_available(source_key):
                 logger.warning(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
                 return None
-            return await anyio.to_thread.run_sync(self._get_etf_realtime_quote, stock_code)
+            return await asyncio.to_thread(self._get_etf_realtime_quote, stock_code)
         else:
             source_key = f"akshare_{source}"
             if not circuit_breaker.is_available(source_key):
@@ -749,7 +748,7 @@ class AkshareFetcher(BaseFetcher):
             elif source == "tencent":
                 return await self._get_stock_realtime_quote_tencent(stock_code)
             else:
-                return await anyio.to_thread.run_sync(self._get_stock_realtime_quote_em, stock_code)
+                return await asyncio.to_thread(self._get_stock_realtime_quote_em, stock_code)
 
     def get_realtime_quote_sync(self, stock_code: str, source: str = "em") -> Optional[UnifiedRealtimeQuote]:
         """同步包装器，用于尚未迁移到异步的调用方。"""

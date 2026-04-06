@@ -102,19 +102,7 @@ class ChannelDetector:
         return names.get(channel, "未知渠道")
 
 
-class NotificationService(
-    AstrbotSender,
-    CustomWebhookSender,
-    DiscordSender,
-    EmailSender,
-    FeishuSender,
-    PushoverSender,
-    PushplusSender,
-    Serverchan3Sender,
-    SlackSender,
-    TelegramSender,
-    WechatSender
-):
+class NotificationService:
     """
     通知服务
     
@@ -160,18 +148,18 @@ class NotificationService(
         # 重试配置
         self._notification_max_retries = getattr(config, 'notification_max_retries', 2)
 
-        # 初始化各渠道
-        AstrbotSender.__init__(self, config)
-        CustomWebhookSender.__init__(self, config)
-        DiscordSender.__init__(self, config)
-        EmailSender.__init__(self, config)
-        FeishuSender.__init__(self, config)
-        PushoverSender.__init__(self, config)
-        PushplusSender.__init__(self, config)
-        Serverchan3Sender.__init__(self, config)
-        SlackSender.__init__(self, config)
-        TelegramSender.__init__(self, config)
-        WechatSender.__init__(self, config)
+        # 初始化各渠道发送器（组合模式替代多重继承，Issue #330）
+        self._wechat = WechatSender(config)
+        self._feishu = FeishuSender(config)
+        self._telegram = TelegramSender(config)
+        self._email = EmailSender(config)
+        self._pushover = PushoverSender(config)
+        self._pushplus = PushplusSender(config)
+        self._serverchan3 = Serverchan3Sender(config)
+        self._custom = CustomWebhookSender(config)
+        self._discord = DiscordSender(config)
+        self._slack = SlackSender(config)
+        self._astrbot = AstrbotSender(config)
 
         # 检测所有已配置的渠道
         self._available_channels = self._detect_all_channels()
@@ -184,6 +172,66 @@ class NotificationService(
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             channel_names.extend(self._context_channels)
             logger.info("已配置 %s 个通知渠道：%s", len(channel_names), ', '.join(channel_names))
+
+    # ------------------------------------------------------------------
+    # Forwarding methods — delegate to composed sender instances
+    # (replaces the 11-parent multiple-inheritance anti-pattern, Issue #330)
+    # ------------------------------------------------------------------
+
+    async def send_to_wechat(self, content: str) -> bool:
+        return await self._wechat.send_to_wechat(content)
+
+    async def send_to_feishu(self, content: str) -> bool:
+        return await self._feishu.send_to_feishu(content)
+
+    async def send_to_telegram(self, content: str) -> bool:
+        return await self._telegram.send_to_telegram(content)
+
+    async def send_to_email(self, content: str, receivers=None) -> bool:
+        return await self._email.send_to_email(content, receivers=receivers)
+
+    async def send_to_pushover(self, content: str) -> bool:
+        return await self._pushover.send_to_pushover(content)
+
+    async def send_to_pushplus(self, content: str) -> bool:
+        return await self._pushplus.send_to_pushplus(content)
+
+    async def send_to_serverchan3(self, content: str) -> bool:
+        return await self._serverchan3.send_to_serverchan3(content)
+
+    async def send_to_custom(self, content: str) -> bool:
+        return await self._custom.send_to_custom(content)
+
+    async def send_to_discord(self, content: str) -> bool:
+        return await self._discord.send_to_discord(content)
+
+    async def send_to_slack(self, content: str) -> bool:
+        return await self._slack.send_to_slack(content)
+
+    async def send_to_astrbot(self, content: str) -> bool:
+        return await self._astrbot.send_to_astrbot(content)
+
+    # Image / special-format forwarding
+    async def _send_wechat_image(self, image_bytes: bytes) -> bool:
+        return await self._wechat._send_wechat_image(image_bytes)
+
+    async def _send_telegram_photo(self, image_bytes: bytes) -> bool:
+        return await self._telegram._send_telegram_photo(image_bytes)
+
+    async def _send_slack_image(self, image_bytes: bytes, fallback_content: str) -> bool:
+        return await self._slack._send_slack_image(image_bytes, fallback_content=fallback_content)
+
+    async def _send_email_with_inline_image(self, image_bytes: bytes, receivers=None) -> bool:
+        return await self._email._send_email_with_inline_image(image_bytes, receivers=receivers)
+
+    async def _send_custom_webhook_image(self, image_bytes: bytes, fallback_content: str) -> bool:
+        return await self._custom._send_custom_webhook_image(image_bytes, fallback_content=fallback_content)
+
+    def get_all_email_receivers(self):
+        return self._email.get_all_email_receivers()
+
+    def get_receivers_for_stocks(self, stock_codes):
+        return self._email.get_receivers_for_stocks(stock_codes)
 
     def _normalize_report_type(self, report_type: Any) -> ReportType:
         """Normalize string/enum input into ReportType."""

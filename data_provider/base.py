@@ -18,7 +18,6 @@ import logging
 import random
 import time
 import asyncio
-import anyio
 from threading import BoundedSemaphore, RLock, Thread
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -1070,7 +1069,7 @@ class DataFetcherManager:
                             if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                 quote = await fetcher.get_realtime_quote(stock_code)
                             else:
-                                quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
+                                quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code)
                             
                             if quote is not None:
                                 logger.info(f"[实时行情] 美股指数 {stock_code} 成功获取 (来源: yfinance)")
@@ -1111,7 +1110,7 @@ class DataFetcherManager:
                             if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                 quote = await fetcher.get_realtime_quote(stock_code)
                             else:
-                                quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
+                                quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code)
                             
                             if quote is not None:
                                 logger.info(f"[实时行情] 美股 {stock_code} 成功获取 (来源: yfinance)")
@@ -1132,7 +1131,7 @@ class DataFetcherManager:
                         if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                             quote = await fetcher.get_realtime_quote(stock_code, source="hk")
                         else:
-                            quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "hk")
+                            quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code, "hk")
                         
                         if quote is not None and quote.has_basic_data():
                             logger.info(f"[实时行情] 港股 {stock_code} 成功获取 (来源: akshare_hk)")
@@ -1168,7 +1167,7 @@ class DataFetcherManager:
                                 if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                     quote = await fetcher.get_realtime_quote(stock_code)
                                 else:
-                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
+                                    quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code)
                             break
                 
                 elif source == "akshare_em":
@@ -1179,7 +1178,7 @@ class DataFetcherManager:
                                 if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                     quote = await fetcher.get_realtime_quote(stock_code, source="em")
                                 else:
-                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "em")
+                                    quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code, "em")
                             break
                 
                 elif source == "akshare_sina":
@@ -1190,7 +1189,7 @@ class DataFetcherManager:
                                 if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                     quote = await fetcher.get_realtime_quote(stock_code, source="sina")
                                 else:
-                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "sina")
+                                    quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code, "sina")
                             break
                 
                 elif source in ("tencent", "akshare_qq"):
@@ -1201,7 +1200,7 @@ class DataFetcherManager:
                                 if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                     quote = await fetcher.get_realtime_quote(stock_code, source="tencent")
                                 else:
-                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "tencent")
+                                    quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code, "tencent")
                             break
                 
                 elif source == "tushare":
@@ -1212,7 +1211,7 @@ class DataFetcherManager:
                                 if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
                                     quote = await fetcher.get_realtime_quote(stock_code)
                                 else:
-                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
+                                    quote = await asyncio.to_thread(fetcher.get_realtime_quote, stock_code)
                             break
                 
                 if quote is not None and quote.has_basic_data():

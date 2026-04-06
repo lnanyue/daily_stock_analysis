@@ -83,8 +83,7 @@ class DebateAnalyzer:
         
         try:
             # 包装同步调用为异步
-            import anyio
-            content = await anyio.to_thread.run_sync(
+            content = await asyncio.to_thread(
                 self.analyzer.generate_text,
                 prompt,
                 2048,

@@ -66,8 +66,8 @@ class GuruAnalyzer:
 """
         
         try:
-            import anyio
-            content = await anyio.to_thread.run_sync(
+            import asyncio
+            content = await asyncio.to_thread(
                 self.analyzer.generate_text,
                 prompt,
                 2048,

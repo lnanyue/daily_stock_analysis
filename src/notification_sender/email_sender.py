@@ -6,7 +6,7 @@ Email 发送提醒服务
 1. 通过 SMTP 发送 Email 消息
 """
 import logging
-import anyio
+import asyncio
 from typing import Optional, List
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -148,8 +148,8 @@ class EmailSender:
             logger.warning("邮件配置不完整，跳过推送")
             return False
         
-        # 使用 to_thread 运行阻塞操作
-        return await anyio.to_thread.run_sync(
+        # 使用 asyncio.to_thread 运行阻塞操作
+        return await asyncio.to_thread(
             self._send_to_email_sync, content, subject, receivers
         )
 
@@ -232,7 +232,7 @@ class EmailSender:
         if not self._is_email_configured():
             return False
         
-        return await anyio.to_thread.run_sync(
+        return await asyncio.to_thread(
             self._send_email_with_inline_image_sync, image_bytes, receivers
         )
 

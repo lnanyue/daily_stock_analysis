@@ -39,7 +39,6 @@ import argparse
 import logging
 import sys
 import asyncio
-import anyio
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Tuple
@@ -157,7 +156,7 @@ async def run_full_analysis(config: Config, args: argparse.Namespace, stock_code
                 full_content = (f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n" if market_report else "")
                 if results:
                     full_content += f"# 🚀 个股决策仪表盘\n\n{pipeline.notifier.generate_aggregate_report(results, getattr(config, 'report_type', 'simple'))}"
-                doc_url = await anyio.to_thread.run_sync(feishu_doc.create_daily_doc, doc_title, full_content)
+                doc_url = await asyncio.to_thread(feishu_doc.create_daily_doc, doc_title, full_content)
                 if doc_url and not args.no_notify:
                     await pipeline.notifier.send(f"复盘文档已生成: {doc_url}")
         except Exception as e: logger.error(f"飞书文档生成失败: {e}")
@@ -167,7 +166,7 @@ async def run_full_analysis(config: Config, args: argparse.Namespace, stock_code
             try:
                 from src.services.backtest_service import BacktestService
                 service = BacktestService()
-                await anyio.to_thread.run_sync(service.run_backtest)
+                await asyncio.to_thread(service.run_backtest)
             except Exception as e: logger.warning(f"自动回测失败: {e}")
 
     except Exception as e:
@@ -200,7 +199,7 @@ async def main_async() -> int:
         if getattr(args, 'backtest', False):
             from src.services.backtest_service import BacktestService
             service = BacktestService()
-            await anyio.to_thread.run_sync(service.run_backtest, getattr(args, 'backtest_code', None))
+            await asyncio.to_thread(service.run_backtest, getattr(args, 'backtest_code', None))
             return 0
 
         # 定时模式

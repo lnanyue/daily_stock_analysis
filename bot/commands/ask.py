@@ -132,7 +132,7 @@ class AskCommand(BotCommand):
 
         try:
             from src.agent.factory import build_agent_executor
-            import anyio
+            import asyncio
             executor = build_agent_executor(config, skills=[skill_id] if skill_id else None)
 
             # Build message
@@ -145,7 +145,7 @@ class AskCommand(BotCommand):
             # Each /ask invocation is a self-contained single-shot analysis
             session_id = f"ask_{code}_{uuid.uuid4()}"
             # ★ wrap sync call
-            result = await anyio.to_thread.run_sync(
+            result = await asyncio.to_thread(
                 executor.chat, user_msg, session_id
             )
 

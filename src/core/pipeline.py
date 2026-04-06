@@ -12,7 +12,6 @@ A股自选股智能分析系统 - 核心分析流水线
 """
 
 import asyncio
-import anyio
 import logging
 import time
 import uuid
@@ -109,9 +108,9 @@ class StockAnalysisPipeline:
         try:
             if not force_refresh and self.db.has_today_data(code, date.today()):
                 return True, None
-            df, source_name = await anyio.to_thread.run_sync(self.fetcher_manager.get_daily_data, code, 30)
+            df, source_name = await asyncio.to_thread(self.fetcher_manager.get_daily_data, code, 30)
             if df is None or df.empty: return False, "获取数据为空"
-            await anyio.to_thread.run_sync(self.db.save_daily_data, df, code, source_name)
+            await asyncio.to_thread(self.db.save_daily_data, df, code, source_name)
             return True, None
         except Exception as e:
             return False, str(e)
@@ -127,10 +126,10 @@ class StockAnalysisPipeline:
                 stock_name = realtime_quote.name
 
             # 2. 筹码分布
-            chip_data = await anyio.to_thread.run_sync(self.fetcher_manager.get_chip_distribution, code)
+            chip_data = await asyncio.to_thread(self.fetcher_manager.get_chip_distribution, code)
 
             # 3. 基本面上下文
-            fundamental_context = await anyio.to_thread.run_sync(self.fetcher_manager.get_fundamental_context, code)
+            fundamental_context = await asyncio.to_thread(self.fetcher_manager.get_fundamental_context, code)
             fundamental_context = self._attach_belong_boards_to_fundamental_context(code, fundamental_context)
 
             # 4. A股深度情报与资金面增强 (重点注入点)
@@ -143,30 +142,30 @@ class StockAnalysisPipeline:
             
             if ak_fetcher:
                 # 4.1 财务质量 (巴菲特/芒格)
-                quality_metrics = await anyio.to_thread.run_sync(ak_fetcher.get_value_metrics, code)
+                quality_metrics = await asyncio.to_thread(ak_fetcher.get_value_metrics, code)
                 if fundamental_context and quality_metrics:
                     fundamental_context['quality_metrics'] = quality_metrics
                 
                 # 4.2 龙虎榜/研报/电报
-                lhb = await anyio.to_thread.run_sync(ak_fetcher.get_lhb_data, code)
+                lhb = await asyncio.to_thread(ak_fetcher.get_lhb_data, code)
                 if lhb:
                     a_stock_intelligence += "\n### 龙虎榜动向 (近30日)\n" + "\n".join([f"- {i['date']}: {i['reason']} (净买额: {i['net_amount']:.2f}万)" for i in lhb[:3]])
                 
-                reports = await anyio.to_thread.run_sync(ak_fetcher.get_research_reports, code)
+                reports = await asyncio.to_thread(ak_fetcher.get_research_reports, code)
                 if reports and reports.get('reports'):
                     a_stock_intelligence += "\n### 机构研报观点\n" + "\n".join([f"- [{r['org']}] {r['title']} (评级: {r['rating']})" for r in reports['reports'][:2]])
                 
-                telegraphs = await anyio.to_thread.run_sync(ak_fetcher.get_latest_telegraph, [stock_name])
+                telegraphs = await asyncio.to_thread(ak_fetcher.get_latest_telegraph, [stock_name])
                 if telegraphs:
                     a_stock_intelligence += "\n### 财联社实时快讯\n" + "\n".join([f"- [{t['time']}] {t['title']}" for t in telegraphs[:3]])
 
                 # 4.3 资金流向
-                flow = await anyio.to_thread.run_sync(ak_fetcher.get_money_flow, code)
+                flow = await asyncio.to_thread(ak_fetcher.get_money_flow, code)
                 if flow and flow.get('main_inflow'):
                     money_flow_intelligence += f"\n### 资金面动向\n- 主力净流入: {flow['main_inflow']:.2f}万 ({flow['main_pct']:.2f}%)\n"
                 
                 # 4.4 题材梯队 (龙头识别依据)
-                zt_pool = await anyio.to_thread.run_sync(ak_fetcher.get_limit_up_pool)
+                zt_pool = await asyncio.to_thread(ak_fetcher.get_limit_up_pool)
                 if zt_pool:
                     money_flow_intelligence += "### 题材热度\n" + "\n".join([f"- {t['name']} ({t['count']}家涨停): 龙头={', '.join(t['leaders'])}" for t in zt_pool[:2]])
 
@@ -180,14 +179,14 @@ class StockAnalysisPipeline:
 
             # 5. 趋势分析与视觉形态
             end_date = date.today()
-            hist = await anyio.to_thread.run_sync(self.db.get_data_range, code, end_date - timedelta(days=89), end_date)
+            hist = await asyncio.to_thread(self.db.get_data_range, code, end_date - timedelta(days=89), end_date)
             trend_result = None
             visual_description = ""
             if hist:
                 df = pd.DataFrame([bar.to_dict() for bar in hist])
                 if self.config.enable_realtime_quote and realtime_quote:
                     df = self._augment_historical_with_realtime(df, realtime_quote, code)
-                trend_result = await anyio.to_thread.run_sync(self.trend_analyzer.analyze, df, code)
+                trend_result = await asyncio.to_thread(self.trend_analyzer.analyze, df, code)
                 
                 # 视觉文字化
                 visual_description = f"\n### 视觉形态描述\n- 趋势: {trend_result.trend_status.value}\n"
@@ -197,7 +196,7 @@ class StockAnalysisPipeline:
             # 6. 情报搜索 (通用)
             news_context = ""
             if self.search_service.is_available:
-                intel = await anyio.to_thread.run_sync(self.search_service.search_comprehensive_intel, code, stock_name, 5)
+                intel = await asyncio.to_thread(self.search_service.search_comprehensive_intel, code, stock_name, 5)
                 if intel: news_context = self.search_service.format_intel_report(intel, stock_name)
 
             # 7. 组装最终上下文并调用 AI
@@ -220,13 +219,13 @@ class StockAnalysisPipeline:
                 debate_analyzer = DebateAnalyzer(self.config, self.analyzer)
                 result = await debate_analyzer.analyze(enhanced_context, final_news)
             else:
-                result = await anyio.to_thread.run_sync(self.analyzer.analyze, enhanced_context, final_news)
+                result = await asyncio.to_thread(self.analyzer.analyze, enhanced_context, final_news)
 
             if result:
                 result.query_id = query_id
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 # 保存历史
-                await anyio.to_thread.run_sync(self.db.save_analysis_history, result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
+                await asyncio.to_thread(self.db.save_analysis_history, result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
 
             return result
 

@@ -53,10 +53,10 @@ class ChatCommand(BotCommand):
         session_id = f"{message.platform}_{message.user_id}"
         
         try:
-            import anyio
+            import asyncio
             from src.agent.factory import build_agent_executor
             executor = build_agent_executor(config)
-            result = await anyio.to_thread.run_sync(executor.chat, user_message, session_id)
+            result = await asyncio.to_thread(executor.chat, user_message, session_id)
             
             if result.success:
                 return BotResponse.text_response(result.content)
