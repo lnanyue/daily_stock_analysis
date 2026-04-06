@@ -6,11 +6,11 @@ Discord 发送提醒服务
 1. 通过 webhook 或 Discord bot API 发送 Discord 消息
 """
 import logging
-import requests
+from typing import List
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_words
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class DiscordSender:
         webhook_ok = bool(self._discord_config['webhook_url'])
         return bot_ok or webhook_ok
     
-    def send_to_discord(self, content: str) -> bool:
+    async def send_to_discord(self, content: str) -> bool:
         """
         推送消息到 Discord（支持 Webhook 和 Bot API）
         
@@ -60,17 +60,23 @@ class DiscordSender:
 
         # 优先使用 Webhook（配置简单，权限低）
         if self._discord_config['webhook_url']:
-            return all(self._send_discord_webhook(chunk) for chunk in chunks)
+            results = []
+            for chunk in chunks:
+                results.append(await self._send_discord_webhook(chunk))
+            return all(results)
 
         # 其次使用 Bot API（权限高，需要 channel_id）
         if self._discord_config['bot_token'] and self._discord_config['channel_id']:
-            return all(self._send_discord_bot(chunk) for chunk in chunks)
+            results = []
+            for chunk in chunks:
+                results.append(await self._send_discord_bot(chunk))
+            return all(results)
 
         logger.warning("Discord 配置不完整，跳过推送")
         return False
 
   
-    def _send_discord_webhook(self, content: str) -> bool:
+    async def _send_discord_webhook(self, content: str) -> bool:
         """
         使用 Webhook 发送消息到 Discord
         
@@ -82,6 +88,7 @@ class DiscordSender:
         Returns:
             是否发送成功
         """
+        from .async_base import get_sender_http_client
         try:
             payload = {
                 'content': content,
@@ -89,11 +96,10 @@ class DiscordSender:
                 'avatar_url': 'https://picsum.photos/200'
             }
             
-            response = requests.post(
+            client = await get_sender_http_client()
+            response = await client.post(
                 self._discord_config['webhook_url'],
-                json=payload,
-                timeout=self._timeout,
-                verify=self._webhook_verify_ssl
+                json=payload
             )
             
             if response.status_code in [200, 204]:
@@ -106,7 +112,7 @@ class DiscordSender:
             logger.error(f"Discord Webhook 发送异常: {e}")
             return False
     
-    def _send_discord_bot(self, content: str) -> bool:
+    async def _send_discord_bot(self, content: str) -> bool:
         """
         使用 Bot API 发送消息到 Discord
         
@@ -116,6 +122,7 @@ class DiscordSender:
         Returns:
             是否发送成功
         """
+        from .async_base import get_sender_http_client
         try:
             headers = {
                 'Authorization': f'Bot {self._discord_config["bot_token"]}',
@@ -127,7 +134,9 @@ class DiscordSender:
             }
             
             url = f'https://discord.com/api/v10/channels/{self._discord_config["channel_id"]}/messages'
-            response = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
+            
+            client = await get_sender_http_client()
+            response = await client.post(url, json=payload, headers=headers)
             
             if response.status_code == 200:
                 logger.info("Discord Bot 消息发送成功")

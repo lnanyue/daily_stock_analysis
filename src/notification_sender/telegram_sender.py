@@ -13,7 +13,7 @@ import time
 import re
 
 from src.config import Config
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class TelegramSender:
         """检查 Telegram 配置是否完整"""
         return bool(self._telegram_config['bot_token'] and self._telegram_config['chat_id'])
    
-    def send_to_telegram(self, content: str) -> bool:
+    async def send_to_telegram(self, content: str) -> bool:
         """
         推送消息到 Telegram 机器人
         
@@ -74,10 +74,10 @@ class TelegramSender:
             
             if len(content) <= max_length:
                 # 单条消息发送
-                return self._send_telegram_message(api_url, chat_id, content, message_thread_id)
+                return await self._send_telegram_message(api_url, chat_id, content, message_thread_id)
             else:
                 # 分段发送长消息
-                return self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id)
+                return await self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id)
                 
         except Exception as e:
             logger.error(f"发送 Telegram 消息失败: {e}")
@@ -85,8 +85,10 @@ class TelegramSender:
             logger.debug(traceback.format_exc())
             return False
     
-    def _send_telegram_message(self, api_url: str, chat_id: str, text: str, message_thread_id: Optional[str] = None) -> bool:
-        """Send a single Telegram message with exponential backoff retry (Fixes #287)"""
+    async def _send_telegram_message(self, api_url: str, chat_id: str, text: str, message_thread_id: Optional[str] = None) -> bool:
+        """Send a single Telegram message via async client."""
+        from .async_base import get_sender_http_client
+        
         # Convert Markdown to Telegram-compatible format
         telegram_text = self._convert_to_telegram_markdown(text)
         
@@ -100,21 +102,10 @@ class TelegramSender:
         if message_thread_id:
             payload['message_thread_id'] = message_thread_id
 
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = requests.post(api_url, json=payload, timeout=self._timeout)
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                if attempt < max_retries:
-                    delay = 2 ** attempt  # 2s, 4s
-                    logger.warning(f"Telegram request failed (attempt {attempt}/{max_retries}): {e}, "
-                                   f"retrying in {delay}s...")
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"Telegram request failed after {max_retries} attempts: {e}")
-                    return False
-        
+        try:
+            client = await get_sender_http_client()
+            response = await client.post(api_url, json=payload)
+            
             if response.status_code == 200:
                 result = response.json()
                 if result.get('ok'):
@@ -132,39 +123,29 @@ class TelegramSender:
                         plain_payload['text'] = text  # Use original text
                         
                         try:
-                            response = requests.post(api_url, json=plain_payload, timeout=self._timeout)
+                            response = await client.post(api_url, json=plain_payload)
                             if response.status_code == 200 and response.json().get('ok'):
                                 logger.info("Telegram 消息发送成功（纯文本）")
                                 return True
-                        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                        except Exception as e:
                             logger.error(f"Telegram plain-text fallback failed: {e}")
                     
                     return False
             elif response.status_code == 429:
-                # Rate limited — respect Retry-After header
-                retry_after = int(response.headers.get('Retry-After', 2 ** attempt))
-                if attempt < max_retries:
-                    logger.warning(f"Telegram rate limited, retrying in {retry_after}s "
-                                   f"(attempt {attempt}/{max_retries})...")
-                    time.sleep(retry_after)
-                    continue
-                else:
-                    logger.error(f"Telegram rate limited after {max_retries} attempts")
-                    return False
+                # Rate limited
+                result = response.json()
+                retry_after = result.get('parameters', {}).get('retry_after', 5)
+                logger.warning(f"Telegram rate limited, suggest retry after {retry_after}s")
+                return False
             else:
-                if attempt < max_retries and response.status_code >= 500:
-                    delay = 2 ** attempt
-                    logger.warning(f"Telegram server error HTTP {response.status_code} "
-                                   f"(attempt {attempt}/{max_retries}), retrying in {delay}s...")
-                    time.sleep(delay)
-                    continue
                 logger.error(f"Telegram 请求失败: HTTP {response.status_code}")
                 logger.error(f"响应内容: {response.text}")
                 return False
-
-        return False
+        except Exception as e:
+            logger.error(f"Telegram 网络请求异常: {e}")
+            return False
     
-    def _send_telegram_chunked(self, api_url: str, chat_id: str, content: str, max_length: int, message_thread_id: Optional[str] = None) -> bool:
+    async def _send_telegram_chunked(self, api_url: str, chat_id: str, content: str, max_length: int, message_thread_id: Optional[str] = None) -> bool:
         """分段发送长 Telegram 消息"""
         # 按段落分割
         sections = content.split("\n---\n")
@@ -182,7 +163,7 @@ class TelegramSender:
                 if current_chunk:
                     chunk_content = "\n---\n".join(current_chunk)
                     logger.info(f"发送 Telegram 消息块 {chunk_index}...")
-                    if not self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id):
+                    if not await self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id):
                         all_success = False
                     chunk_index += 1
                 
@@ -197,25 +178,32 @@ class TelegramSender:
         if current_chunk:
             chunk_content = "\n---\n".join(current_chunk)
             logger.info(f"发送 Telegram 消息块 {chunk_index}...")
-            if not self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id):
+            if not await self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id):
                 all_success = False
                 
         return all_success
 
-    def _send_telegram_photo(self, image_bytes: bytes) -> bool:
+    async def _send_telegram_photo(self, image_bytes: bytes) -> bool:
         """Send image via Telegram sendPhoto API (Issue #289)."""
+        from .async_base import get_sender_http_client
+        
         if not self._is_telegram_configured():
             return False
         bot_token = self._telegram_config['bot_token']
         chat_id = self._telegram_config['chat_id']
         message_thread_id = self._telegram_config.get('message_thread_id')
         api_url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+        
         try:
             data = {"chat_id": chat_id}
             if message_thread_id:
                 data['message_thread_id'] = message_thread_id
+                
             files = {"photo": ("report.png", image_bytes, "image/png")}
-            response = requests.post(api_url, data=data, files=files, timeout=self._timeout)
+            
+            client = await get_sender_http_client()
+            response = await client.post(api_url, data=data, files=files)
+            
             if response.status_code == 200 and response.json().get('ok'):
                 logger.info("Telegram 图片发送成功")
                 return True

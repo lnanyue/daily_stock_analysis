@@ -7,16 +7,14 @@ Wechat 发送提醒服务
 2. 通过企业微信 Webhook 发送图片消息
 """
 import logging
+import asyncio
 import base64
 import hashlib
 from typing import Optional
 
-import requests
-import time
-
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +38,7 @@ class WechatSender:
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
-    def send_to_wechat(self, content: str) -> bool:
+    async def send_to_wechat(self, content: str) -> bool:
         """
         推送消息到企业微信机器人
         
@@ -87,19 +85,20 @@ class WechatSender:
         content_bytes = len(content.encode('utf-8'))
         if content_bytes > max_bytes:
             logger.info(f"消息内容超长({content_bytes}字节/{len(content)}字符)，将分批发送")
-            return self._send_wechat_chunked(content, max_bytes)
+            return await self._send_wechat_chunked(content, max_bytes)
         
         try:
-            return self._send_wechat_message(content)
+            return await self._send_wechat_message(content)
         except Exception as e:
             logger.error(f"发送企业微信消息失败: {e}")
             return False
 
-    def _send_wechat_image(self, image_bytes: bytes) -> bool:
+    async def _send_wechat_image(self, image_bytes: bytes) -> bool:
         """Send image via WeChat Work webhook msgtype image (Issue #289).
 
         If the image exceeds the 2MB limit, attempt to compress it using PIL.
         """
+        from .async_base import get_sender_http_client
         if not self._wechat_url:
             return False
         if len(image_bytes) > WECHAT_IMAGE_MAX_BYTES:
@@ -117,8 +116,9 @@ class WechatSender:
                 "msgtype": "image",
                 "image": {"base64": b64, "md5": md5_hash},
             }
-            response = requests.post(
-                self._wechat_url, json=payload, timeout=self._timeout, verify=self._webhook_verify_ssl
+            client = await get_sender_http_client()
+            response = await client.post(
+                self._wechat_url, json=payload
             )
             if response.status_code == 200:
                 result = response.json()
@@ -174,30 +174,34 @@ class WechatSender:
             logger.warning("图片压缩失败: %s", e)
             return None
     
-    def _send_wechat_message(self, content: str) -> bool:
+    async def _send_wechat_message(self, content: str) -> bool:
         """发送企业微信消息"""
+        from .async_base import get_sender_http_client
         payload = self._gen_wechat_payload(content)
         
-        response = requests.post(
-            self._wechat_url,
-            json=payload,
-            timeout=self._timeout,
-            verify=self._webhook_verify_ssl
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('errcode') == 0:
-                logger.info("企业微信消息发送成功")
-                return True
+        try:
+            client = await get_sender_http_client()
+            response = await client.post(
+                self._wechat_url,
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('errcode') == 0:
+                    logger.info("企业微信消息发送成功")
+                    return True
+                else:
+                    logger.error(f"企业微信返回错误: {result}")
+                    return False
             else:
-                logger.error(f"企业微信返回错误: {result}")
+                logger.error(f"企业微信请求失败: {response.status_code}")
                 return False
-        else:
-            logger.error(f"企业微信请求失败: {response.status_code}")
+        except Exception as e:
+            logger.error(f"企业微信发送异常: {e}")
             return False
         
-    def _send_wechat_chunked(self, content: str, max_bytes: int) -> bool:
+    async def _send_wechat_chunked(self, content: str, max_bytes: int) -> bool:
         """
         分批发送长消息到企业微信
         
@@ -214,12 +218,12 @@ class WechatSender:
         total_chunks = len(chunks)
         success_count = 0
         for i, chunk in enumerate(chunks):
-            if self._send_wechat_message(chunk):
+            if await self._send_wechat_message(chunk):
                 success_count += 1
             else:
                 logger.error(f"企业微信第 {i+1}/{total_chunks} 批发送失败")
             if i < total_chunks - 1:
-                time.sleep(1)
+                await asyncio.sleep(1)
         return success_count == len(chunks)
 
     def _gen_wechat_payload(self, content: str) -> dict:

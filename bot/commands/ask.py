@@ -115,7 +115,7 @@ class AskCommand(BotCommand):
 
         return default_skill_id
 
-    def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """Execute the ask command via Agent pipeline."""
         config = get_config()
 
@@ -132,6 +132,7 @@ class AskCommand(BotCommand):
 
         try:
             from src.agent.factory import build_agent_executor
+            import anyio
             executor = build_agent_executor(config, skills=[skill_id] if skill_id else None)
 
             # Build message
@@ -141,11 +142,12 @@ class AskCommand(BotCommand):
             if skill_text:
                 user_msg = f"请分析股票 {code}，{skill_text}"
 
-            # Each /ask invocation is a self-contained single-shot analysis; isolate
-            # sessions per request so that different stocks or retry attempts never
-            # bleed context into each other.
+            # Each /ask invocation is a self-contained single-shot analysis
             session_id = f"ask_{code}_{uuid.uuid4()}"
-            result = executor.chat(message=user_msg, session_id=session_id)
+            # ★ wrap sync call
+            result = await anyio.to_thread.run_sync(
+                executor.chat, user_msg, session_id
+            )
 
             if result.success:
                 skill_name = skill_id

@@ -227,7 +227,7 @@ class CommandDispatcher:
         """移除管理员"""
         self.admin_users.discard(user_id)
     
-    def dispatch(self, message: BotMessage) -> BotResponse:
+    async def dispatch(self, message: BotMessage) -> BotResponse:
         """
         分发消息到对应命令
         
@@ -281,7 +281,8 @@ class CommandDispatcher:
         
         # 6. 执行命令
         try:
-            response = command.execute(message, args)
+            # ★ Async call
+            response = await command.execute(message, args)
             logger.info(f"[Dispatcher] 命令 {cmd_name} 执行成功")
             return response
         except Exception as e:

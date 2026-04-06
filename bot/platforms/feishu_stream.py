@@ -314,17 +314,29 @@ class FeishuStreamHandler:
 
             self._log_incoming_message(bot_message)
 
-            # 调用消息处理回调
-            response = self._on_message(bot_message)
+            # 调用消息处理回调 - 桥接到 asyncio 循环
+            async def _process_and_reply():
+                try:
+                    response = await self._on_message(bot_message)
+                    
+                    # 发送回复
+                    if response and response.text:
+                        self._reply_client.reply_text(
+                            message_id=bot_message.message_id,
+                            text=response.text,
+                            at_user=response.at_user,
+                            user_id=bot_message.user_id if response.at_user else None
+                        )
+                except Exception as e:
+                    self._logger.error(f"[Feishu Stream] 异步处理失败: {e}")
 
-            # 发送回复
-            if response and response.text:
-                self._reply_client.reply_text(
-                    message_id=bot_message.message_id,
-                    text=response.text,
-                    at_user=response.at_user,
-                    user_id=bot_message.user_id if response.at_user else None
-                )
+            # 在主线程的 loop 中运行
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(_process_and_reply(), loop)
+            except RuntimeError:
+                # 如果没有运行中的 loop（不应该发生），则使用 asyncio.run
+                asyncio.run(_process_and_reply())
 
         except Exception as e:
             self._logger.error(f"[Feishu Stream] 处理消息失败: {e}")

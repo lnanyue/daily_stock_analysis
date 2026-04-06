@@ -6,14 +6,15 @@ PushPlus 发送提醒服务
 1. 通过 PushPlus API 发送 PushPlus 消息
 """
 import logging
+import asyncio
 import time
 from typing import Optional
 from datetime import datetime
-import requests
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from .async_base import get_sender_http_client
 
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class PushplusSender:
         self._pushplus_max_bytes = getattr(config, 'pushplus_max_bytes', 20000)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
-    def send_to_pushplus(self, content: str, title: Optional[str] = None) -> bool:
+    async def send_to_pushplus(self, content: str, title: Optional[str] = None) -> bool:
         """
         推送消息到 PushPlus
 
@@ -76,19 +77,19 @@ class PushplusSender:
                     content_bytes,
                     len(content),
                 )
-                return self._send_pushplus_chunked(
+                return await self._send_pushplus_chunked(
                     api_url,
                     content,
                     title,
                     self._pushplus_max_bytes,
                 )
 
-            return self._send_pushplus_message(api_url, content, title)
+            return await self._send_pushplus_message(api_url, content, title)
         except Exception as e:
             logger.error(f"发送 PushPlus 消息失败: {e}")
             return False
 
-    def _send_pushplus_message(self, api_url: str, content: str, title: str) -> bool:
+    async def _send_pushplus_message(self, api_url: str, content: str, title: str) -> bool:
         payload = {
             "token": self._pushplus_token,
             "title": title,
@@ -99,7 +100,8 @@ class PushplusSender:
         if self._pushplus_topic:
             payload["topic"] = self._pushplus_topic
 
-        response = requests.post(api_url, json=payload, timeout=self._timeout)
+        client = await get_sender_http_client()
+        response = await client.post(api_url, json=payload)
 
         if response.status_code == 200:
             result = response.json()
@@ -114,7 +116,7 @@ class PushplusSender:
         logger.error(f"PushPlus 请求失败: HTTP {response.status_code}")
         return False
 
-    def _send_pushplus_chunked(self, api_url: str, content: str, title: str, max_bytes: int) -> bool:
+    async def _send_pushplus_chunked(self, api_url: str, content: str, title: str, max_bytes: int) -> bool:
         """分批发送长 PushPlus 消息，给 JSON payload 预留空间。"""
         budget = max(1000, max_bytes - 1500)
         chunks = chunk_content_by_max_bytes(content, budget, add_page_marker=True)
@@ -125,13 +127,13 @@ class PushplusSender:
 
         for i, chunk in enumerate(chunks):
             chunk_title = f"{title} ({i+1}/{total_chunks})" if total_chunks > 1 else title
-            if self._send_pushplus_message(api_url, chunk, chunk_title):
+            if await self._send_pushplus_message(api_url, chunk, chunk_title):
                 success_count += 1
                 logger.info(f"PushPlus 第 {i+1}/{total_chunks} 批发送成功")
             else:
                 logger.error(f"PushPlus 第 {i+1}/{total_chunks} 批发送失败")
 
             if i < total_chunks - 1:
-                time.sleep(1)
+                await asyncio.sleep(1)
 
         return success_count == total_chunks

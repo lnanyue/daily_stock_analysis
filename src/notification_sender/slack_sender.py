@@ -8,11 +8,10 @@ Slack 发送提醒服务
 """
 import logging
 import json
-import requests
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +45,12 @@ class SlackSender:
         """检查 Slack 配置是否完整（支持 Webhook 或 Bot API）"""
         return self._use_bot or bool(self._slack_webhook_url)
 
-    def send_to_slack(self, content: str) -> bool:
+    async def send_to_slack(self, content: str) -> bool:
         """
         推送消息到 Slack（支持 Webhook 和 Bot API）
 
         传输优先级与 _send_slack_image() 保持一致：Bot > Webhook，
-        避免文本走 Webhook、图片走 Bot 导致消息落入不同频道。
+        避免文本走 Webhook、图片走 Bot 导致消息落入 different 频道。
 
         Args:
             content: Markdown 格式的消息内容
@@ -68,11 +67,17 @@ class SlackSender:
 
         # 优先使用 Bot API（与 _send_slack_image 保持一致）
         if self._use_bot:
-            return all(self._send_slack_bot(chunk) for chunk in chunks)
+            results = []
+            for chunk in chunks:
+                results.append(await self._send_slack_bot(chunk))
+            return all(results)
 
         # 其次使用 Webhook
         if self._slack_webhook_url:
-            return all(self._send_slack_webhook(chunk) for chunk in chunks)
+            results = []
+            for chunk in chunks:
+                results.append(await self._send_slack_webhook(chunk))
+            return all(results)
 
         logger.warning("Slack 配置不完整，跳过推送")
         return False
@@ -98,7 +103,7 @@ class SlackSender:
             pos += _BLOCK_TEXT_LIMIT
         return blocks
 
-    def _send_slack_webhook(self, content: str) -> bool:
+    async def _send_slack_webhook(self, content: str) -> bool:
         """
         使用 Incoming Webhook 发送消息到 Slack
 
@@ -108,17 +113,17 @@ class SlackSender:
         Returns:
             是否发送成功
         """
+        from .async_base import get_sender_http_client
         try:
             payload = {
                 "text": content,
                 "blocks": self._build_blocks(content),
             }
-            response = requests.post(
+            client = await get_sender_http_client()
+            response = await client.post(
                 self._slack_webhook_url,
                 data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                headers={'Content-Type': 'application/json; charset=utf-8'},
-                timeout=self._timeout,
-                verify=self._webhook_verify_ssl,
+                headers={'Content-Type': 'application/json; charset=utf-8'}
             )
             if response.status_code == 200 and response.text == "ok":
                 logger.info("Slack Webhook 消息发送成功")
@@ -129,7 +134,7 @@ class SlackSender:
             logger.error(f"Slack Webhook 发送异常: {e}")
             return False
 
-    def _send_slack_bot(self, content: str) -> bool:
+    async def _send_slack_bot(self, content: str) -> bool:
         """
         使用 Bot API (chat.postMessage) 发送消息到 Slack
 
@@ -139,6 +144,7 @@ class SlackSender:
         Returns:
             是否发送成功
         """
+        from .async_base import get_sender_http_client
         try:
             headers = {
                 'Authorization': f'Bearer {self._slack_bot_token}',
@@ -149,11 +155,11 @@ class SlackSender:
                 "text": content,
                 "blocks": self._build_blocks(content),
             }
-            response = requests.post(
+            client = await get_sender_http_client()
+            response = await client.post(
                 'https://slack.com/api/chat.postMessage',
                 data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                headers=headers,
-                timeout=self._timeout,
+                headers=headers
             )
             result = response.json()
             if result.get("ok"):
@@ -165,7 +171,7 @@ class SlackSender:
             logger.error(f"Slack Bot 发送异常: {e}")
             return False
 
-    def _send_slack_image(self, image_bytes: bytes, fallback_content: str = "") -> bool:
+    async def _send_slack_image(self, image_bytes: bytes, fallback_content: str = "") -> bool:
         """
         发送图片到 Slack
 
@@ -179,19 +185,20 @@ class SlackSender:
         Returns:
             是否发送成功
         """
+        from .async_base import get_sender_http_client
         # Bot 模式：使用新版文件上传 API
         if self._use_bot:
             headers = {'Authorization': f'Bearer {self._slack_bot_token}'}
             try:
+                client = await get_sender_http_client()
                 # Step 1: 获取上传 URL
-                resp1 = requests.post(
+                resp1 = await client.post(
                     'https://slack.com/api/files.getUploadURLExternal',
                     headers=headers,
                     data={
                         'filename': 'report.png',
                         'length': len(image_bytes),
-                    },
-                    timeout=self._timeout,
+                    }
                 )
                 result1 = resp1.json()
                 if not result1.get("ok"):
@@ -202,25 +209,23 @@ class SlackSender:
                 file_id = result1['file_id']
 
                 # Step 2: 上传文件内容（raw body，不能用 multipart）
-                resp2 = requests.post(
+                resp2 = await client.post(
                     upload_url,
-                    data=image_bytes,
-                    headers={'Content-Type': 'application/octet-stream'},
-                    timeout=self._timeout,
+                    content=image_bytes,
+                    headers={'Content-Type': 'application/octet-stream'}
                 )
                 if resp2.status_code != 200:
                     logger.error("Slack 文件上传失败: HTTP %s", resp2.status_code)
                     raise RuntimeError(f"HTTP {resp2.status_code}")
 
                 # Step 3: 完成上传并分享到频道
-                resp3 = requests.post(
+                resp3 = await client.post(
                     'https://slack.com/api/files.completeUploadExternal',
                     headers={**headers, 'Content-Type': 'application/json'},
                     json={
                         'files': [{'id': file_id, 'title': '股票分析报告'}],
                         'channel_id': self._slack_channel_id,
-                    },
-                    timeout=self._timeout,
+                    }
                 )
                 result3 = resp3.json()
                 if result3.get("ok"):
@@ -233,7 +238,7 @@ class SlackSender:
         # Webhook 模式或 Bot 上传失败：回退为文本
         if fallback_content:
             logger.info("Slack 图片不支持或失败，回退为文本发送")
-            return self.send_to_slack(fallback_content)
+            return await self.send_to_slack(fallback_content)
 
         logger.warning("Slack 图片发送失败，且无回退内容")
         return False

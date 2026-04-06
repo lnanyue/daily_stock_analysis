@@ -41,7 +41,7 @@ class HelpCommand(BotCommand):
     def usage(self) -> str:
         return "/help [命令名]"
     
-    def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行帮助命令"""
         # 延迟导入避免循环依赖
         from bot.dispatcher import get_dispatcher

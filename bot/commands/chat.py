@@ -35,7 +35,7 @@ class ChatCommand(BotCommand):
     def aliases(self) -> list[str]:
         return ["c", "问"]
         
-    def execute(self, message: BotMessage, args: list[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: list[str]) -> BotResponse:
         """Execute the chat command."""
         config = get_config()
         
@@ -53,9 +53,10 @@ class ChatCommand(BotCommand):
         session_id = f"{message.platform}_{message.user_id}"
         
         try:
+            import anyio
             from src.agent.factory import build_agent_executor
             executor = build_agent_executor(config)
-            result = executor.chat(message=user_message, session_id=session_id)
+            result = await anyio.to_thread.run_sync(executor.chat, user_message, session_id)
             
             if result.success:
                 return BotResponse.text_response(result.content)

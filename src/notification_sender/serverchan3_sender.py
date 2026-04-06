@@ -7,12 +7,11 @@ Server酱3 发送提醒服务
 """
 import logging
 from typing import Optional
-import requests
 from datetime import datetime
 import re
 
 from src.config import Config
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ class Serverchan3Sender:
         self._serverchan3_sendkey = getattr(config, 'serverchan3_sendkey', None)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
-    def send_to_serverchan3(self, content: str, title: Optional[str] = None) -> bool:
+    async def send_to_serverchan3(self, content: str, title: Optional[str] = None) -> bool:
         """
         推送消息到 Server酱3
 
@@ -64,6 +63,7 @@ class Serverchan3Sender:
             date_str = datetime.now().strftime('%Y-%m-%d')
             title = f"📈 股票分析报告 - {date_str}"
 
+        from .async_base import get_sender_http_client
         try:
             # 根据 sendkey 格式构造 URL
             sendkey = self._serverchan3_sendkey
@@ -89,7 +89,9 @@ class Serverchan3Sender:
             headers = {
                 'Content-Type': 'application/json;charset=utf-8'
             }
-            response = requests.post(url, json=params, headers=headers, timeout=self._timeout)
+            
+            client = await get_sender_http_client()
+            response = await client.post(url, json=params, headers=headers)
 
             if response.status_code == 200:
                 result = response.json()

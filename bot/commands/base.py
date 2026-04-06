@@ -96,7 +96,7 @@ class BotCommand(ABC):
         return False
     
     @abstractmethod
-    def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """
         执行命令
         

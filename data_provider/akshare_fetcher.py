@@ -27,6 +27,8 @@ import logging
 import os
 import random
 import time
+import asyncio
+import anyio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
@@ -69,6 +71,7 @@ from .utils import (
     RealtimeCache,
     DEFAULT_USER_AGENTS,
 )
+from ._async_client import get_async_client
 
 # 向后兼容别名
 USER_AGENTS = DEFAULT_USER_AGENTS
@@ -704,7 +707,7 @@ class AkshareFetcher(BaseFetcher):
         
         return df
     
-    def get_realtime_quote(self, stock_code: str, source: str = "em") -> Optional[UnifiedRealtimeQuote]:
+    async def get_realtime_quote(self, stock_code: str, source: str = "em") -> Optional[UnifiedRealtimeQuote]:
         """
         获取实时行情数据（支持多数据源）
 
@@ -728,13 +731,13 @@ class AkshareFetcher(BaseFetcher):
             logger.debug(f"[API跳过] {stock_code} 是美股，Akshare 不支持美股实时行情")
             return None
         elif _is_hk_code(stock_code):
-            return self._get_hk_realtime_quote(stock_code)
+            return await anyio.to_thread.run_sync(self._get_hk_realtime_quote, stock_code)
         elif _is_etf_code(stock_code):
             source_key = "akshare_etf"
             if not circuit_breaker.is_available(source_key):
                 logger.warning(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
                 return None
-            return self._get_etf_realtime_quote(stock_code)
+            return await anyio.to_thread.run_sync(self._get_etf_realtime_quote, stock_code)
         else:
             source_key = f"akshare_{source}"
             if not circuit_breaker.is_available(source_key):
@@ -742,11 +745,23 @@ class AkshareFetcher(BaseFetcher):
                 return None
             # 普通 A 股：根据 source 选择数据源
             if source == "sina":
-                return self._get_stock_realtime_quote_sina(stock_code)
+                return await self._get_stock_realtime_quote_sina(stock_code)
             elif source == "tencent":
-                return self._get_stock_realtime_quote_tencent(stock_code)
+                return await self._get_stock_realtime_quote_tencent(stock_code)
             else:
-                return self._get_stock_realtime_quote_em(stock_code)
+                return await anyio.to_thread.run_sync(self._get_stock_realtime_quote_em, stock_code)
+
+    def get_realtime_quote_sync(self, stock_code: str, source: str = "em") -> Optional[UnifiedRealtimeQuote]:
+        """同步包装器，用于尚未迁移到异步的调用方。"""
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                return asyncio.run_coroutine_threadsafe(
+                    self.get_realtime_quote(stock_code, source), loop
+                ).result()
+        except RuntimeError:
+            pass
+        return asyncio.run(self.get_realtime_quote(stock_code, source))
     
     def _get_stock_realtime_quote_em(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
@@ -849,7 +864,7 @@ class AkshareFetcher(BaseFetcher):
             circuit_breaker.record_failure(source_key, str(e))
             return None
     
-    def _get_stock_realtime_quote_sina(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+    async def _get_stock_realtime_quote_sina(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取普通 A 股实时行情数据（新浪财经数据源）
         
@@ -876,8 +891,8 @@ class AkshareFetcher(BaseFetcher):
             )
 
             self._enforce_rate_limit()
-            with httpx.Client() as client:
-                response = client.get(url, headers=headers, timeout=10.0)
+            client = await get_async_client()
+            response = await client.get(url, headers=headers, timeout=10.0)
             content = response.content.decode('gbk')
             api_elapsed = time.time() - api_start
             
@@ -1001,7 +1016,7 @@ class AkshareFetcher(BaseFetcher):
             circuit_breaker.record_failure(source_key, failure_message)
             return None
     
-    def _get_stock_realtime_quote_tencent(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+    async def _get_stock_realtime_quote_tencent(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取普通 A 股实时行情数据（腾讯财经数据源）
         
@@ -1028,8 +1043,8 @@ class AkshareFetcher(BaseFetcher):
             )
 
             self._enforce_rate_limit()
-            with httpx.Client() as client:
-                response = client.get(url, headers=headers, timeout=10.0)
+            client = await get_async_client()
+            response = await client.get(url, headers=headers, timeout=10.0)
             content = response.content.decode('gbk')
             api_elapsed = time.time() - api_start
             

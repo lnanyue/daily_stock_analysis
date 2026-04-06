@@ -7,11 +7,12 @@
 """
 import logging
 import json
-import requests
+import asyncio
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes, slice_at_max_bytes
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from .async_base import get_sender_http_client
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class CustomWebhookSender:
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
  
-    def send_to_custom(self, content: str) -> bool:
+    async def send_to_custom(self, content: str) -> bool:
         """
         推送消息到自定义 Webhook
         
@@ -66,7 +67,7 @@ class CustomWebhookSender:
                 
                 # 钉钉机器人对 body 有字节上限（约 20000 bytes），超长需要分批发送
                 if self._is_dingtalk_webhook(url):
-                    if self._send_dingtalk_chunked(url, content, max_bytes=20000):
+                    if await self._send_dingtalk_chunked(url, content, max_bytes=20000):
                         logger.info(f"自定义 Webhook {i+1}（钉钉）推送成功")
                         success_count += 1
                     else:
@@ -75,7 +76,7 @@ class CustomWebhookSender:
 
                 # 其他 Webhook：单次发送
                 payload = self._build_custom_webhook_payload(url, content)
-                if self._post_custom_webhook(url, payload):
+                if await self._post_custom_webhook(url, payload):
                     logger.info(f"自定义 Webhook {i+1} 推送成功")
                     success_count += 1
                 else:
@@ -88,13 +89,14 @@ class CustomWebhookSender:
         return success_count > 0
 
     
-    def _send_custom_webhook_image(
+    async def _send_custom_webhook_image(
         self, image_bytes: bytes, fallback_content: str = ""
     ) -> bool:
         """Send image to Custom Webhooks; Discord supports file attachment (Issue #289)."""
         if not self._custom_webhook_urls:
             return False
         success_count = 0
+        client = await get_sender_http_client()
         for i, url in enumerate(self._custom_webhook_urls):
             try:
                 if self._is_discord_webhook(url):
@@ -105,9 +107,8 @@ class CustomWebhookSender:
                         headers["Authorization"] = (
                             f"Bearer {self._custom_webhook_bearer_token}"
                         )
-                    response = requests.post(
-                        url, data=data, files=files, headers=headers, timeout=self._timeout,
-                        verify=self._webhook_verify_ssl
+                    response = await client.post(
+                        url, data=data, files=files, headers=headers
                     )
                     if response.status_code in (200, 204):
                         logger.info("自定义 Webhook %d（Discord 图片）推送成功", i + 1)
@@ -120,7 +121,7 @@ class CustomWebhookSender:
                 else:
                     if fallback_content:
                         payload = self._build_custom_webhook_payload(url, fallback_content)
-                        if self._post_custom_webhook(url, payload):
+                        if await self._post_custom_webhook(url, payload):
                             logger.info(
                                 "自定义 Webhook %d（图片不支持，回退文本）推送成功", i + 1
                             )
@@ -133,9 +134,7 @@ class CustomWebhookSender:
                 logger.error("自定义 Webhook %d 图片推送异常: %s", i + 1, e)
         return success_count > 0
 
-    def _post_custom_webhook(self, url: str, payload: dict, timeout: int | None = None) -> bool:
-        if timeout is None:
-            timeout = self._timeout
+    async def _post_custom_webhook(self, url: str, payload: dict, timeout: int | None = None) -> bool:
         headers = {
             'Content-Type': 'application/json; charset=utf-8',
             'User-Agent': 'StockAnalysis/1.0',
@@ -144,7 +143,9 @@ class CustomWebhookSender:
         if self._custom_webhook_bearer_token:
             headers['Authorization'] = f'Bearer {self._custom_webhook_bearer_token}'
         body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        response = requests.post(url, data=body, headers=headers, timeout=timeout, verify=self._webhook_verify_ssl)
+        
+        client = await get_sender_http_client()
+        response = await client.post(url, content=body, headers=headers)
         if response.status_code == 200:
             return True
         logger.error(f"自定义 Webhook 推送失败: HTTP {response.status_code}")
@@ -200,9 +201,7 @@ class CustomWebhookSender:
             "body": content
         }
     
-    def _send_dingtalk_chunked(self, url: str, content: str, max_bytes: int = 20000) -> bool:
-        import time as _time
-
+    async def _send_dingtalk_chunked(self, url: str, content: str, max_bytes: int = 20000) -> bool:
         # 为 payload 开销预留空间，避免 body 超限
         budget = max(1000, max_bytes - 1500)
         chunks = chunk_content_by_max_bytes(content, budget)
@@ -228,15 +227,29 @@ class CustomWebhookSender:
                 hard_budget = max(200, budget - (body_bytes - max_bytes) - 200)
                 payload["markdown"]["text"], _ = slice_at_max_bytes(payload["markdown"]["text"], hard_budget)
 
-            if self._post_custom_webhook(url, payload):
+            if await self._post_custom_webhook(url, payload):
                 ok += 1
             else:
                 logger.error(f"钉钉分批发送失败: 第 {idx+1}/{total} 批")
 
             if idx < total - 1:
-                _time.sleep(1)
+                await asyncio.sleep(1)
 
         return ok == total
+
+    
+    @staticmethod
+    def _is_dingtalk_webhook(url: str) -> bool:
+        url_lower = (url or "").lower()
+        return 'dingtalk' in url_lower or 'oapi.dingtalk.com' in url_lower
+
+    @staticmethod
+    def _is_discord_webhook(url: str) -> bool:
+        url_lower = (url or "").lower()
+        return (
+            'discord.com/api/webhooks' in url_lower
+            or 'discordapp.com/api/webhooks' in url_lower
+        )
 
     
     @staticmethod

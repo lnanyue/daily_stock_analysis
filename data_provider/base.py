@@ -253,6 +253,22 @@ class BaseFetcher(ABC):
     name: str = "BaseFetcher"
     priority: int = 99  # 优先级数字越小越优先
     
+    def __init__(self, config: Optional[Any] = None):
+        """
+        初始化数据源
+        
+        Args:
+            config: 配置对象。如果为 None，则通过 get_config() 获取全局配置。
+        """
+        self._config = config
+
+    def _get_config(self) -> Any:
+        """获取配置对象 - 优先使用注入的配置，否则回退到全局配置。"""
+        if self._config is not None:
+            return self._config
+        from src.config import get_config
+        return get_config()
+
     @abstractmethod
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -482,17 +498,22 @@ class DataFetcherManager:
     - 所有数据源都失败时抛出异常
     """
     
-    def __init__(self, fetchers: Optional[List[BaseFetcher]] = None):
+    def __init__(self, fetchers: Optional[List[BaseFetcher]] = None, config: Optional[Any] = None):
         """
         初始化管理器
         
         Args:
             fetchers: 数据源列表（可选，默认按优先级自动创建）
+            config: 配置对象（可选，用于依赖注入）
         """
+        self._config = config
         self._fetchers: List[BaseFetcher] = []
         
         if fetchers:
-            # 按优先级排序
+            # 按优先级排序，并确保所有 fetchers 使用注入的配置
+            for f in fetchers:
+                if config is not None and hasattr(f, "_config") and f._config is None:
+                    f._config = config
             self._fetchers = sorted(fetchers, key=lambda f: f.priority)
         else:
             # 默认数据源将在首次使用时延迟加载
@@ -750,6 +771,13 @@ class DataFetcherManager:
             return [{"name": board_name}]
         return []
     
+    def _get_config(self) -> Any:
+        """获取配置对象 - 优先使用注入的配置，否则回退到全局配置。"""
+        if self._config is not None:
+            return self._config
+        from src.config import get_config
+        return get_config()
+
     def _init_default_fetchers(self) -> None:
         """
         初始化默认数据源列表
@@ -770,7 +798,8 @@ class DataFetcherManager:
         from .pytdx_fetcher import PytdxFetcher
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
-        # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
+
+        # 创建所有数据源实例（各 Fetcher 使用各自的默认配置）
         efinance = EfinanceFetcher()
         akshare = AkshareFetcher()
         tushare = TushareFetcher()  # 会根据 Token 配置自动调整优先级
@@ -999,9 +1028,9 @@ class DataFetcherManager:
             logger.error(f"[预取] 批量预取异常: {e}")
             return 0
     
-    def get_realtime_quote(self, stock_code: str):
+    async def get_realtime_quote(self, stock_code: str):
         """
-        获取实时行情数据（自动故障切换）
+        获取实时行情数据（自动故障切换）- 异步版
         
         故障切换策略（按配置的优先级）：
         1. 美股：使用 YfinanceFetcher.get_realtime_quote()
@@ -1022,60 +1051,90 @@ class DataFetcherManager:
 
         from .akshare_fetcher import _is_us_code
         from .us_index_mapping import is_us_index_code
-        from src.config import get_config
-
-        config = get_config()
+        active_config = self._get_config()
 
         # 如果实时行情功能被禁用，直接返回 None
-        if not config.enable_realtime_quote:
+        if not active_config.enable_realtime_quote:
             logger.debug(f"[实时行情] 功能已禁用，跳过 {stock_code}")
             return None
 
-        # 美股指数由 YfinanceFetcher 处理（在美股股票检查之前）
+        # 美股指数由 YfinanceFetcher 处理
         if is_us_index_code(stock_code):
             for fetcher in self._fetchers:
                 if fetcher.name == "YfinanceFetcher":
-                    if hasattr(fetcher, 'get_realtime_quote'):
-                        try:
-                            quote = fetcher.get_realtime_quote(stock_code)
+                    try:
+                        if hasattr(fetcher, 'get_realtime_quote'):
+                            # 尝试异步
+                            if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                quote = await fetcher.get_realtime_quote(stock_code)
+                            else:
+                                quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
+                            
                             if quote is not None:
                                 logger.info(f"[实时行情] 美股指数 {stock_code} 成功获取 (来源: yfinance)")
                                 return quote
-                        except Exception as e:
-                            logger.warning(f"[实时行情] 美股指数 {stock_code} 获取失败: {e}")
+                    except Exception as e:
+                        logger.warning(f"[实时行情] 美股指数 {stock_code} 获取失败: {e}")
                     break
             logger.warning(f"[实时行情] 美股指数 {stock_code} 无可用数据源")
             return None
 
+        # 普通个股实时行情获取流程...
+        # 详见后续完整实现，此处先将 get_realtime_quote 设为 async 并添加 sync wrapper
+        return await self._get_realtime_quote_internal(stock_code)
+
+    def get_realtime_quote_sync(self, stock_code: str):
+        """同步包装器，用于尚未迁移到异步的调用方。"""
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                return asyncio.run_coroutine_threadsafe(
+                    self.get_realtime_quote(stock_code), loop
+                ).result()
+        except RuntimeError:
+            pass
+        return asyncio.run(self.get_realtime_quote(stock_code))
+
+    async def _get_realtime_quote_internal(self, stock_code: str):
+        # 内部实现，支持故障切换
+        active_config = self._get_config()
+        
         # 美股单独处理，使用 YfinanceFetcher
+        from .akshare_fetcher import _is_us_code
         if _is_us_code(stock_code):
             for fetcher in self._fetchers:
                 if fetcher.name == "YfinanceFetcher":
-                    if hasattr(fetcher, 'get_realtime_quote'):
-                        try:
-                            quote = fetcher.get_realtime_quote(stock_code)
+                    try:
+                        if hasattr(fetcher, 'get_realtime_quote'):
+                            if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                quote = await fetcher.get_realtime_quote(stock_code)
+                            else:
+                                quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
+                            
                             if quote is not None:
                                 logger.info(f"[实时行情] 美股 {stock_code} 成功获取 (来源: yfinance)")
                                 return quote
-                        except Exception as e:
-                            logger.warning(f"[实时行情] 美股 {stock_code} 获取失败: {e}")
+                    except Exception as e:
+                        logger.warning(f"[实时行情] 美股 {stock_code} 获取失败: {e}")
                     break
             logger.warning(f"[实时行情] 美股 {stock_code} 无可用数据源")
             return None
 
-        # 港股实时行情只走港股专用入口，避免按 A 股 source_priority
-        # 反复触发同一个 ak.stock_hk_spot_em() 接口。
+        # 港股实时行情只走港股专用入口
         if _is_hk_market(stock_code):
             for fetcher in self._fetchers:
                 if fetcher.name != "AkshareFetcher":
                     continue
-                if not hasattr(fetcher, 'get_realtime_quote'):
-                    break
                 try:
-                    quote = fetcher.get_realtime_quote(stock_code, source="hk")
-                    if quote is not None and quote.has_basic_data():
-                        logger.info(f"[实时行情] 港股 {stock_code} 成功获取 (来源: akshare_hk)")
-                        return quote
+                    if hasattr(fetcher, 'get_realtime_quote'):
+                        if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                            quote = await fetcher.get_realtime_quote(stock_code, source="hk")
+                        else:
+                            quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "hk")
+                        
+                        if quote is not None and quote.has_basic_data():
+                            logger.info(f"[实时行情] 港股 {stock_code} 成功获取 (来源: akshare_hk)")
+                            return quote
                 except Exception as e:
                     logger.warning(f"[实时行情] 港股 {stock_code} 获取失败: {e}")
                 break
@@ -1084,12 +1143,14 @@ class DataFetcherManager:
             return None
         
         # 获取配置的数据源优先级
-        source_priority = config.realtime_source_priority.split(',')
+        source_priority_str = getattr(active_config, "realtime_source_priority", "efinance,akshare_em,akshare_sina,tencent")
+        source_priority = source_priority_str.split(',')
         
         errors = []
         # primary_quote holds the first successful result; we may supplement
         # missing fields (volume_ratio, turnover_rate, etc.) from later sources.
         primary_quote = None
+        supplement_attempts = 0
         
         for source in source_priority:
             source = source.strip().lower()
@@ -1102,7 +1163,10 @@ class DataFetcherManager:
                     for fetcher in self._fetchers:
                         if fetcher.name == "EfinanceFetcher":
                             if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code)
+                                if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                    quote = await fetcher.get_realtime_quote(stock_code)
+                                else:
+                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
                             break
                 
                 elif source == "akshare_em":
@@ -1110,7 +1174,10 @@ class DataFetcherManager:
                     for fetcher in self._fetchers:
                         if fetcher.name == "AkshareFetcher":
                             if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code, source="em")
+                                if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                    quote = await fetcher.get_realtime_quote(stock_code, source="em")
+                                else:
+                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "em")
                             break
                 
                 elif source == "akshare_sina":
@@ -1118,7 +1185,10 @@ class DataFetcherManager:
                     for fetcher in self._fetchers:
                         if fetcher.name == "AkshareFetcher":
                             if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code, source="sina")
+                                if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                    quote = await fetcher.get_realtime_quote(stock_code, source="sina")
+                                else:
+                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "sina")
                             break
                 
                 elif source in ("tencent", "akshare_qq"):
@@ -1126,7 +1196,10 @@ class DataFetcherManager:
                     for fetcher in self._fetchers:
                         if fetcher.name == "AkshareFetcher":
                             if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code, source="tencent")
+                                if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                    quote = await fetcher.get_realtime_quote(stock_code, source="tencent")
+                                else:
+                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code, "tencent")
                             break
                 
                 elif source == "tushare":
@@ -1134,7 +1207,10 @@ class DataFetcherManager:
                     for fetcher in self._fetchers:
                         if fetcher.name == "TushareFetcher":
                             if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code)
+                                if asyncio.iscoroutinefunction(fetcher.get_realtime_quote):
+                                    quote = await fetcher.get_realtime_quote(stock_code)
+                                else:
+                                    quote = await anyio.to_thread.run_sync(fetcher.get_realtime_quote, stock_code)
                             break
                 
                 if quote is not None and quote.has_basic_data():

@@ -18,6 +18,8 @@ import json as _json
 import logging
 import re
 import time
+import asyncio
+import anyio
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -92,13 +94,15 @@ class TushareFetcher(BaseFetcher):
     name = "TushareFetcher"
     priority = int(os.getenv("TUSHARE_PRIORITY", "2"))  # 默认优先级，会在 __init__ 中根据配置动态调整
 
-    def __init__(self, rate_limit_per_minute: int = 80):
+    def __init__(self, rate_limit_per_minute: int = 80, config: Optional[Any] = None):
         """
         初始化 TushareFetcher
 
         Args:
             rate_limit_per_minute: 每分钟最大请求数（默认80，Tushare免费配额）
+            config: 配置对象
         """
+        super().__init__(config=config)
         self.rate_limit_per_minute = rate_limit_per_minute
         self._call_count = 0  # 当前分钟内的调用次数
         self._minute_start: Optional[float] = None  # 当前计数周期开始时间
@@ -143,6 +147,41 @@ class TushareFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"Tushare API 初始化失败: {e}")
             self._api = None
+
+    from ._async_client import get_async_client
+
+    async def _api_post(self, api_name: str, fields: str = '', **kwargs) -> pd.DataFrame:
+        """
+        Async version of Tushare API call using shared httpx client.
+        """
+        TUSHARE_API_URL = "http://api.tushare.pro"
+        _timeout = getattr(self._api, '_DataApi__timeout', 30)
+        
+        req_params = {
+            'api_name': api_name,
+            'token': self._get_config().tushare_token,
+            'params': kwargs,
+            'fields': fields,
+        }
+        
+        try:
+            client = await get_async_client()
+            res = await client.post(TUSHARE_API_URL, json=req_params, timeout=_timeout)
+            
+            if res.status_code != 200:
+                raise Exception(f"Tushare API HTTP {res.status_code}")
+                
+            result = _json.loads(res.text)
+            if result['code'] != 0:
+                raise Exception(result['msg'])
+                
+            data = result['data']
+            columns = data['fields']
+            items = data['items']
+            return pd.DataFrame(items, columns=columns)
+        except Exception as e:
+            logger.error(f"Tushare API 调用失败 ({api_name}): {e}")
+            raise
 
     def _patch_api_endpoint(self, token: str) -> None:
         """
@@ -210,6 +249,48 @@ class TushareFetcher(BaseFetcher):
             True 表示可用，False 表示不可用
         """
         return self._api is not None
+
+    async def _check_rate_limit_async(self) -> None:
+        """
+        检查并执行速率限制（异步版）
+        """
+        current_time = time.time()
+        
+        if self._minute_start is None:
+            self._minute_start = current_time
+            self._call_count = 0
+        elif current_time - self._minute_start >= 60:
+            self._minute_start = current_time
+            self._call_count = 0
+            logger.debug("速率限制计数器已重置")
+        
+        if self._call_count >= self.rate_limit_per_minute:
+            elapsed = current_time - self._minute_start
+            sleep_time = max(0, 60 - elapsed) + 1
+            
+            logger.warning(
+                f"Tushare 调用速率达到上限 ({self._call_count}/{self.rate_limit_per_minute})，"
+                f"强制休眠 {sleep_time:.1f} 秒..."
+            )
+            await asyncio.sleep(sleep_time)
+            
+            # 递归再次检查（重置后的状态）
+            await self._check_rate_limit_async()
+            return
+
+        self._call_count += 1
+
+    def get_realtime_quote_sync(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+        """同步包装器，用于尚未迁移到异步的调用方。"""
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                return asyncio.run_coroutine_threadsafe(
+                    self.get_realtime_quote(stock_code), loop
+                ).result()
+        except RuntimeError:
+            pass
+        return asyncio.run(self.get_realtime_quote(stock_code))
 
     def _check_rate_limit(self) -> None:
         """
@@ -572,7 +653,7 @@ class TushareFetcher(BaseFetcher):
         
         return None
     
-    def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+    async def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取实时行情
 
@@ -600,13 +681,13 @@ class TushareFetcher(BaseFetcher):
         )
 
         # 速率限制检查
-        self._check_rate_limit()
+        await self._check_rate_limit_async()
 
         # 尝试 Pro 接口
         try:
             ts_code = self._convert_stock_code(stock_code)
-            # 尝试调用 Pro 实时接口 (需要积分)
-            df = self._api.quotation(ts_code=ts_code)
+            # 尝试异步调用
+            df = await self._api_post("stk_quotelist", ts_code=ts_code)
 
             if df is not None and not df.empty:
                 row = df.iloc[0]

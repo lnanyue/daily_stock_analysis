@@ -14,15 +14,18 @@ A股自选股智能分析系统 - 通知层
    - 邮件 SMTP
    - Pushover（手机/桌面推送）
 """
+import asyncio
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
-# 统一超时配置（秒）— 所有通知渠道的默认超时值
-NOTIFICATION_DEFAULT_TIMEOUT_SEC = 20
+# Import shared timeout constants (dedicated module avoids circular imports)
+from src.notification_constants import (
+    NOTIFICATION_DEFAULT_MAX_RETRIES,
+    NOTIFICATION_DEFAULT_TIMEOUT_SEC,
+)
 
 from src.config import get_config
 from src.analyzer import AnalysisResult
@@ -374,16 +377,16 @@ class NotificationService(
             return None
         return {"chat_id": chat_id}
 
-    def send_to_context(self, content: str) -> bool:
+    async def send_to_context(self, content: str) -> bool:
         """
         向基于消息上下文的渠道发送消息（例如钉钉 Stream 会话）
         
         Args:
             content: Markdown 格式内容
         """
-        return self._send_via_source_context(content)
+        return await self._send_via_source_context(content)
     
-    def _send_via_source_context(self, content: str) -> bool:
+    async def _send_via_source_context(self, content: str) -> bool:
         """
         使用消息上下文（如钉钉/飞书会话）发送一份报告
         
@@ -395,7 +398,7 @@ class NotificationService(
         session_webhook = self._extract_dingtalk_session_webhook()
         if session_webhook:
             try:
-                if self._send_dingtalk_chunked(session_webhook, content, max_bytes=20000):
+                if await self._send_dingtalk_chunked(session_webhook, content, max_bytes=20000):
                     logger.info("已通过钉钉会话（Stream）推送报告")
                     success = True
                 else:
@@ -407,7 +410,7 @@ class NotificationService(
         feishu_info = self._extract_feishu_reply_info()
         if feishu_info:
             try:
-                if self._send_feishu_stream_reply(feishu_info["chat_id"], content):
+                if await self._send_feishu_stream_reply(feishu_info["chat_id"], content):
                     logger.info("已通过飞书会话（Stream）推送报告")
                     success = True
                 else:
@@ -417,7 +420,7 @@ class NotificationService(
 
         return success
 
-    def _send_feishu_stream_reply(self, chat_id: str, content: str) -> bool:
+    async def _send_feishu_stream_reply(self, chat_id: str, content: str) -> bool:
         """
         通过飞书 Stream 模式发送消息到指定会话
         
@@ -452,7 +455,7 @@ class NotificationService(
             content_bytes = len(content.encode('utf-8'))
             
             if content_bytes > max_bytes:
-                return self._send_feishu_stream_chunked(reply_client, chat_id, content, max_bytes)
+                return await self._send_feishu_stream_chunked(reply_client, chat_id, content, max_bytes)
             
             return reply_client.send_to_chat(chat_id, content)
             
@@ -463,7 +466,7 @@ class NotificationService(
             logger.error(f"飞书 Stream 回复异常: {e}")
             return False
 
-    def _send_feishu_stream_chunked(
+    async def _send_feishu_stream_chunked(
         self, 
         reply_client, 
         chat_id: str, 
@@ -482,8 +485,6 @@ class NotificationService(
         Returns:
             是否全部发送成功
         """
-        import time
-        
         def get_bytes(s: str) -> int:
             return len(s.encode('utf-8'))
         
@@ -524,7 +525,7 @@ class NotificationService(
         success = True
         for i, chunk in enumerate(chunks):
             if i > 0:
-                time.sleep(0.5)  # 避免请求过快
+                await asyncio.sleep(0.5)  # 避免请求过快
             
             if not reply_client.send_to_chat(chat_id, chunk):
                 success = False
@@ -1563,7 +1564,7 @@ class NotificationService(
             return False
         return True
 
-    def send(
+    async def send(
         self,
         content: str,
         email_stock_codes: Optional[List[str]] = None,
@@ -1574,12 +1575,6 @@ class NotificationService(
 
         遍历所有已配置的渠道，逐一发送消息
 
-        Fallback rules (Markdown-to-image, Issue #289):
-        - When image_bytes is None (conversion failed / imgkit not installed /
-          content over max_chars): all channels configured for image will send
-          as Markdown text instead.
-        - When WeChat image exceeds ~2MB: that channel falls back to Markdown text.
-
         Args:
             content: 消息内容（Markdown 格式）
             email_stock_codes: 股票代码列表（可选，用于邮件渠道路由到对应分组邮箱，Issue #268）
@@ -1588,7 +1583,7 @@ class NotificationService(
         Returns:
             是否至少有一个渠道发送成功
         """
-        context_success = self.send_to_context(content)
+        context_success = await self.send_to_context(content)
 
         if not self._available_channels:
             if context_success:
@@ -1597,8 +1592,7 @@ class NotificationService(
             logger.warning("通知服务不可用，跳过推送")
             return False
 
-        # Markdown to image (Issue #289): convert once if any channel needs it.
-        # Per-channel decision via _should_use_image_for_channel (see send() docstring for fallback rules).
+        # Markdown to image (Issue #289)
         image_bytes = None
         channels_needing_image = {
             ch for ch in self._available_channels
@@ -1613,15 +1607,7 @@ class NotificationService(
                 logger.info("Markdown 已转换为图片，将向 %s 发送图片",
                             [ch.value for ch in channels_needing_image])
             elif channels_needing_image:
-                try:
-                    from src.config import get_config
-                    engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
-                except Exception:
-                    engine = "wkhtmltoimage"
-                hint = (
-                    "npm i -g markdown-to-file" if engine == "markdown-to-file"
-                    else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
-                )
+                hint = "wkhtmltopdf"
                 logger.warning(
                     "Markdown 转图片失败，将回退为文本发送。请检查 MARKDOWN_TO_IMAGE_CHANNELS 配置并安装 %s",
                     hint,
@@ -1631,56 +1617,72 @@ class NotificationService(
         logger.info(f"正在向 {len(self._available_channels)} 个渠道发送通知：{channel_names}")
 
         # 构建各渠道的发送任务（包含图片决策）
-        channel_tasks: List[Tuple[NotificationChannel, str, Any, bool]] = []
+        coros = []
         for channel in self._available_channels:
             use_image = self._should_use_image_for_channel(channel, image_bytes)
-            channel_tasks.append((channel, content, image_bytes if use_image else None, use_image))
+            coros.append(
+                self._send_channel_with_retry(
+                    channel, 
+                    content, 
+                    image_bytes if use_image else None,
+                    email_stock_codes=email_stock_codes,
+                    email_send_to_all=email_send_to_all
+                )
+            )
 
-        # 并发发送各渠道（带重试）
-        max_workers = min(4, len(channel_tasks)) if channel_tasks else 1
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(self._send_channel_with_retry, ch, cnt, img): ch
-                for ch, cnt, img, _ in channel_tasks
-            }
-            success_count = 0
-            fail_count = 0
-            for future in as_completed(futures):
-                channel = futures[future]
-                channel_name = ChannelDetector.get_channel_name(channel)
-                try:
-                    if future.result():
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                except Exception as e:
-                    logger.error(f"{channel_name} 发送异常: {e}")
-                    fail_count += 1
+        # 并发发送各渠道
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        success_count = 0
+        fail_count = 0
+        for i, res in enumerate(results):
+            channel = self._available_channels[i]
+            channel_name = ChannelDetector.get_channel_name(channel)
+            if isinstance(res, Exception):
+                logger.error(f"{channel_name} 发送异常: {res}")
+                fail_count += 1
+            elif res:
+                success_count += 1
+            else:
+                fail_count += 1
 
         logger.info(f"通知发送完成：成功 {success_count} 个，失败 {fail_count} 个")
         return success_count > 0 or context_success
 
-    def _send_channel_with_retry(
+    def send_sync(self, content, email_stock_codes=None, email_send_to_all=False) -> bool:
+        """Sync wrapper for callers that haven't migrated to async yet."""
+        try:
+            loop = asyncio.get_running_loop()
+            # If running in a thread, this might fail or block
+            return asyncio.run_coroutine_threadsafe(
+                self.send(content, email_stock_codes, email_send_to_all),
+                loop
+            ).result()
+        except RuntimeError:
+            # No running event loop
+            return asyncio.run(
+                self.send(content, email_stock_codes, email_send_to_all)
+            )
+
+    async def _send_channel_with_retry(
         self,
         channel: NotificationChannel,
         content: str,
         image_bytes: Optional[bytes] = None,
+        email_stock_codes: Optional[List[str]] = None,
+        email_send_to_all: bool = False,
     ) -> bool:
         """
         对单个渠道进行发送，失败时指数退避重试。
-
-        Args:
-            channel: 通知渠道
-            content: 消息内容
-            image_bytes: 图片数据（None 表示发送文本）
-
-        Returns:
-            是否发送成功
         """
         max_retries = self._notification_max_retries
         for attempt in range(max_retries + 1):
             try:
-                result = self._send_single_channel(channel, content, image_bytes)
+                result = await self._send_single_channel(
+                    channel, content, image_bytes, 
+                    email_stock_codes=email_stock_codes,
+                    email_send_to_all=email_send_to_all
+                )
                 if result:
                     return True
             except Exception as e:
@@ -1690,50 +1692,58 @@ class NotificationService(
                     logger.warning(
                         f"{channel_name} 发送失败，{delay:.1f}s 后重试 ({attempt + 1}/{max_retries}): {e}"
                     )
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
                 else:
                     logger.error(f"{channel_name} 发送失败，已重试 {max_retries} 次: {e}")
         return False
 
-    def _send_single_channel(
+    async def _send_single_channel(
         self,
         channel: NotificationChannel,
         content: str,
         image_bytes: Optional[bytes] = None,
+        email_stock_codes: Optional[List[str]] = None,
+        email_send_to_all: bool = False,
     ) -> bool:
         """向单个渠道发送消息（无重试）。"""
         if channel == NotificationChannel.WECHAT:
             if image_bytes:
-                return self._send_wechat_image(image_bytes)
-            return self.send_to_wechat(content)
+                return await self._send_wechat_image(image_bytes)
+            return await self.send_to_wechat(content)
         elif channel == NotificationChannel.FEISHU:
-            return self.send_to_feishu(content)
+            return await self.send_to_feishu(content)
         elif channel == NotificationChannel.TELEGRAM:
             if image_bytes:
-                return self._send_telegram_photo(image_bytes)
-            return self.send_to_telegram(content)
+                return await self._send_telegram_photo(image_bytes)
+            return await self.send_to_telegram(content)
         elif channel == NotificationChannel.EMAIL:
             receivers = None
-            # email 场景下 receivers 需要外部传入，此处不处理
-            return self.send_to_email(content, receivers=None)
+            if email_send_to_all and hasattr(self, 'get_all_email_receivers'):
+                receivers = self.get_all_email_receivers()
+            elif email_stock_codes and hasattr(self, 'get_receivers_for_stocks'):
+                receivers = self.get_receivers_for_stocks(email_stock_codes)
+            
+            if image_bytes and hasattr(self, '_send_email_with_inline_image'):
+                return await self._send_email_with_inline_image(image_bytes, receivers=receivers)
+            return await self.send_to_email(content, receivers=receivers)
         elif channel == NotificationChannel.PUSHOVER:
-            return self.send_to_pushover(content)
+            return await self.send_to_pushover(content)
         elif channel == NotificationChannel.PUSHPLUS:
-            return self.send_to_pushplus(content)
+            return await self.send_to_pushplus(content)
         elif channel == NotificationChannel.SERVERCHAN3:
-            return self.send_to_serverchan3(content)
+            return await self.send_to_serverchan3(content)
         elif channel == NotificationChannel.CUSTOM:
             if image_bytes:
-                return self._send_custom_webhook_image(image_bytes, fallback_content=content)
-            return self.send_to_custom(content)
+                return await self._send_custom_webhook_image(image_bytes, fallback_content=content)
+            return await self.send_to_custom(content)
         elif channel == NotificationChannel.DISCORD:
-            return self.send_to_discord(content)
+            return await self.send_to_discord(content)
         elif channel == NotificationChannel.SLACK:
             if image_bytes:
-                return self._send_slack_image(image_bytes, fallback_content=content)
-            return self.send_to_slack(content)
+                return await self._send_slack_image(image_bytes, fallback_content=content)
+            return await self.send_to_slack(content)
         elif channel == NotificationChannel.ASTRBOT:
-            return self.send_to_astrbot(content)
+            return await self.send_to_astrbot(content)
         else:
             logger.warning(f"不支持的通知渠道: {channel}")
             return False

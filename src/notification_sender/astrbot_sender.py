@@ -9,11 +9,12 @@ import logging
 import json
 import hmac
 import hashlib
-import requests
+import time
 
 from src.config import Config
 from src.formatters import markdown_to_html_document
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from .async_base import get_sender_http_client
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class AstrbotSender:
         url_ok = bool(self._astrbot_config['astrbot_url'])
         return url_ok
 
-    def send_to_astrbot(self, content: str) -> bool:
+    async def send_to_astrbot(self, content: str) -> bool:
         """
         推送消息到 AstrBot（通过适配器支持）
 
@@ -52,14 +53,13 @@ class AstrbotSender:
             是否发送成功
         """
         if self._astrbot_config['astrbot_url']:
-            return self._send_astrbot(content)
+            return await self._send_astrbot(content)
 
         logger.warning("AstrBot 配置不完整，跳过推送")
         return False
 
 
-    def _send_astrbot(self, content: str) -> bool:
-        import time
+    async def _send_astrbot(self, content: str) -> bool:
         """
         使用 Bot API 发送消息到 AstrBot
 
@@ -89,14 +89,15 @@ class AstrbotSender:
                     hashlib.sha256
                 ).hexdigest()
             url = self._astrbot_config['astrbot_url']
-            response = requests.post(
-                url, json=payload, timeout=self._timeout,
+            
+            client = await get_sender_http_client()
+            response = await client.post(
+                url, json=payload,
                 headers={
                     "Content-Type": "application/json",
                     "X-Signature": signature,
                     "X-Timestamp": timestamp
-                },
-                verify=self._webhook_verify_ssl
+                }
             )
 
             if response.status_code == 200:

@@ -8,7 +8,6 @@
 """
 
 import logging
-import threading
 from typing import List
 
 from bot.commands.base import BotCommand
@@ -47,17 +46,13 @@ class MarketCommand(BotCommand):
     def usage(self) -> str:
         return "/market"
 
-    def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行大盘复盘命令"""
         logger.info(f"[MarketCommand] 开始大盘复盘分析")
 
-        # 在后台线程中执行复盘（避免阻塞）
-        thread = threading.Thread(
-            target=self._run_market_review,
-            args=(message,),
-            daemon=True
-        )
-        thread.start()
+        import asyncio
+        # 在后台异步执行复盘（避免阻塞）
+        asyncio.create_task(self._run_market_review(message))
 
         return BotResponse.markdown_response(
             "✅ **大盘复盘任务已启动**\n\n"
@@ -69,14 +64,14 @@ class MarketCommand(BotCommand):
             "分析完成后将自动推送结果。"
         )
 
-    def _run_market_review(self, message: BotMessage) -> None:
+    async def _run_market_review(self, message: BotMessage) -> None:
         """后台执行大盘复盘"""
         try:
             from src.config import get_config
             from src.notification import NotificationService
-            from src.market_analyzer import MarketAnalyzer
             from src.search_service import SearchService
             from src.analyzer import GeminiAnalyzer
+            from src.core.market_review import run_market_review
 
             config = get_config()
             notifier = NotificationService(source_message=message)
@@ -100,25 +95,13 @@ class MarketCommand(BotCommand):
             if config.gemini_api_key or config.openai_api_key:
                 analyzer = GeminiAnalyzer()
 
-            # 读取配置中的市场区域，与定时任务/CLI 保持一致
-            region = getattr(config, 'market_review_region', 'cn')
-
-            # 执行复盘
-            market_analyzer = MarketAnalyzer(
-                search_service=search_service,
+            # 执行复盘（调用核心模块的异步函数）
+            await run_market_review(
+                notifier=notifier,
                 analyzer=analyzer,
-                region=region,
+                search_service=search_service,
+                send_notification=True
             )
-
-            review_report = market_analyzer.run_daily_review()
-
-            if review_report:
-                # 推送结果
-                report_content = f"🎯 **大盘复盘**\n\n{review_report}"
-                notifier.send(report_content, email_send_to_all=True)
-                logger.info("[MarketCommand] 大盘复盘完成并已推送")
-            else:
-                logger.warning("[MarketCommand] 大盘复盘返回空结果")
 
         except Exception as e:
             logger.error(f"[MarketCommand] 大盘复盘失败: {e}")

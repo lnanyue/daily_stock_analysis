@@ -65,7 +65,7 @@ class AnalyzeCommand(BotCommand):
         
         return None
     
-    def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行分析命令"""
         code = canonical_stock_code(args[0])
         
@@ -80,10 +80,12 @@ class AnalyzeCommand(BotCommand):
             from src.services.task_service import get_task_service
             from src.enums import ReportType
             
-            service = get_task_service()
+            # ★ Async call
+            service = await get_task_service()
             
             # 提交异步分析任务
-            result = service.submit_analysis(
+            # ★ Async call
+            result = await service.submit_analysis(
                 code=code,
                 report_type=ReportType.from_str(report_type),
                 source_message=message

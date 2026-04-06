@@ -97,7 +97,7 @@ class DingtalkStreamHandler:
                     if bot_message:
                         self._parent._log_incoming_message(bot_message)
                         # 调用消息处理回调
-                        response = self._parent._on_message(bot_message)
+                        response = await self._parent._on_message(bot_message)
 
                         # 发送回复
                         if response and response.text:

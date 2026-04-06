@@ -6,13 +6,14 @@ Pushover 发送提醒服务
 1. 通过 Pushover API 发送 Pushover 消息
 """
 import logging
+import asyncio
 from typing import Optional
 from datetime import datetime
-import requests
 
 from src.config import Config
 from src.formatters import markdown_to_plain_text
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from .async_base import get_sender_http_client
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class PushoverSender:
         """检查 Pushover 配置是否完整"""
         return bool(self._pushover_config['user_key'] and self._pushover_config['api_token'])
 
-    def send_to_pushover(self, content: str, title: Optional[str] = None) -> bool:
+    async def send_to_pushover(self, content: str, title: Optional[str] = None) -> bool:
         """
         推送消息到 Pushover
         
@@ -86,12 +87,12 @@ class PushoverSender:
         
         if len(plain_content) <= max_length:
             # 单条消息发送
-            return self._send_pushover_message(api_url, user_key, api_token, plain_content, title)
+            return await self._send_pushover_message(api_url, user_key, api_token, plain_content, title)
         else:
             # 分段发送长消息
-            return self._send_pushover_chunked(api_url, user_key, api_token, plain_content, title, max_length)
+            return await self._send_pushover_chunked(api_url, user_key, api_token, plain_content, title, max_length)
       
-    def _send_pushover_message(
+    async def _send_pushover_message(
         self, 
         api_url: str, 
         user_key: str, 
@@ -120,7 +121,8 @@ class PushoverSender:
                 "priority": priority,
             }
             
-            response = requests.post(api_url, data=payload, timeout=self._timeout)
+            client = await get_sender_http_client()
+            response = await client.post(api_url, data=payload)
             
             if response.status_code == 200:
                 result = response.json()
@@ -140,7 +142,7 @@ class PushoverSender:
             logger.error(f"发送 Pushover 消息失败: {e}")
             return False
     
-    def _send_pushover_chunked(
+    async def _send_pushover_chunked(
         self, 
         api_url: str, 
         user_key: str, 
@@ -154,8 +156,6 @@ class PushoverSender:
         
         按段落分割，确保每段不超过最大长度
         """
-        import time
-        
         # 按段落（分隔线或双换行）分割
         if "────────" in content:
             sections = content.split("────────")
@@ -200,7 +200,7 @@ class PushoverSender:
             # 添加分页标记到标题
             chunk_title = f"{title} ({i+1}/{total_chunks})" if total_chunks > 1 else title
             
-            if self._send_pushover_message(api_url, user_key, api_token, chunk, chunk_title):
+            if await self._send_pushover_message(api_url, user_key, api_token, chunk, chunk_title):
                 success_count += 1
                 logger.info(f"Pushover 第 {i+1}/{total_chunks} 批发送成功")
             else:
@@ -208,7 +208,7 @@ class PushoverSender:
             
             # 批次间隔，避免触发频率限制
             if i < total_chunks - 1:
-                time.sleep(1)
+                await asyncio.sleep(1)
         
         return success_count == total_chunks
     

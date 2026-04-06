@@ -8,8 +8,6 @@
 """
 
 import logging
-import threading
-import uuid
 from typing import List
 
 from bot.commands.base import BotCommand
@@ -50,9 +48,10 @@ class BatchCommand(BotCommand):
         """批量分析需要管理员权限（防止滥用）"""
         return False  # 可以根据需要设为 True
     
-    def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
+    async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行批量分析命令"""
         from src.config import get_config
+        from src.services.task_service import get_task_service
         
         config = get_config()
         config.refresh_stock_list()
@@ -80,47 +79,18 @@ class BatchCommand(BotCommand):
         
         logger.info(f"[BatchCommand] 开始批量分析 {len(stock_list)} 只股票")
         
-        # 在后台线程中执行分析
-        thread = threading.Thread(
-            target=self._run_batch_analysis,
-            args=(stock_list, message),
-            daemon=True
-        )
-        thread.start()
+        # 获取异步任务服务
+        service = await get_task_service()
+        
+        # 逐个提交异步分析任务（submit_analysis 内部会 create_task，所以这里 await 很快）
+        for code in stock_list:
+            await service.submit_analysis(code, source_message=message)
         
         return BotResponse.markdown_response(
             f"✅ **批量分析任务已启动**\n\n"
             f"• 分析数量: {len(stock_list)} 只\n"
             f"• 股票列表: {', '.join(stock_list[:5])}"
             f"{'...' if len(stock_list) > 5 else ''}\n\n"
-            f"分析完成后将自动推送汇总报告。"
+            f"分析完成后将自动推送结果。"
         )
-    
-    def _run_batch_analysis(self, stock_list: List[str], message: BotMessage) -> None:
-        """后台执行批量分析"""
-        try:
-            from src.config import get_config
-            from main import StockAnalysisPipeline
-            
-            config = get_config()
-            
-            # 创建分析管道
-            pipeline = StockAnalysisPipeline(
-                config=config,
-                source_message=message,
-                query_id=uuid.uuid4().hex,
-                query_source="bot"
-            )
-            
-            # 执行分析（会自动推送汇总报告）
-            results = pipeline.run(
-                stock_codes=stock_list,
-                dry_run=False,
-                send_notification=True
-            )
-            
-            logger.info(f"[BatchCommand] 批量分析完成，成功 {len(results)} 只")
-            
-        except Exception as e:
-            logger.error(f"[BatchCommand] 批量分析失败: {e}")
-            logger.exception(e)
+

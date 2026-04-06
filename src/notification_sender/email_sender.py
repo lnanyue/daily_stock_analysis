@@ -6,6 +6,7 @@ Email 发送提醒服务
 1. 通过 SMTP 发送 Email 消息
 """
 import logging
+import anyio
 from typing import Optional, List
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -17,7 +18,7 @@ import smtplib
 
 from src.config import Config
 from src.formatters import markdown_to_html_document
-from src.notification import NOTIFICATION_DEFAULT_TIMEOUT_SEC
+from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 
 
 logger = logging.getLogger(__name__)
@@ -129,7 +130,7 @@ class EmailSender:
             except Exception:
                 pass
     
-    def send_to_email(
+    async def send_to_email(
         self, content: str, subject: Optional[str] = None, receivers: Optional[List[str]] = None
     ) -> bool:
         """
@@ -147,6 +148,14 @@ class EmailSender:
             logger.warning("邮件配置不完整，跳过推送")
             return False
         
+        # 使用 to_thread 运行阻塞操作
+        return await anyio.to_thread.run_sync(
+            self._send_to_email_sync, content, subject, receivers
+        )
+
+    def _send_to_email_sync(
+        self, content: str, subject: Optional[str] = None, receivers: Optional[List[str]] = None
+    ) -> bool:
         sender = self._email_config['sender']
         password = self._email_config['password']
         receivers = receivers or self._email_config['receivers']
@@ -216,12 +225,20 @@ class EmailSender:
         finally:
             self._close_server(server)
 
-    def _send_email_with_inline_image(
+    async def _send_email_with_inline_image(
         self, image_bytes: bytes, receivers: Optional[List[str]] = None
     ) -> bool:
         """Send email with inline image attachment (Issue #289)."""
         if not self._is_email_configured():
             return False
+        
+        return await anyio.to_thread.run_sync(
+            self._send_email_with_inline_image_sync, image_bytes, receivers
+        )
+
+    def _send_email_with_inline_image_sync(
+        self, image_bytes: bytes, receivers: Optional[List[str]] = None
+    ) -> bool:
         sender = self._email_config['sender']
         password = self._email_config['password']
         receivers = receivers or self._email_config['receivers']
