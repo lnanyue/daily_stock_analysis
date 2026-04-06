@@ -1,0 +1,24 @@
+# plugins.yaml — 插件配置文件
+#
+# fetchers: 数据源插件
+# strategies: 分析策略插件
+#
+# config 中的 ${ENV_VAR} 会在加载时被替换为环境变量值
+
+fetchers:
+  # 示例自定义 Fetcher（默认禁用）
+  - name: example_api
+    module: example_fetcher
+    enabled: false
+    priority: 0
+    config:
+      base_url: "https://api.example.com/v1"
+      api_key: "${EXAMPLE_API_KEY}"
+
+strategies:
+  # 示例策略（默认禁用）
+  - name: example_analysis
+    module: example_strategy
+    enabled: false
+    config:
+      some_option: true

@@ -196,6 +196,12 @@ gh run view <run_id> --log-failed
   - 改 API / Schema / 认证 / 报告载荷时，要同时检查后端、Web、Desktop 的兼容性。
   - 默认优先追加字段、保留旧字段或提供兼容层，避免无提示破坏现有客户端。
 
+- 插件开发：
+  - 新增插件时，需同步更新 `plugins.yaml` 示例配置及 `docs/plugins-guide.md`。
+  - 用户自定义插件优先放在 `plugins.local/`，不入库。
+  - 单一插件失败不应阻塞其他插件或主流程。
+  - 插件配置文件（`plugins.yaml`）中的 `${ENV_VAR}` 用于引用环境变量。
+
 - 报告 / Prompt / 通知：
   - 修改报告结构、Prompt、提取器、通知模板、机器人链路时，要检查上游输入与下游消费方是否仍兼容。
   - 单一通知渠道失败不应拖垮整个分析主流程，除非需求明确要求 fail-fast。

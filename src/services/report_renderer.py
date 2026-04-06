@@ -155,6 +155,7 @@ def render(
         "localize_operation_advice": localize_operation_advice,
         "localize_trend_prediction": localize_trend_prediction,
         "localize_chip_health": localize_chip_health,
+        "plugin_results": [],
     }
     if extra_context:
         safe_extra_context = dict(extra_context)

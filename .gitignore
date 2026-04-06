@@ -76,6 +76,8 @@ verify_*.py
 
 # ignore static files
 static/
-/apps/dsa-desktop/dist/
+/# 用户本地插件（不入库，避免密钥泄露）
+plugins.local/
+apps/dsa-desktop/dist/
 /apps/dsa-desktop/node_modules/
 .worktrees/

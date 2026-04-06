@@ -568,6 +568,18 @@ class DataFetcherManager:
             except Exception as exc:
                 logger.debug("[TickFlowFetcher] 关闭管理器资源失败: %s", exc)
 
+    @classmethod
+    def from_plugin_registry(cls, plugin_fetchers: Optional[List[BaseFetcher]] = None) -> "DataFetcherManager":
+        """
+        从插件注册表创建管理器。
+
+        如果 provided plugin_fetchers，则优先使用插件 fetchers，
+        内置 fetchers 作为 fallback。
+        """
+        if plugin_fetchers:
+            return cls(fetchers=plugin_fetchers)
+        return cls()
+
     def __del__(self) -> None:
         try:
             self.close()

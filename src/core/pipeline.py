@@ -83,13 +83,8 @@ class StockAnalysisPipeline:
         
         # 初始化各模块
         self.db = get_db()
-        self.fetcher_manager = DataFetcherManager()
-        # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
-        self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
-        self.analyzer = GeminiAnalyzer(config=self.config)
-        self.notifier = NotificationService(source_message=source_message)
-        
-        # 初始化搜索服务
+
+        # 初始化搜索服务（插件系统需要引用）
         self.search_service = SearchService(
             bocha_keys=self.config.bocha_api_keys,
             tavily_keys=self.config.tavily_api_keys,
@@ -101,6 +96,31 @@ class StockAnalysisPipeline:
             news_max_age_days=self.config.news_max_age_days,
             news_strategy_profile=getattr(self.config, "news_strategy_profile", "short"),
         )
+
+        # 加载插件系统（数据源 + 分析策略）
+        from src.plugins import PluginRegistry, PluginContext
+
+        self.plugins = PluginRegistry()
+        plugin_ctx = PluginContext(
+            config=self.config,
+            db=self.db,
+            search_service=self.search_service,
+            fetcher_manager=None,
+        )
+        self.plugins.load(plugin_ctx)
+
+        # 插件 fetchers 优先，内置 fetchers 作为 fallback
+        plugin_fetchers = self.plugins.get_enabled_fetchers()
+        if plugin_fetchers:
+            self.fetcher_manager = DataFetcherManager(fetchers=plugin_fetchers)
+        else:
+            self.fetcher_manager = DataFetcherManager()
+
+        plugin_ctx.fetcher_manager = self.fetcher_manager
+        # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
+        self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
+        self.analyzer = GeminiAnalyzer(config=self.config)
+        self.notifier = NotificationService(source_message=source_message)
         
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
         logger.info("已启用技术分析引擎（均线/趋势/量价指标）")
@@ -364,6 +384,43 @@ class StockAnalysisPipeline:
                             news_context = social_context
                 except Exception as e:
                     logger.warning(f"{stock_name}({code}) Social sentiment fetch failed: {e}")
+
+            # Step 4.6: 执行分析策略插件（共享给 Agent 和传统两条路径）
+            # 注意：Agent 分支在 Step 3 后直接返回，不经过传统路径。
+            #       所以策略执行放这里（传统路径 news_context 构建完成后）即可覆盖传统路径。
+            #       Agent 路径的策略执行将在 _analyze_with_agent 中单独处理。
+            plugin_strategy_results = []
+            enabled_strategies = self.plugins.get_enabled_strategies()
+            if enabled_strategies:
+                try:
+                    from src.plugins import AnalysisContext as PluginAnalysisContext
+                    bar_start = (date.today() - timedelta(days=89)).isoformat()
+                    historical_bars_for_strategy = self.db.get_data_range(code, bar_start, date.today().isoformat())
+                    strategy_df = None
+                    if historical_bars_for_strategy:
+                        strategy_df = pd.DataFrame([bar.to_dict() for bar in historical_bars_for_strategy])
+
+                    if strategy_df is not None and not strategy_df.empty:
+                        analysis_ctx = PluginAnalysisContext(
+                            stock_code=code,
+                            price_data=strategy_df,
+                            indicators=trend_result or {},
+                            search_results=news_context if news_context else None,
+                        )
+                        plugin_strategy_results = self.plugins.execute_strategies(analysis_ctx)
+
+                        # 将策略结果追加到 news_context 尾部，由 LLM 一并消费
+                        plugin_text = ""
+                        for r in plugin_strategy_results:
+                            plugin_text += f"\n## {r.title}\n{r.summary}\n"
+                        if plugin_text:
+                            plugin_text = "\n\n--- 附加分析 ---" + plugin_text
+                            if news_context:
+                                news_context = news_context + plugin_text
+                            else:
+                                news_context = plugin_text.lstrip()
+                except Exception as e:
+                    logger.warning(f"{stock_name}({code}) 策略插件执行失败: {e}")
 
             # Step 5: 获取分析上下文（技术面数据）
             context = self.db.get_analysis_context(code)
@@ -955,7 +1012,7 @@ class StockAnalysisPipeline:
         ) or yesterday_close
         high_p = getattr(realtime_quote, 'high', None) or price
         low_p = getattr(realtime_quote, 'low', None) or price
-        vol = getattr(realtime_quote, 'volume', None) or 0
+        vol = getattr(realtime_quote, 'volume', None)
         amt = getattr(realtime_quote, 'amount', None)
         pct = getattr(realtime_quote, 'change_pct', None)
 
