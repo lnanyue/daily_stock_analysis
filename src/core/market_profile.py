@@ -53,9 +53,25 @@ US_PROFILE = MarketProfile(
     has_sector_rankings=False,
 )
 
+GLOBAL_PROFILE = MarketProfile(
+    region="global",
+    mood_index_code="000001",  # 默认以 A 股为主参考
+    news_queries=[
+        "A股 大盘 复盘",
+        "美股 大盘",
+        "全球 股市 行情",
+        "中美 股市 关联",
+    ],
+    prompt_index_hint="对比分析 A 股与美股主要指数的走势及相关性",
+    has_market_stats=True,
+    has_sector_rankings=True,
+)
+
 
 def get_profile(region: str) -> MarketProfile:
     """根据 region 返回对应的 MarketProfile"""
     if region == "us":
         return US_PROFILE
+    if region == "global":
+        return GLOBAL_PROFILE
     return CN_PROFILE

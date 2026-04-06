@@ -53,31 +53,19 @@ async def run_market_review(
         if override_region is not None
         else (getattr(config, 'market_review_region', 'cn') or 'cn')
     )
-    if region not in ('cn', 'us', 'both'):
+    if region not in ('cn', 'us', 'both', 'global'):
         region = 'cn'
 
     try:
-        if region == 'both':
-            # 顺序执行 A 股 + 美股，合并报告
-            cn_analyzer = MarketAnalyzer(
-                search_service=search_service, analyzer=analyzer, region='cn'
+        # 当设置为 both 或 global 时，启用全新的全球联动分析模式
+        if region in ('both', 'global'):
+            logger.info("启用全球联动复盘模式 (A股 + 美股)...")
+            global_analyzer = MarketAnalyzer(
+                search_service=search_service,
+                analyzer=analyzer,
+                region='global'
             )
-            us_analyzer = MarketAnalyzer(
-                search_service=search_service, analyzer=analyzer, region='us'
-            )
-            logger.info("生成 A 股大盘复盘报告...")
-            cn_report = cn_analyzer.run_daily_review()
-            logger.info("生成美股大盘复盘报告...")
-            us_report = us_analyzer.run_daily_review()
-            review_report = ''
-            if cn_report:
-                review_report = f"# A股大盘复盘\n\n{cn_report}"
-            if us_report:
-                if review_report:
-                    review_report += "\n\n---\n\n> 以下为美股大盘复盘\n\n"
-                review_report += f"# 美股大盘复盘\n\n{us_report}"
-            if not review_report:
-                review_report = None
+            review_report = global_analyzer.run_daily_review()
         else:
             market_analyzer = MarketAnalyzer(
                 search_service=search_service,

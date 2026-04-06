@@ -1712,6 +1712,110 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 新浪接口获取板块排行也失败: {e}")
             return None
 
+    def get_lhb_data(self, stock_code: str, days: int = 30) -> List[Dict]:
+        """
+        获取龙虎榜数据 (LH榜)
+        """
+        try:
+            # 龙虎榜个股详情
+            logger.info(f"[API调用] 获取 {stock_code} 龙虎榜详情...")
+            df = ak.stock_lhb_detail_em(symbol=stock_code)
+            if df is None or df.empty:
+                return []
+            
+            # 筛选近期数据
+            df['上榜日期'] = pd.to_datetime(df['上榜日期'])
+            recent_date = datetime.now() - timedelta(days=days)
+            df = df[df['上榜日期'] >= recent_date]
+            
+            results = []
+            for _, row in df.iterrows():
+                results.append({
+                    'date': row['上榜日期'].strftime('%Y-%m-%d'),
+                    'reason': row['上榜原因'],
+                    'net_amount': row['龙虎榜净买额'],
+                    'buy_amount': row['龙虎榜买入额'],
+                    'sell_amount': row['龙虎榜卖出额'],
+                    'turnover': row['换手率'],
+                })
+            return results
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取龙虎榜数据失败: {e}")
+            return []
+
+    def get_research_reports(self, stock_code: str, days: int = 180) -> List[Dict]:
+        """
+        获取研报盈利预测和核心观点
+        """
+        try:
+            logger.info(f"[API调用] 获取 {stock_code} 研报盈利预测...")
+            # 盈利预测
+            df_forecast = ak.stock_profit_forecast_thm(symbol=stock_code)
+            forecast_data = {}
+            if df_forecast is not None and not df_forecast.empty:
+                # 取最新一年的预测
+                latest = df_forecast.iloc[0]
+                forecast_data = {
+                    'year': latest.get('年份'),
+                    'pe': latest.get('预测PE'),
+                    'eps': latest.get('预测EPS'),
+                }
+
+            # 研报列表（获取核心标题和评级）
+            logger.info(f"[API调用] 获取 {stock_code} 最新研报...")
+            df_reports = ak.stock_report_disclosure(market="all") # 全量研报
+            if df_reports is not None and not df_reports.empty:
+                # 过滤该股票
+                stock_reports = df_reports[df_reports['股票代码'] == stock_code.split('.')[0]]
+                recent_reports = []
+                for _, row in stock_reports.head(3).iterrows():
+                    recent_reports.append({
+                        'title': row['研报标题'],
+                        'org': row['机构名称'],
+                        'rating': row['机构评级'],
+                        'date': row['披露日期']
+                    })
+                return {
+                    'forecast': forecast_data,
+                    'reports': recent_reports
+                }
+            return {'forecast': forecast_data, 'reports': []}
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取研报数据失败: {e}")
+            return {}
+
+    def get_latest_telegraph(self, keywords: List[str] = None) -> List[Dict]:
+        """
+        获取财联社电报情报
+        """
+        try:
+            logger.info("[API调用] 获取财联社实时电报...")
+            df = ak.stock_telegraph_cls()
+            if df is None or df.empty:
+                return []
+            
+            results = []
+            # 默认取前 20 条进行关键词过滤
+            for _, row in df.head(20).iterrows():
+                content = row['内容']
+                title = row['标题']
+                
+                # 如果指定了关键词，则进行过滤
+                if keywords:
+                    match = any(kw in content or kw in title for kw in keywords)
+                    if not match:
+                        continue
+                
+                results.append({
+                    'time': row['发布时间'],
+                    'title': title,
+                    'content': content
+                })
+            return results
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取财联社电报失败: {e}")
+            return []
+
 
 if __name__ == "__main__":
     # 测试代码

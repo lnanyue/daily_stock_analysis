@@ -10,6 +10,20 @@ A股自选股智能分析系统 - 主调度程序 (异步版)
 3. 提供命令行入口
 """
 import os
+import sys
+import warnings
+
+# Suppress warnings that cannot be easily controlled per-module.
+# Must be set via PYTHONWARNINGS env var BEFORE interpreter startup.
+# - DeprecationWarning: from lark_oapi/websockets (upstream libs using deprecated datetime APIs)
+# - ResourceWarning: from SQLAlchemy's SQLite pool (delayed GC of pooled connections)
+# Re-apply in case the interpreter already processed the defaults
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=ResourceWarning)
+
+# Also set PYTHONWARNINGS for C-level warnings that bypass the Python filter stack
+os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning,ignore::ResourceWarning")
+
 from src.config import setup_env
 setup_env()
 
@@ -210,5 +224,32 @@ async def main_async() -> int:
         return 1
 
 
+async def _cleanup():
+    """Shutdown hook: close all shared resources to avoid ResourceWarning."""
+    # 1. Close shared async HTTP client
+    try:
+        from src.utils.async_http import AsyncHttpClientManager
+        await AsyncHttpClientManager().close()
+    except Exception as e:
+        logger.debug(f"AsyncHttpClient cleanup: {e}")
+
+    # 2. Close database engine (dispose pool + checked-out connections)
+    try:
+        from src.storage import StorageManager
+        mgr = StorageManager.get_instance()
+        if hasattr(mgr, '_engine') and mgr._engine is not None:
+            mgr._engine.dispose(close=True)
+    except Exception as e:
+        logger.debug(f"Database cleanup: {e}")
+
+
+async def _async_main_wrapper() -> int:
+    """Top-level entry with guaranteed cleanup."""
+    try:
+        return await main_async()
+    finally:
+        await _cleanup()
+
+
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main_async()))
+    sys.exit(asyncio.run(_async_main_wrapper()))

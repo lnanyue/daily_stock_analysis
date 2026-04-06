@@ -717,16 +717,17 @@ class DatabaseManager:
     @classmethod
     def _cleanup_engine(cls, engine) -> None:
         """
-        清理数据库引擎（atexit 钩子）
+        清理数据库引擎（atexit 钩子 + 程序退出时调用）
 
         确保程序退出时关闭所有数据库连接，避免 ResourceWarning
+        使用 dispose(close=True) 同时关闭 pool 中和已 checkout 的连接。
 
         Args:
             engine: SQLAlchemy 引擎对象
         """
         try:
             if engine is not None:
-                engine.dispose()
+                engine.dispose(close=True)
                 logger.debug("数据库引擎已清理")
         except Exception as e:
             logger.warning(f"清理数据库引擎时出错: {e}")

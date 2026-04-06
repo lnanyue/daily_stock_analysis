@@ -92,11 +92,10 @@ class StockAnalysisPipeline:
         self.search_service = SearchService(
             bocha_keys=self.config.bocha_api_keys,
             tavily_keys=self.config.tavily_api_keys,
+            exa_keys=self.config.exa_api_keys,
             brave_keys=self.config.brave_api_keys,
             serpapi_keys=self.config.serpapi_keys,
             minimax_keys=self.config.minimax_api_keys,
-            searxng_base_urls=self.config.searxng_base_urls,
-            searxng_public_instances_enabled=self.config.searxng_public_instances_enabled,
             news_max_age_days=self.config.news_max_age_days,
             news_strategy_profile=getattr(self.config, "news_strategy_profile", "short"),
         )
@@ -139,7 +138,7 @@ class StockAnalysisPipeline:
         logger.info("已启用技术分析引擎（均线/趋势/量价指标）")
         # 打印实时行情/筹码配置状态
         if self.config.enable_realtime_quote:
-            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
+            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})\")")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
         if self.config.enable_chip_distribution:
@@ -239,6 +238,47 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
 
+            # === A股深度情报增强 (LH榜/研报/电报) ===
+            a_stock_intelligence = ""
+            if not is_us_stock_code(code) and hasattr(self.fetcher_manager, "_fetchers"):
+                # 寻找 AkshareFetcher
+                ak_fetcher = next((f for f in self.fetcher_manager._fetchers if f.name == "AkshareFetcher"), None)
+                if ak_fetcher:
+                    try:
+                        # 1. 龙虎榜
+                        lhb_list = await anyio.to_thread.run_sync(ak_fetcher.get_lhb_data, code)
+                        if lhb_list:
+                            a_stock_intelligence += "\n### 龙虎榜动向 (近30日)\n"
+                            for item in lhb_list[:3]:
+                                a_stock_intelligence += f"- {item['date']}: {item['reason']} (净买额: {item['net_amount']:.2f}万)\n"
+                        
+                        # 2. 研报预期
+                        report_data = await anyio.to_thread.run_sync(ak_fetcher.get_research_reports, code)
+                        if report_data and report_data.get('reports'):
+                            a_stock_intelligence += "\n### 机构研报观点\n"
+                            reports = report_data['reports']
+                            for r in reports[:2]:
+                                a_stock_intelligence += f"- [{r['org']}] {r['title']} (评级: {r['rating']})\n"
+                            f = report_data.get('forecast')
+                            if f and f.get('pe'):
+                                a_stock_intelligence += f"- 业绩预测({f['year']}): 预测PE={f['pe']}, 预测EPS={f['eps']}\n"
+
+                        # 3. 财联社电报 (根据股票名称和板块关键词过滤)
+                        keywords = [stock_name]
+                        if fundamental_context and fundamental_context.get('belong_boards'):
+                            keywords.extend(fundamental_context['belong_boards'][:2])
+                        
+                        telegraphs = await anyio.to_thread.run_sync(ak_fetcher.get_latest_telegraph, keywords)
+                        if telegraphs:
+                            a_stock_intelligence += "\n### 财联社实时快讯\n"
+                            for t in telegraphs[:3]:
+                                a_stock_intelligence += f"- [{t['time']}] {t['title']}: {t['content'][:150]}...\n"
+                        
+                        if a_stock_intelligence:
+                            logger.info(f"{stock_name}({code}) 成功获取 A股深度情报增强")
+                    except Exception as e:
+                        logger.debug(f"获取 A股深度情报失败: {e}")
+
             use_agent = getattr(self.config, 'agent_mode', False)
             if not use_agent:
                 configured_skills = getattr(self.config, 'agent_skills', [])
@@ -260,18 +300,6 @@ class StockAnalysisPipeline:
                 fundamental_context = self.fetcher_manager.build_failed_fundamental_context(code, str(e))
 
             fundamental_context = self._attach_belong_boards_to_fundamental_context(code, fundamental_context)
-
-            # 保存基本面快照
-            try:
-                # ★ wrap sync DB call
-                await anyio.to_thread.run_sync(
-                    self.db.save_fundamental_snapshot,
-                    query_id, code, fundamental_context,
-                    fundamental_context.get("source_chain", []),
-                    fundamental_context.get("coverage", {})
-                )
-            except Exception as e:
-                logger.debug(f"{stock_name}({code}) 基本面快照写入失败: {e}")
 
             # Step 3: 趋势分析
             trend_result: Optional[TrendAnalysisResult] = None
@@ -367,6 +395,9 @@ class StockAnalysisPipeline:
             enhanced_context = self._enhance_context(context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context)
             
             # Step 7: AI 分析
+            if a_stock_intelligence:
+                news_context = (news_context or "") + "\n\n" + a_stock_intelligence
+            
             # ★ wrap sync LLM call
             result = await anyio.to_thread.run_sync(self.analyzer.analyze, enhanced_context, news_context)
 
@@ -596,6 +627,83 @@ class StockAnalysisPipeline:
             new_row = {'code': code, 'date': date.today(), 'close': price, 'open': price, 'high': price, 'low': price, 'volume': 0}
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         return df
+
+    def _enhance_context(
+        self,
+        context: Dict[str, Any],
+        realtime_quote,
+        chip_data: Optional[ChipDistribution],
+        trend_result: Optional[TrendAnalysisResult],
+        stock_name: str = "",
+        fundamental_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        增强分析上下文
+        """
+        enhanced = context.copy()
+        
+        # 添加股票名称
+        if stock_name:
+            enhanced['stock_name'] = stock_name
+        
+        # 基本面注入
+        if fundamental_context:
+            enhanced['fundamental'] = fundamental_context
+
+        # 添加实时行情
+        if realtime_quote:
+            volume_ratio = getattr(realtime_quote, 'volume_ratio', None)
+            enhanced['realtime'] = {
+                'name': getattr(realtime_quote, 'name', ''),
+                'price': getattr(realtime_quote, 'price', None),
+                'change_pct': getattr(realtime_quote, 'change_pct', None),
+                'volume_ratio': volume_ratio,
+                'volume_ratio_desc': self._describe_volume_ratio(volume_ratio) if volume_ratio is not None else '无数据',
+                'turnover_rate': getattr(realtime_quote, 'turnover_rate', None),
+                'pe_ratio': getattr(realtime_quote, 'pe_ratio', None),
+                'pb_ratio': getattr(realtime_quote, 'pb_ratio', None),
+                'total_mv': getattr(realtime_quote, 'total_mv', None),
+                'circ_mv': getattr(realtime_quote, 'circ_mv', None),
+                'source': getattr(realtime_quote, 'source', None),
+            }
+            enhanced['realtime'] = {k: v for k, v in enhanced['realtime'].items() if v is not None}
+        
+        # 添加筹码分布
+        if chip_data:
+            current_price = getattr(realtime_quote, 'price', 0) if realtime_quote else 0
+            enhanced['chip'] = {
+                'profit_ratio': chip_data.profit_ratio,
+                'avg_cost': chip_data.avg_cost,
+                'concentration_90': chip_data.concentration_90,
+                'concentration_70': chip_data.concentration_70,
+                'chip_status': chip_data.get_chip_status(current_price or 0),
+            }
+        
+        # 添加趋势分析结果
+        if trend_result:
+            enhanced['trend_analysis'] = {
+                'trend_status': trend_result.trend_status.value,
+                'ma_alignment': trend_result.ma_alignment,
+                'trend_strength': trend_result.trend_strength,
+                'buy_signal': trend_result.buy_signal.value,
+                'signal_score': trend_result.signal_score,
+                'signal_reasons': trend_result.signal_reasons,
+                'risk_factors': trend_result.risk_factors,
+            }
+        
+        # 注入检索参数
+        if self.search_service:
+            enhanced['news_window_days'] = self.search_service.news_window_days
+
+        return enhanced
+
+    def _describe_volume_ratio(self, volume_ratio: float) -> str:
+        if volume_ratio < 0.5: return "极度萎缩"
+        if volume_ratio < 0.8: return "明显萎缩"
+        if volume_ratio < 1.2: return "正常"
+        if volume_ratio < 2.0: return "温和放量"
+        if volume_ratio < 3.0: return "明显放量"
+        return "巨量"
 
     def _build_context_snapshot(self, enhanced_context, news_content, realtime_quote, chip_data) -> Dict[str, Any]:
         return {

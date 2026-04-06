@@ -32,7 +32,7 @@ def _escape_md(text: str) -> str:
     """Escape markdown special chars (*ST etc)."""
     if not text:
         return ""
-    return text.replace("*", "\\*").replace("_", "\\_")
+    return text.replace("*", r"\*").replace("_", r"\_")
 
 
 def _clean_sniper_value(val: Any) -> str:

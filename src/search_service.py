@@ -1030,6 +1030,88 @@ class MiniMaxSearchProvider(BaseSearchProvider):
             return '未知来源'
 
 
+class ExaSearchProvider(BaseSearchProvider):
+    """
+    Exa (formerly Metaphor) search engine.
+    Uses semantic search to find high-quality content.
+    """
+    API_ENDPOINT = "https://api.exa.ai/search"
+
+    def __init__(self, api_keys: List[str]):
+        super().__init__(api_keys, "Exa")
+
+    def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        """Execute Exa search."""
+        try:
+            headers = {
+                'x-api-key': api_key,
+                'Content-Type': 'application/json',
+            }
+            
+            # Use startPublishedDate for freshness
+            from datetime import datetime, timedelta, timezone
+            start_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+            payload = {
+                "query": query,
+                "numResults": max_results,
+                "startPublishedDate": start_date,
+                "useAutoprompt": True,
+                "type": "neural"
+            }
+
+            response = _post_with_retry(
+                self.API_ENDPOINT, headers=headers, json=payload, timeout=15
+            )
+
+            if response.status_code != 200:
+                error_msg = self._parse_http_error(response)
+                logger.warning(f"[Exa] Search failed: {error_msg}")
+                return SearchResponse(
+                    query=query,
+                    results=[],
+                    provider=self.name,
+                    success=False,
+                    error_message=error_msg,
+                )
+
+            data = response.json()
+            results = []
+            for item in data.get('results', []):
+                pub_date = item.get('publishedDate')
+                if pub_date:
+                    try:
+                        dt = datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
+                        pub_date = dt.strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
+
+                results.append(SearchResult(
+                    title=item.get('title', ''),
+                    snippet=(item.get('text', '') or item.get('snippet', '') or '')[:500],
+                    url=item.get('url', ''),
+                    source=self._extract_domain(item.get('url', '')),
+                    published_date=pub_date,
+                ))
+
+            logger.info(f"[Exa] Search done, query='{query}', results={len(results)}")
+
+            return SearchResponse(
+                query=query,
+                results=results,
+                provider=self.name,
+                success=True,
+            )
+
+        except Exception as e:
+            error_msg = f"Exa search error: {e}"
+            logger.error(f"[Exa] {error_msg}")
+            return SearchResponse(
+                query=query, results=[], provider=self.name,
+                success=False, error_message=error_msg,
+            )
+
+
 class BraveSearchProvider(BaseSearchProvider):
     """
     Brave Search 搜索引擎
@@ -1227,6 +1309,10 @@ class SearXNGSearchProvider(BaseSearchProvider):
     _public_instances_stale_retry_after: float = 0.0
     _public_instances_lock = threading.Lock()
 
+    # NEW: Temporary blacklist for instances that returned 429 Too Many Requests
+    _instance_blacklist: Dict[str, float] = {}
+    _blacklist_lock = threading.Lock()
+
     def __init__(self, base_urls: Optional[List[str]] = None, *, use_public_instances: bool = False):
         normalized_base_urls = [url.rstrip("/") for url in (base_urls or []) if url.strip()]
         super().__init__(normalized_base_urls, "SearXNG")
@@ -1389,11 +1475,38 @@ class SearXNGSearchProvider(BaseSearchProvider):
     def _rotate_candidates(self, pool: List[str], *, max_attempts: int) -> List[str]:
         if not pool or max_attempts <= 0:
             return []
+            
+        # 过滤黑名单
+        now = time.time()
+        with self._blacklist_lock:
+            # 清理过期黑名单
+            expired = [url for url, expiry in self._instance_blacklist.items() if now > expiry]
+            for url in expired:
+                del self._instance_blacklist[url]
+            
+            # 仅保留不在黑名单中的实例
+            valid_pool = [url for url in pool if url not in self._instance_blacklist]
+        
+        if not valid_pool:
+            logger.warning("[%s] 所有候选实例均在黑名单中，尝试强制重置黑名单", self.name)
+            with self._blacklist_lock:
+                self._instance_blacklist.clear()
+            valid_pool = pool
+
         with self._cursor_lock:
-            start = self._cursor % len(pool)
-            self._cursor = (self._cursor + 1) % len(pool)
-        ordered = pool[start:] + pool[:start]
+            start = self._cursor % len(valid_pool)
+            self._cursor = (self._cursor + 1) % len(valid_pool)
+        
+        ordered = valid_pool[start:] + valid_pool[:start]
         return ordered[:max_attempts]
+
+    def _mark_as_rate_limited(self, base_url: str, duration_minutes: int = 15):
+        """将实例加入临时黑名单。"""
+        now = time.time()
+        expiry = now + (duration_minutes * 60)
+        with self._blacklist_lock:
+            self._instance_blacklist[base_url] = expiry
+        logger.info("[%s] 实例 %s 返回 429 Too Many Requests，临时拉黑 %d 分钟", self.name, base_url, duration_minutes)
 
     def _do_search(  # type: ignore[override]
         self,
@@ -1426,6 +1539,10 @@ class SearXNGSearchProvider(BaseSearchProvider):
 
             if response.status_code != 200:
                 error_msg = self._parse_http_error(response)
+                # ★ Capture rate limit
+                if response.status_code == 429:
+                    self._mark_as_rate_limited(base_url)
+                
                 if response.status_code == 403:
                     error_msg = (
                         f"{error_msg}；SearXNG 实例可能未启用 JSON 输出（请检查 settings.yml），"
@@ -1569,7 +1686,14 @@ class SearXNGSearchProvider(BaseSearchProvider):
             )
 
         errors: List[str] = []
-        for base_url in candidates:
+        for i, base_url in enumerate(candidates):
+            # ★ Add delay between instances to be gentle
+            if i > 0:
+                import random
+                jitter = random.uniform(1.0, 2.5)
+                logger.debug("[%s] 尝试下一个实例前休眠 %.2fs...", self.name, jitter)
+                time.sleep(jitter)
+
             response = self._do_search(
                 query,
                 base_url,
@@ -1641,11 +1765,10 @@ class SearchService:
         self,
         bocha_keys: Optional[List[str]] = None,
         tavily_keys: Optional[List[str]] = None,
+        exa_keys: Optional[List[str]] = None,
         brave_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
         minimax_keys: Optional[List[str]] = None,
-        searxng_base_urls: Optional[List[str]] = None,
-        searxng_public_instances_enabled: bool = True,
         news_max_age_days: int = 3,
         news_strategy_profile: str = "short",
     ):
@@ -1655,11 +1778,10 @@ class SearchService:
         Args:
             bocha_keys: 博查搜索 API Key 列表
             tavily_keys: Tavily API Key 列表
+            exa_keys: Exa.ai API Key 列表
             brave_keys: Brave Search API Key 列表
             serpapi_keys: SerpAPI Key 列表
             minimax_keys: MiniMax API Key 列表
-            searxng_base_urls: SearXNG 实例地址列表（自建无配额兜底）
-            searxng_public_instances_enabled: 未配置自建实例时，是否自动使用公共 SearXNG 实例
             news_max_age_days: 新闻最大时效（天）
             news_strategy_profile: 新闻窗口策略档位（ultra_short/short/medium/long）
         """
@@ -1687,7 +1809,12 @@ class SearchService:
             self._providers.append(BochaSearchProvider(bocha_keys))
             logger.info(f"已配置 Bocha 搜索，共 {len(bocha_keys)} 个 API Key")
 
-        # 2. Tavily（免费额度更多，每月 1000 次）
+        # 2. Exa (神经网络搜索，高质量深度内容)
+        if exa_keys:
+            self._providers.append(ExaSearchProvider(exa_keys))
+            logger.info(f"已配置 Exa 搜索，共 {len(exa_keys)} 个 API Key")
+
+        # 3. Tavily（免费额度更多，每月 1000 次）
         if tavily_keys:
             self._providers.append(TavilySearchProvider(tavily_keys))
             logger.info(f"已配置 Tavily 搜索，共 {len(tavily_keys)} 个 API Key")
@@ -1706,18 +1833,6 @@ class SearchService:
         if minimax_keys:
             self._providers.append(MiniMaxSearchProvider(minimax_keys))
             logger.info(f"已配置 MiniMax 搜索，共 {len(minimax_keys)} 个 API Key")
-
-        # 6. SearXNG（自建实例优先；未配置时可自动发现公共实例）
-        searxng_provider = SearXNGSearchProvider(
-            searxng_base_urls,
-            use_public_instances=bool(searxng_public_instances_enabled and not searxng_base_urls),
-        )
-        if searxng_provider.is_available:
-            self._providers.append(searxng_provider)
-            if searxng_base_urls:
-                logger.info("已配置 SearXNG 搜索，共 %s 个自建实例", len(searxng_base_urls))
-            else:
-                logger.info("已启用 SearXNG 公共实例自动发现模式")
 
         if not self._providers:
             logger.warning("未配置任何搜索能力，新闻搜索功能将不可用")
@@ -1777,8 +1892,19 @@ class SearchService:
 
     @property
     def is_available(self) -> bool:
-        """检查是否有可用的搜索引擎"""
+        """是否有任何可用的搜索服务"""
         return any(p.is_available for p in self._providers)
+
+    def _has_multiple_searxng_calls(self, dimensions: List[Dict], max_searches: int) -> bool:
+        """判断是否会触发多次 SearXNG 调用，用于决定是否需要增加延迟。"""
+        available_providers = [p for p in self._providers if p.is_available]
+        if not available_providers:
+            return False
+
+        # 如果当前搜索链中包含 SearXNG 且总搜索次数 > 1，则认为需要延迟
+        has_searxng = any(p.name == "SearXNG" for p in available_providers)
+        return has_searxng and min(len(dimensions), max_searches) > 1
+
 
     def _cache_key(self, query: str, max_results: int, days: int) -> str:
         """Build a cache key from query parameters."""
@@ -2397,6 +2523,14 @@ class SearchService:
             provider = available_providers[provider_index % len(available_providers)]
             provider_index += 1
             
+            # ★ Add extra jitter for SearXNG to avoid triggering rate limits on public instances
+            if provider.name == "SearXNG" and self._has_multiple_searxng_calls(search_dimensions, max_searches):
+                import random
+                # Initial delay or delay between dimensions
+                delay = random.uniform(1.5, 3.5)
+                logger.debug(f"[SearXNG] 为避免频率限制，搜索前休眠 {delay:.1f} 秒...")
+                time.sleep(delay)
+
             logger.info(f"[情报搜索] {dim['desc']}: 使用 {provider.name}")
 
             if isinstance(provider, TavilySearchProvider) and dim.get('tavily_topic'):
@@ -2712,12 +2846,11 @@ def get_search_service() -> SearchService:
         
         _search_service = SearchService(
             bocha_keys=config.bocha_api_keys,
+            exa_keys=config.exa_api_keys,
             tavily_keys=config.tavily_api_keys,
             brave_keys=config.brave_api_keys,
             serpapi_keys=config.serpapi_keys,
             minimax_keys=config.minimax_api_keys,
-            searxng_base_urls=config.searxng_base_urls,
-            searxng_public_instances_enabled=config.searxng_public_instances_enabled,
             news_max_age_days=config.news_max_age_days,
             news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
         )
