@@ -446,8 +446,17 @@ class StockAnalysisPipeline:
             if visual_description:
                 news_context = (news_context or "") + "\n\n" + visual_description
             
-            # ★ wrap sync LLM call
-            result = await anyio.to_thread.run_sync(self.analyzer.analyze, enhanced_context, news_context)
+            # 检查是否启用红蓝对垒模式
+            analysis_mode = getattr(self.config, 'analysis_mode', 'simple').lower()
+            if analysis_mode == 'debate' and not use_agent:
+                from src.agent.debate_analyzer import DebateAnalyzer
+                logger.info(f"[{code}] 正在使用红蓝对垒模式进行深度分析...")
+                debate_analyzer = DebateAnalyzer(self.config, self.analyzer)
+                result = await debate_analyzer.analyze(enhanced_context, news_context)
+            else:
+                # 默认单模型分析
+                # ★ wrap sync LLM call
+                result = await anyio.to_thread.run_sync(self.analyzer.analyze, enhanced_context, news_context)
 
             if result:
                 result.query_id = query_id
