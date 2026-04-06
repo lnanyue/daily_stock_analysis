@@ -11,6 +11,7 @@ A股自选股智能分析系统 - 核心分析流水线
 4. 提供股票分析的核心功能
 """
 
+import asyncio
 import logging
 import time
 import uuid
