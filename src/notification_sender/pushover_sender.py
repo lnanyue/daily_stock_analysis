@@ -128,9 +128,9 @@ class PushoverSender:
             if result.get('status') == 1:
                 logger.info("Pushover 消息发送成功")
                 return True
-            logger.error(f"Pushover 返回错误: {result.get('errors', ['未知错误'])}")
+            logger.error("Pushover 返回错误: %s", result.get('errors', ['未知错误']))
             return False
-        logger.error(f"Pushover 请求失败: HTTP {response.status_code}")
+        logger.error("Pushover 请求失败: HTTP %s", response.status_code)
         return False
     
     async def _send_pushover_chunked(
@@ -185,7 +185,7 @@ class PushoverSender:
         total_chunks = len(chunks)
         success_count = 0
         
-        logger.info(f"Pushover 分批发送：共 {total_chunks} 批")
+        logger.info("Pushover 分批发送：共 %s 批", total_chunks)
         
         for i, chunk in enumerate(chunks):
             # 添加分页标记到标题
@@ -193,9 +193,9 @@ class PushoverSender:
             
             if await self._send_pushover_message(api_url, user_key, api_token, chunk, chunk_title):
                 success_count += 1
-                logger.info(f"Pushover 第 {i+1}/{total_chunks} 批发送成功")
+                logger.info("Pushover 第 %s/%s 批发送成功", i+1, total_chunks)
             else:
-                logger.error(f"Pushover 第 {i+1}/{total_chunks} 批发送失败")
+                logger.error("Pushover 第 %s/%s 批发送失败", i+1, total_chunks)
             
             # 批次间隔，避免触发频率限制
             if i < total_chunks - 1:

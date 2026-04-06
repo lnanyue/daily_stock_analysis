@@ -96,9 +96,9 @@ class ToolRegistry:
     def register(self, tool_def: ToolDefinition) -> None:
         """Register a tool definition."""
         if tool_def.name in self._tools:
-            logger.warning(f"Tool '{tool_def.name}' already registered, overwriting")
+            logger.warning("Tool '%s' already registered, overwriting", tool_def.name)
         self._tools[tool_def.name] = tool_def
-        logger.debug(f"Registered tool: {tool_def.name} (category={tool_def.category})")
+        logger.debug("Registered tool: %s (category=%s)", tool_def.name, tool_def.category)
 
     def unregister(self, name: str) -> None:
         """Remove a registered tool."""

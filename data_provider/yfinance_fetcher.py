@@ -107,19 +107,19 @@ class YfinanceFetcher(BaseFetcher):
         # 美股指数：映射到 Yahoo Finance 符号（如 SPX -> ^GSPC）
         yf_symbol, _ = get_us_index_yf_symbol(code)
         if yf_symbol:
-            logger.debug(f"识别为美股指数: {code} -> {yf_symbol}")
+            logger.debug("识别为美股指数: %s -> %s", code, yf_symbol)
             return yf_symbol
 
         # 美股：1-5 个大写字母（可选 .X 后缀），原样返回
         if is_us_stock_code(code):
-            logger.debug(f"识别为美股代码: {code}")
+            logger.debug("识别为美股代码: %s", code)
             return code
 
         # 港股：hk前缀 -> .HK后缀
         if code.startswith('HK'):
             hk_code = code[2:].lstrip('0') or '0'  # 去除前导0，但保留至少一个0
             hk_code = hk_code.zfill(4)  # 补齐到4位
-            logger.debug(f"转换港股代码: {stock_code} -> {hk_code}.HK")
+            logger.debug("转换港股代码: %s -> %s.HK", stock_code, hk_code)
             return f"{hk_code}.HK"
 
         # 已经包含后缀的情况
@@ -147,7 +147,7 @@ class YfinanceFetcher(BaseFetcher):
         elif code.startswith(('000', '002', '300')):
             return f"{code}.SZ"
         else:
-            logger.warning(f"无法确定股票 {code} 的市场，默认使用深市")
+            logger.warning("无法确定股票 %s 的市场，默认使用深市", code)
             return f"{code}.SZ"
 
     @retry(
@@ -172,7 +172,7 @@ class YfinanceFetcher(BaseFetcher):
         # 转换代码格式
         yf_code = self._convert_stock_code(stock_code)
 
-        logger.debug(f"调用 yfinance.download({yf_code}, {start_date}, {end_date})")
+        logger.debug("调用 yfinance.download(%s, %s, %s)", yf_code, start_date, end_date)
 
         try:
             # 使用 yfinance 下载数据
@@ -331,16 +331,16 @@ class YfinanceFetcher(BaseFetcher):
                     item = self._fetch_yf_ticker_data(yf, yf_code, name, ak_code)
                     if item:
                         results.append(item)
-                        logger.debug(f"[Yfinance] 获取指数 {name} 成功")
+                        logger.debug("[Yfinance] 获取指数 %s 成功", name)
                 except Exception as e:
-                    logger.warning(f"[Yfinance] 获取指数 {name} 失败: {e}")
+                    logger.warning("[Yfinance] 获取指数 %s 失败: %s", name, e)
 
             if results:
-                logger.info(f"[Yfinance] 成功获取 {len(results)} 个 A 股指数行情")
+                logger.info("[Yfinance] 成功获取 %s 个 A 股指数行情", len(results))
                 return results
 
         except Exception as e:
-            logger.error(f"[Yfinance] 获取 A 股指数行情失败: {e}")
+            logger.error("[Yfinance] 获取 A 股指数行情失败: %s", e)
 
         return None
 
@@ -358,16 +358,16 @@ class YfinanceFetcher(BaseFetcher):
                     item = self._fetch_yf_ticker_data(yf, yf_symbol, name, code)
                     if item:
                         results.append(item)
-                        logger.debug(f"[Yfinance] 获取美股指数 {name} 成功")
+                        logger.debug("[Yfinance] 获取美股指数 %s 成功", name)
                 except Exception as e:
-                    logger.warning(f"[Yfinance] 获取美股指数 {name} 失败: {e}")
+                    logger.warning("[Yfinance] 获取美股指数 %s 失败: %s", name, e)
 
             if results:
-                logger.info(f"[Yfinance] 成功获取 {len(results)} 个美股指数行情")
+                logger.info("[Yfinance] 成功获取 %s 个美股指数行情", len(results))
                 return results
 
         except Exception as e:
-            logger.error(f"[Yfinance] 获取美股指数行情失败: {e}")
+            logger.error("[Yfinance] 获取美股指数行情失败: %s", e)
 
         return None
 
@@ -401,11 +401,11 @@ class YfinanceFetcher(BaseFetcher):
             with urlopen(request, timeout=15) as response:
                 payload = response.read().decode("utf-8", "ignore").strip()
         except (HTTPError, URLError, TimeoutError) as exc:
-            logger.warning(f"[Stooq] 获取美股 {symbol} 实时行情失败: {exc}")
+            logger.warning("[Stooq] 获取美股 %s 实时行情失败: %s", symbol, exc)
             return None
 
         if not payload or payload.upper().startswith("NO DATA"):
-            logger.warning(f"[Stooq] 无法获取 {symbol} 的行情数据")
+            logger.warning("[Stooq] 无法获取 %s 的行情数据", symbol)
             return None
 
         def _fetch_prev_close() -> Optional[float]:
@@ -421,7 +421,7 @@ class YfinanceFetcher(BaseFetcher):
                 with urlopen(history_request, timeout=15) as response:
                     history_payload = response.read().decode("utf-8", "ignore").strip()
             except (HTTPError, URLError, TimeoutError) as exc:
-                logger.debug(f"[Stooq] 获取美股 {symbol} 日线历史失败: {exc}")
+                logger.debug("[Stooq] 获取美股 %s 日线历史失败: %s", symbol, exc)
                 return None
 
             if not history_payload or history_payload.upper().startswith("NO DATA"):
@@ -524,10 +524,10 @@ class YfinanceFetcher(BaseFetcher):
                 total_mv=None,
                 circ_mv=None,
             )
-            logger.info(f"[Stooq] 获取美股 {symbol} 兜底行情成功: 价格={price}")
+            logger.info("[Stooq] 获取美股 %s 兜底行情成功: 价格=%s", symbol, price)
             return quote
         except Exception as exc:
-            logger.warning(f"[Stooq] 解析美股 {symbol} 行情失败: {exc}")
+            logger.warning("[Stooq] 解析美股 %s 行情失败: %s", symbol, exc)
             return None
 
     def _get_us_index_realtime_quote(
@@ -550,7 +550,7 @@ class YfinanceFetcher(BaseFetcher):
         import yfinance as yf
 
         try:
-            logger.debug(f"[Yfinance] 获取美股指数 {user_code} ({yf_symbol}) 实时行情")
+            logger.debug("[Yfinance] 获取美股指数 %s (%s) 实时行情", user_code, yf_symbol)
             ticker = yf.Ticker(yf_symbol)
 
             try:
@@ -567,7 +567,7 @@ class YfinanceFetcher(BaseFetcher):
                 logger.debug("[Yfinance] fast_info 失败，尝试 history 方法")
                 hist = ticker.history(period='2d')
                 if hist.empty:
-                    logger.warning(f"[Yfinance] 无法获取 {yf_symbol} 的数据")
+                    logger.warning("[Yfinance] 无法获取 %s 的数据", yf_symbol)
                     return None
                 today = hist.iloc[-1]
                 prev = hist.iloc[-2] if len(hist) > 1 else today
@@ -609,10 +609,10 @@ class YfinanceFetcher(BaseFetcher):
                 total_mv=None,
                 circ_mv=None,
             )
-            logger.info(f"[Yfinance] 获取美股指数 {user_code} 实时行情成功: 价格={price}")
+            logger.info("[Yfinance] 获取美股指数 %s 实时行情成功: 价格=%s", user_code, price)
             return quote
         except Exception as e:
-            logger.warning(f"[Yfinance] 获取美股指数 {user_code} 实时行情失败: {e}")
+            logger.warning("[Yfinance] 获取美股指数 %s 实时行情失败: %s", user_code, e)
             return None
 
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
@@ -641,12 +641,12 @@ class YfinanceFetcher(BaseFetcher):
 
         # 仅处理美股股票
         if not self._is_us_stock(stock_code):
-            logger.debug(f"[Yfinance] {stock_code} 不是美股，跳过")
+            logger.debug("[Yfinance] %s 不是美股，跳过", stock_code)
             return None
 
         try:
             symbol = stock_code.strip().upper()
-            logger.debug(f"[Yfinance] 获取美股 {symbol} 实时行情")
+            logger.debug("[Yfinance] 获取美股 %s 实时行情", symbol)
 
             ticker = yf.Ticker(symbol)
 
@@ -669,7 +669,7 @@ class YfinanceFetcher(BaseFetcher):
                 logger.debug("[Yfinance] fast_info 失败，尝试 history 方法")
                 hist = ticker.history(period='2d')
                 if hist.empty:
-                    logger.warning(f"[Yfinance] 无法获取 {symbol} 的数据，尝试 Stooq 兜底")
+                    logger.warning("[Yfinance] 无法获取 %s 的数据，尝试 Stooq 兜底", symbol)
                     return self._get_us_stock_quote_from_stooq(symbol)
 
                 today = hist.iloc[-1]
@@ -724,11 +724,11 @@ class YfinanceFetcher(BaseFetcher):
                 circ_mv=None,
             )
 
-            logger.info(f"[Yfinance] 获取美股 {symbol} 实时行情成功: 价格={price}")
+            logger.info("[Yfinance] 获取美股 %s 实时行情成功: 价格=%s", symbol, price)
             return quote
 
         except Exception as e:
-            logger.warning(f"[Yfinance] 获取美股 {stock_code} 实时行情失败: {e}，尝试 Stooq 兜底")
+            logger.warning("[Yfinance] 获取美股 %s 实时行情失败: %s，尝试 Stooq 兜底", stock_code, e)
             return self._get_us_stock_quote_from_stooq(stock_code)
 
 

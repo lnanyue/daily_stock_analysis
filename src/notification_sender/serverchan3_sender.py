@@ -52,7 +52,7 @@ class Serverchan3Sender:
         response = await client.post(url, json=params, headers=headers)
 
         if response.status_code == 200:
-            logger.info(f"Server酱3 消息发送成功: {response.json()}")
+            logger.info("Server酱3 消息发送成功: %s", response.json())
             return True
-        logger.error(f"Server酱3 请求失败: HTTP {response.status_code}")
+        logger.error("Server酱3 请求失败: HTTP %s", response.status_code)
         return False

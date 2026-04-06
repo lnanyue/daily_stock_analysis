@@ -115,10 +115,10 @@ def _get_akshare_name_to_code() -> Optional[Dict[str, str]]:
             code_to_name[code_str] = str(name).strip()
         result = _build_reverse_map_no_duplicates(code_to_name)
         _akshare_cache = (now, result)
-        logger.info(f"[NameResolver] AkShare cache loaded: {len(result)} name->code mappings")
+        logger.info("[NameResolver] AkShare cache loaded: %s name->code mappings", len(result))
         return result
-    except Exception as e:
-        logger.warning(f"[NameResolver] AkShare fallback failed: {e}")
+    except (ValueError, TypeError, KeyError) as e:
+        logger.warning("[NameResolver] AkShare fallback failed: %s", e)
         return None
 
 
@@ -168,7 +168,7 @@ def resolve_name_to_code(name: str) -> Optional[str]:
     if s in local_reverse:
         return local_reverse[s]
     if s in _LOCAL_AMBIGUOUS_NAMES:
-        logger.debug(f"[NameResolver] 命中本地歧义名称，快速返回 None: {s}")
+        logger.debug("[NameResolver] 命中本地歧义名称，快速返回 None: %s", s)
         return None
 
     # 3. Pinyin match (exact)
@@ -182,19 +182,19 @@ def resolve_name_to_code(name: str) -> Optional[str]:
                 return code
     except ImportError:
         pass
-    except Exception as e:
-        logger.debug(f"[NameResolver] Pinyin match failed: {e}")
+    except (ValueError, TypeError, KeyError) as e:
+        logger.debug("[NameResolver] Pinyin match failed: %s", e)
 
     # Skip AkShare/fuzzy fallback for non-CJK free text such as random Latin noise.
     # These paths are expensive and only meaningfully help Chinese stock names.
     if not _contains_cjk(s):
-        logger.debug(f"[NameResolver] Skip CJK-only fallbacks for non-CJK input: {s}")
+        logger.debug("[NameResolver] Skip CJK-only fallbacks for non-CJK input: %s", s)
         return None
 
     # 4. AkShare fallback
     akshare_map = _get_akshare_name_to_code()
     if akshare_map and s in akshare_map:
-        logger.debug(f"[NameResolver] 命中 AkShare 映射: {s} -> {akshare_map[s]}")
+        logger.debug("[NameResolver] 命中 AkShare 映射: %s -> %s", s, akshare_map[s])
         return akshare_map[s]
 
     # 5. Fuzzy match (local + akshare, local takes precedence)
@@ -208,7 +208,7 @@ def resolve_name_to_code(name: str) -> Optional[str]:
         names = list(all_name_to_code.keys())
         matches = difflib.get_close_matches(s, names, n=1, cutoff=0.8)
         if matches:
-            logger.debug(f"[NameResolver] 命中模糊匹配: input={s}, matched={matches[0]}")
+            logger.debug("[NameResolver] 命中模糊匹配: input=%s, matched=%s", s, matches[0])
             return all_name_to_code[matches[0]]
 
         # Conservative fallback for one-character typo in medium/long names.
@@ -216,8 +216,8 @@ def resolve_name_to_code(name: str) -> Optional[str]:
         # such as "贵州茅苔" -> "贵州茅台".
         typo_matches = difflib.get_close_matches(s, names, n=1, cutoff=0.7)
         if typo_matches and _is_single_char_typo(s, typo_matches[0]):
-            logger.debug(f"[NameResolver] 命中单字误写兜底: input={s}, matched={typo_matches[0]}")
+            logger.debug("[NameResolver] 命中单字误写兜底: input=%s, matched=%s", s, typo_matches[0])
             return all_name_to_code[typo_matches[0]]
 
-    logger.debug(f"[NameResolver] 解析失败: {s}")
+    logger.debug("[NameResolver] 解析失败: %s", s)
     return None

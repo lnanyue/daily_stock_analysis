@@ -48,7 +48,7 @@ class MarketCommand(BotCommand):
 
     async def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行大盘复盘命令"""
-        logger.info(f"[MarketCommand] 开始大盘复盘分析")
+        logger.info("[MarketCommand] 开始大盘复盘分析")
 
         import asyncio
         # 在后台异步执行复盘（避免阻塞）
@@ -103,5 +103,5 @@ class MarketCommand(BotCommand):
             )
 
         except Exception as e:
-            logger.error(f"[MarketCommand] 大盘复盘失败: {e}")
+            logger.error("[MarketCommand] 大盘复盘失败: %s", e)
             logger.exception(e)

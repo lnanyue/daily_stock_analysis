@@ -334,7 +334,7 @@ def extract_stock_codes_from_image(
             last_error = e
             if attempt < 2:
                 delay = 2 ** attempt
-                logger.warning(f"[ImageExtractor] 尝试 {attempt + 1}/3 失败，{delay}s 后重试: {e}")
+                logger.warning("[ImageExtractor] 尝试 %s/3 失败，%ss 后重试: %s", attempt + 1, delay, e)
                 time.sleep(delay)
 
     raise ValueError(

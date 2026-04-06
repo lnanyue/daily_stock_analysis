@@ -115,7 +115,7 @@ class DingtalkStreamHandler:
                     return AckMessage.STATUS_OK, 'OK'
 
                 except Exception as e:
-                    self.logger.error(f"[DingTalk Stream] 处理消息失败: {e}")
+                    logger.error("[DingTalk Stream] 处理消息失败: %s", e)
                     self.logger.exception(e)
                     return AckMessage.STATUS_SYSTEM_EXCEPTION, str(e)
 
@@ -177,7 +177,7 @@ class DingtalkStreamHandler:
             )
 
         except Exception as e:
-            logger.error(f"[DingTalk Stream] 解析消息失败: {e}")
+            logger.error("[DingTalk Stream] 解析消息失败: %s", e)
             return None
 
     def _extract_command(self, text: str) -> str:
@@ -297,7 +297,7 @@ class DingtalkStreamClient:
             try:
                 self.start()
             except Exception as e:
-                logger.error(f"[DingTalk Stream] 运行异常: {e}")
+                logger.error("[DingTalk Stream] 运行异常: %s", e)
                 if self._running:
                     logger.info("[DingTalk Stream] 5 秒后重连...")
                     import time
@@ -326,7 +326,7 @@ def get_dingtalk_stream_client() -> Optional[DingtalkStreamClient]:
         try:
             _stream_client = DingtalkStreamClient()
         except (ImportError, ValueError) as e:
-            logger.warning(f"[DingTalk Stream] 无法创建客户端: {e}")
+            logger.warning("[DingTalk Stream] 无法创建客户端: %s", e)
             return None
 
     return _stream_client

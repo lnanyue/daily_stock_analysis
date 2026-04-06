@@ -70,7 +70,7 @@ def fetch_url_content(url: str, timeout: int = 5) -> str:
 
         return text[:1500]
     except Exception as e:
-        logger.debug(f"Fetch content failed for {url}: {e}")
+        logger.debug("Fetch content failed for %s: %s", url, e)
 
     return ""
 

@@ -68,24 +68,24 @@ class CustomWebhookSender:
                 # 钉钉机器人对 body 有字节上限（约 20000 bytes），超长需要分批发送
                 if self._is_dingtalk_webhook(url):
                     if await self._send_dingtalk_chunked(url, content, max_bytes=20000):
-                        logger.info(f"自定义 Webhook {i+1}（钉钉）推送成功")
+                        logger.info("自定义 Webhook %s（钉钉）推送成功", i+1)
                         success_count += 1
                     else:
-                        logger.error(f"自定义 Webhook {i+1}（钉钉）推送失败")
+                        logger.error("自定义 Webhook %s（钉钉）推送失败", i+1)
                     continue
 
                 # 其他 Webhook：单次发送
                 payload = self._build_custom_webhook_payload(url, content)
                 if await self._post_custom_webhook(url, payload):
-                    logger.info(f"自定义 Webhook {i+1} 推送成功")
+                    logger.info("自定义 Webhook %s 推送成功", i+1)
                     success_count += 1
                 else:
-                    logger.error(f"自定义 Webhook {i+1} 推送失败")
+                    logger.error("自定义 Webhook %s 推送失败", i+1)
                     
             except Exception:
-                logger.exception(f"自定义 Webhook {i+1} 推送异常")
+                logger.exception("自定义 Webhook %s 推送异常", i+1)
         
-        logger.info(f"自定义 Webhook 推送完成：成功 {success_count}/{len(self._custom_webhook_urls)}")
+        logger.info("自定义 Webhook 推送完成：成功 %s/%s", success_count, len(self._custom_webhook_urls))
         return success_count > 0
 
     
@@ -148,8 +148,8 @@ class CustomWebhookSender:
         response = await client.post(url, content=body, headers=headers)
         if response.status_code == 200:
             return True
-        logger.error(f"自定义 Webhook 推送失败: HTTP {response.status_code}")
-        logger.debug(f"响应内容: {response.text[:200]}")
+        logger.error("自定义 Webhook 推送失败: HTTP %s", response.status_code)
+        logger.debug("响应内容: %s", response.text[:200])
         return False
     
     def _build_custom_webhook_payload(self, url: str, content: str) -> dict:
@@ -230,7 +230,7 @@ class CustomWebhookSender:
             if await self._post_custom_webhook(url, payload):
                 ok += 1
             else:
-                logger.error(f"钉钉分批发送失败: 第 {idx+1}/{total} 批")
+                logger.error("钉钉分批发送失败: 第 %s/%s 批", idx+1, total)
 
             if idx < total - 1:
                 await asyncio.sleep(1)

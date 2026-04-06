@@ -42,9 +42,9 @@ def scan_and_register(
                     )
                     continue
                 results.append((py_file.stem, factory))
-                logger.info(f"[Loader] 成功加载插件: {module_name}")
+                logger.info("[Loader] 成功加载插件: %s", module_name)
             except Exception as exc:
-                logger.warning(f"[Loader] 加载插件 {module_name} 失败: {exc}")
+                logger.warning("[Loader] 加载插件 %s 失败: %s", module_name, exc)
                 continue
 
     return results

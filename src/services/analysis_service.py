@@ -93,14 +93,14 @@ class AnalysisService:
             )
             
             if result is None:
-                logger.warning(f"分析股票 {stock_code} 返回空结果")
+                logger.warning("分析股票 %s 返回空结果", stock_code)
                 return None
             
             # 构建响应
             return self._build_analysis_response(result, query_id, report_type=rt.value)
             
         except Exception as e:
-            logger.error(f"分析股票 {stock_code} 失败: {e}", exc_info=True)
+            logger.error("分析股票 %s 失败: %s", stock_code, e, exc_info=True)
             return None
     
     def _build_analysis_response(

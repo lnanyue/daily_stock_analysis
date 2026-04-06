@@ -79,7 +79,7 @@ class TaskService:
             )
         )
 
-        logger.info(f"[TaskService] 已提交股票 {code} 的异步分析任务, task_id={task_id}")
+        logger.info("[TaskService] 已提交股票 %s 的异步分析任务, task_id=%s", code, task_id)
 
         return {
             "success": True,
@@ -120,7 +120,7 @@ class TaskService:
             from src.config import get_config
             from src.core.pipeline import StockAnalysisPipeline
 
-            logger.info(f"[TaskService] 正在异步分析股票: {code}")
+            logger.info("[TaskService] 正在异步分析股票: %s", code)
 
             config = get_config()
             pipeline = StockAnalysisPipeline(
@@ -163,7 +163,7 @@ class TaskService:
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"[TaskService] 股票 {code} 分析异常: {error_msg}")
+            logger.error("[TaskService] 股票 %s 分析异常: %s", code, error_msg)
 
             async with self._tasks_lock:
                 self._tasks[task_id].update({

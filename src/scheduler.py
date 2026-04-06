@@ -80,22 +80,22 @@ class AsyncScheduler:
         
         try:
             logger.info("=" * 50)
-            logger.info(f"定时任务开始执行 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("定时任务开始执行 - %%M:%S')", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             
             res = self._task_callback()
             if asyncio.iscoroutine(res):
                 await res
             
-            logger.info(f"定时任务执行完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("定时任务执行完成 - %%M:%S')", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             logger.info("=" * 50)
         except Exception as e:
-            logger.exception(f"定时任务执行失败: {e}")
+            logger.exception("定时任务执行失败: %s", e)
     
     async def run(self):
         """运行调度器主循环 (Async)"""
         self.shutdown_handler = GracefulShutdown()
         self._running = True
-        logger.info(f"异步调度器开始运行，执行时间: {self.schedule_time}")
+        logger.info("异步调度器开始运行，执行时间: %s", self.schedule_time)
         
         if getattr(self, '_should_run_now', False):
             await self._safe_run_task()

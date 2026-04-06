@@ -116,7 +116,7 @@ class MiniMaxSearchProvider(BaseSearchProvider):
 
             if response.status_code != 200:
                 error_msg = self._parse_http_error(response)
-                logger.warning(f"[MiniMax] Search failed: {error_msg}")
+                logger.warning("[MiniMax] Search failed: %s", error_msg)
                 return SearchResponse(
                     query=query, results=[], provider=self.name,
                     success=False, error_message=error_msg,
@@ -132,8 +132,8 @@ class MiniMaxSearchProvider(BaseSearchProvider):
                     success=False, error_message=error_msg,
                 )
 
-            logger.info(f"[MiniMax] Search done, query='{query}'")
-            logger.debug(f"[MiniMax] Raw response keys: {list(data.keys())}")
+            logger.info("[MiniMax] Search done, query='%s'", query)
+            logger.debug("[MiniMax] Raw response keys: %s", list(data.keys()))
 
             results: List[SearchResult] = []
             for item in data.get('organic', []):
@@ -152,7 +152,7 @@ class MiniMaxSearchProvider(BaseSearchProvider):
                 if len(results) >= max_results:
                     break
 
-            logger.info(f"[MiniMax] Parsed {len(results)} results (after time filter)")
+            logger.info("[MiniMax] Parsed %s results (after time filter)", len(results))
 
             return SearchResponse(
                 query=query, results=results, provider=self.name, success=True,
@@ -160,21 +160,21 @@ class MiniMaxSearchProvider(BaseSearchProvider):
 
         except requests.exceptions.Timeout:
             error_msg = "Request timeout"
-            logger.error(f"[MiniMax] {error_msg}")
+            logger.error("[MiniMax] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg,
             )
         except requests.exceptions.RequestException as e:
             error_msg = f"Network error: {e}"
-            logger.error(f"[MiniMax] {error_msg}")
+            logger.error("[MiniMax] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg,
             )
         except Exception as e:
             error_msg = f"Unexpected error: {e}"
-            logger.error(f"[MiniMax] {error_msg}")
+            logger.error("[MiniMax] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg,

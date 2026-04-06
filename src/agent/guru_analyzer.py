@@ -75,5 +75,5 @@ class GuruAnalyzer:
             )
             return content or "大师陷入了沉思，未给结论。"
         except Exception as e:
-            logger.error(f"Guru Analysis failed: {e}")
+            logger.error("Guru Analysis failed: %s", e)
             return f"由于系统波动，大师拒绝了本次面谈: {e}"

@@ -184,7 +184,7 @@ class LLMToolAdapter:
                 f"for {litellm_model}"
             )
         else:
-            logger.info(f"Agent LLM: litellm initialized (model={litellm_model})")
+            logger.info("Agent LLM: litellm initialized (model=%s)", litellm_model)
 
     @property
     def is_available(self) -> bool:
@@ -277,7 +277,7 @@ class LLMToolAdapter:
                     timeout=remaining_timeout,
                 )
             except Exception as e:
-                logger.warning(f"Agent LLM call failed with {model}: {e}")
+                logger.warning("Agent LLM call failed with %s: %s", model, e)
                 last_error = e
                 continue
 

@@ -49,14 +49,14 @@ class PluginRegistry:
         factories = scan_and_register(paths, register_func_name="register")
         for name, factory in factories:
             self._fetcher_factories[name] = factory
-            logger.info(f"[PluginRegistry] 注册 Fetcher 插件: {name}")
+            logger.info("[PluginRegistry] 注册 Fetcher 插件: %s", name)
 
     def _scan_strategies(self) -> None:
         paths = [f"{p}strategies" for p in SEARCH_PATHS]
         factories = scan_and_register(paths, register_func_name="register")
         for name, factory in factories:
             self._strategy_factories[name] = factory
-            logger.info(f"[PluginRegistry] 注册 Strategy 插件: {name}")
+            logger.info("[PluginRegistry] 注册 Strategy 插件: %s", name)
 
     def _instantiate_fetchers(self) -> None:
         for fetcher_cfg in self._config_loader.fetchers:
@@ -65,12 +65,12 @@ class PluginRegistry:
             enabled = fetcher_cfg.get("enabled", True)
 
             if not enabled:
-                logger.info(f"[PluginRegistry] Fetcher '{name}' 未启用，跳过")
+                logger.info("[PluginRegistry] Fetcher '%s' 未启用，跳过", name)
                 continue
 
             factory = self._fetcher_factories.get(module) or self._fetcher_factories.get(name)
             if factory is None:
-                logger.warning(f"[PluginRegistry] Fetcher '{name}' 的模块 '{module}' 未找到")
+                logger.warning("[PluginRegistry] Fetcher '%s' 的模块 '%s' 未找到", name, module)
                 continue
 
             try:
@@ -79,9 +79,9 @@ class PluginRegistry:
                 if "priority" in fetcher_cfg:
                     fetcher.priority = fetcher_cfg["priority"]
                 self._fetchers.append(fetcher)
-                logger.info(f"[PluginRegistry] 实例化 Fetcher: {name} (priority={fetcher.priority})")
+                logger.info("[PluginRegistry] 实例化 Fetcher: %s (priority=%s)", name, fetcher.priority)
             except Exception as exc:
-                logger.error(f"[PluginRegistry] 实例化 Fetcher '{name}' 失败: {exc}")
+                logger.error("[PluginRegistry] 实例化 Fetcher '%s' 失败: %s", name, exc)
 
     def _instantiate_strategies(self) -> None:
         if self._plugin_ctx is None:
@@ -93,21 +93,21 @@ class PluginRegistry:
             enabled = strategy_cfg.get("enabled", True)
 
             if not enabled:
-                logger.info(f"[PluginRegistry] Strategy '{name}' 未启用，跳过")
+                logger.info("[PluginRegistry] Strategy '%s' 未启用，跳过", name)
                 continue
 
             factory = self._strategy_factories.get(module) or self._strategy_factories.get(name)
             if factory is None:
-                logger.warning(f"[PluginRegistry] Strategy '{name}' 的模块 '{module}' 未找到")
+                logger.warning("[PluginRegistry] Strategy '%s' 的模块 '%s' 未找到", name, module)
                 continue
 
             try:
                 config = strategy_cfg.get("config", {})
                 strategy = factory(config, self._plugin_ctx)
                 self._strategies.append(strategy)
-                logger.info(f"[PluginRegistry] 实例化 Strategy: {name}")
+                logger.info("[PluginRegistry] 实例化 Strategy: %s", name)
             except Exception as exc:
-                logger.error(f"[PluginRegistry] 实例化 Strategy '{name}' 失败: {exc}")
+                logger.error("[PluginRegistry] 实例化 Strategy '%s' 失败: %s", name, exc)
 
     def get_enabled_fetchers(self) -> List[BaseFetcher]:
         """返回已实例化的 Fetcher 列表"""
@@ -124,9 +124,9 @@ class PluginRegistry:
             try:
                 result = strategy.execute(analysis_ctx)
                 results.append(result)
-                logger.info(f"[PluginRegistry] Strategy '{strategy.name}' 执行成功")
+                logger.info("[PluginRegistry] Strategy '%s' 执行成功", strategy.name)
             except Exception as exc:
-                logger.error(f"[PluginRegistry] Strategy '{strategy.name}' 执行失败: {exc}")
+                logger.error("[PluginRegistry] Strategy '%s' 执行失败: %s", strategy.name, exc)
                 error_result = StrategyResult(
                     name=strategy.name,
                     title=strategy.name,

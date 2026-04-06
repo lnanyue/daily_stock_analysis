@@ -65,7 +65,7 @@ class BraveSearchProvider(BaseSearchProvider):
 
             if response.status_code != 200:
                 error_msg = self._parse_error(response)
-                logger.warning(f"[Brave] 搜索失败: {error_msg}")
+                logger.warning("[Brave] 搜索失败: %s", error_msg)
                 return SearchResponse(
                     query=query, results=[], provider=self.name,
                     success=False, error_message=error_msg
@@ -75,14 +75,14 @@ class BraveSearchProvider(BaseSearchProvider):
                 data = response.json()
             except ValueError as e:
                 error_msg = f"响应JSON解析失败: {str(e)}"
-                logger.error(f"[Brave] {error_msg}")
+                logger.error("[Brave] %s", error_msg)
                 return SearchResponse(
                     query=query, results=[], provider=self.name,
                     success=False, error_message=error_msg
                 )
 
-            logger.info(f"[Brave] 搜索完成，query='{query}'")
-            logger.debug(f"[Brave] 原始响应: {data}")
+            logger.info("[Brave] 搜索完成，query='%s'", query)
+            logger.debug("[Brave] 原始响应: %s", data)
 
             results = []
             web_data = data.get('web', {})
@@ -106,7 +106,7 @@ class BraveSearchProvider(BaseSearchProvider):
                     published_date=published_date
                 ))
 
-            logger.info(f"[Brave] 成功解析 {len(results)} 条结果")
+            logger.info("[Brave] 成功解析 %s 条结果", len(results))
 
             return SearchResponse(
                 query=query, results=results, provider=self.name, success=True
@@ -114,21 +114,21 @@ class BraveSearchProvider(BaseSearchProvider):
 
         except requests.exceptions.Timeout:
             error_msg = "请求超时"
-            logger.error(f"[Brave] {error_msg}")
+            logger.error("[Brave] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg
             )
         except requests.exceptions.RequestException as e:
             error_msg = f"网络请求失败: {str(e)}"
-            logger.error(f"[Brave] {error_msg}")
+            logger.error("[Brave] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg
             )
         except Exception as e:
             error_msg = f"未知错误: {str(e)}"
-            logger.error(f"[Brave] {error_msg}")
+            logger.error("[Brave] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg

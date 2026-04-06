@@ -65,7 +65,7 @@ class SerpAPISearchProvider(BaseSearchProvider):
             search = GoogleSearch(params)
             response = search.get_dict()
             
-            logger.debug(f"[SerpAPI] 原始响应 keys: {response.keys()}")
+            logger.debug("[SerpAPI] 原始响应 keys: %s", response.keys())
             
             results = []
             
@@ -165,7 +165,7 @@ class SerpAPISearchProvider(BaseSearchProvider):
                            else:
                                snippet = f"{snippet}\n\n【网页详情】\n{content}"
                    except Exception as e:
-                       logger.debug(f"[SerpAPI] Fetch content failed: {e}")
+                       logger.debug("[SerpAPI] Fetch content failed: %s", e)
 
                 results.append(SearchResult(
                     title=item.get('title', ''),

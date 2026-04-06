@@ -79,7 +79,7 @@ class BochaSearchProvider(BaseSearchProvider):
                 else:
                     error_msg = f"HTTP {response.status_code}: {error_message}"
                 
-                logger.warning(f"[Bocha] 搜索失败: {error_msg}")
+                logger.warning("[Bocha] 搜索失败: %s", error_msg)
                 
                 return SearchResponse(
                     query=query,
@@ -93,7 +93,7 @@ class BochaSearchProvider(BaseSearchProvider):
                 data = response.json()
             except ValueError as e:
                 error_msg = f"响应JSON解析失败: {str(e)}"
-                logger.error(f"[Bocha] {error_msg}")
+                logger.error("[Bocha] %s", error_msg)
                 return SearchResponse(
                     query=query,
                     results=[],
@@ -112,8 +112,8 @@ class BochaSearchProvider(BaseSearchProvider):
                     error_message=error_msg
                 )
             
-            logger.info(f"[Bocha] 搜索完成，query='{query}'")
-            logger.debug(f"[Bocha] 原始响应: {data}")
+            logger.info("[Bocha] 搜索完成，query='%s'", query)
+            logger.debug("[Bocha] 原始响应: %s", data)
             
             results = []
             web_pages = data.get('data', {}).get('webPages', {})
@@ -132,7 +132,7 @@ class BochaSearchProvider(BaseSearchProvider):
                     published_date=item.get('datePublished'),
                 ))
             
-            logger.info(f"[Bocha] 成功解析 {len(results)} 条结果")
+            logger.info("[Bocha] 成功解析 %s 条结果", len(results))
             
             return SearchResponse(
                 query=query,
@@ -143,21 +143,21 @@ class BochaSearchProvider(BaseSearchProvider):
             
         except requests.exceptions.Timeout:
             error_msg = "请求超时"
-            logger.error(f"[Bocha] {error_msg}")
+            logger.error("[Bocha] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg
             )
         except requests.exceptions.RequestException as e:
             error_msg = f"网络请求失败: {str(e)}"
-            logger.error(f"[Bocha] {error_msg}")
+            logger.error("[Bocha] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg
             )
         except Exception as e:
             error_msg = f"未知错误: {str(e)}"
-            logger.error(f"[Bocha] {error_msg}")
+            logger.error("[Bocha] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg

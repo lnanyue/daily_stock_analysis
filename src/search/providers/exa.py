@@ -45,7 +45,7 @@ class ExaSearchProvider(BaseSearchProvider):
 
             if response.status_code != 200:
                 error_msg = self._parse_http_error(response)
-                logger.warning(f"[Exa] Search failed: {error_msg}")
+                logger.warning("[Exa] Search failed: %s", error_msg)
                 return SearchResponse(
                     query=query, results=[], provider=self.name,
                     success=False, error_message=error_msg,
@@ -70,7 +70,7 @@ class ExaSearchProvider(BaseSearchProvider):
                     published_date=pub_date,
                 ))
 
-            logger.info(f"[Exa] Search done, query='{query}', results={len(results)}")
+            logger.info("[Exa] Search done, query='%s', results=%s", query, len(results))
 
             return SearchResponse(
                 query=query, results=results, provider=self.name, success=True,
@@ -78,7 +78,7 @@ class ExaSearchProvider(BaseSearchProvider):
 
         except Exception as e:
             error_msg = f"Exa search error: {e}"
-            logger.error(f"[Exa] {error_msg}")
+            logger.error("[Exa] %s", error_msg)
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg,

@@ -286,7 +286,7 @@ def load_skills_from_directory(directory: Union[str, Path]) -> List[Skill]:
     """
     directory = Path(directory)
     if not directory.is_dir():
-        logger.warning(f"Skill directory does not exist: {directory}")
+        logger.warning("Skill directory does not exist: %s", directory)
         return []
 
     skills: List[Skill] = []
@@ -297,17 +297,17 @@ def load_skills_from_directory(directory: Union[str, Path]) -> List[Skill]:
         try:
             skill = load_skill_from_yaml(filepath)
             skills.append(skill)
-            logger.debug(f"Loaded skill from YAML: {skill.name} ({filepath.name})")
-        except Exception as e:
-            logger.warning(f"Failed to load skill from {filepath.name}: {e}")
+            logger.debug("Loaded skill from YAML: %s (%s)", skill.name, filepath.name)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning("Failed to load skill from %s: %s", filepath.name, e)
 
     for filepath in markdown_files:
         try:
             skill = load_skill_from_markdown(filepath)
             skills.append(skill)
-            logger.debug(f"Loaded skill bundle: {skill.name} ({filepath})")
-        except Exception as e:
-            logger.warning(f"Failed to load skill bundle from {filepath}: {e}")
+            logger.debug("Loaded skill bundle: %s (%s)", skill.name, filepath)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning("Failed to load skill bundle from %s: %s", filepath, e)
 
     return skills
 
@@ -339,7 +339,7 @@ class SkillManager:
     def register(self, skill: Skill) -> None:
         """Register a skill (programmatic or YAML-loaded)."""
         self._skills[skill.name] = skill
-        logger.debug(f"Registered skill: {skill.name} ({skill.display_name})")
+        logger.debug("Registered skill: %s (%s)", skill.name, skill.display_name)
 
     def load_builtin_skills(self) -> int:
         """Load all built-in skills from the compatibility `strategies/` directory.
@@ -349,7 +349,7 @@ class SkillManager:
         """
         skills_dir = _BUILTIN_SKILLS_DIR
         if not skills_dir.is_dir():
-            logger.warning(f"Built-in skill directory not found: {skills_dir}")
+            logger.warning("Built-in skill directory not found: %s", skills_dir)
             return 0
 
         skills = load_skills_from_directory(skills_dir)
@@ -357,7 +357,7 @@ class SkillManager:
             skill.source = "builtin"
             self.register(skill)
 
-        logger.info(f"Loaded {len(skills)} built-in skills from {skills_dir}")
+        logger.info("Loaded %s built-in skills from %s", len(skills), skills_dir)
         return len(skills)
 
     def load_custom_skills(self, directory: Union[str, Path, None]) -> int:
@@ -377,7 +377,7 @@ class SkillManager:
 
         directory = Path(directory)
         if not directory.is_dir():
-            logger.warning(f"Custom skill directory does not exist: {directory}")
+            logger.warning("Custom skill directory does not exist: %s", directory)
             return 0
 
         skills = load_skills_from_directory(directory)
@@ -388,7 +388,7 @@ class SkillManager:
                 )
             self.register(skill)
 
-        logger.info(f"Loaded {len(skills)} custom skills from {directory}")
+        logger.info("Loaded %s custom skills from %s", len(skills), directory)
         return len(skills)
 
     def load_builtin_strategies(self) -> int:
@@ -421,14 +421,14 @@ class SkillManager:
         if skill_names == ["all"] or "all" in skill_names:
             for s in self._skills.values():
                 s.enabled = True
-            logger.info(f"Activated all {len(self._skills)} skills")
+            logger.info("Activated all %s skills", len(self._skills))
             return
 
         for s in self._skills.values():
             s.enabled = s.name in skill_names
 
         activated = [s.name for s in self._skills.values() if s.enabled]
-        logger.info(f"Activated skills: {activated}")
+        logger.info("Activated skills: %s", activated)
 
     def get_skill_instructions(self) -> str:
         """Generate combined instruction text for all active skills.

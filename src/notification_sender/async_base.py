@@ -61,26 +61,26 @@ async def send_with_retry(send_func, channel_name, max_retries=3, **kwargs):
             return await send_func(**kwargs)
         except (RetryableError, NonRetryableError) as e:
             if isinstance(e, NonRetryableError):
-                logger.error(f"{channel_name} 不可重试的错误: {e}")
+                logger.error("%s 不可重试的错误: %s", channel_name, e)
                 return False
             # RetryableError
             if attempt < max_retries:
                 delay = 2 ** attempt
-                logger.warning(f"{channel_name} 发送失败（可重试），{delay}s 后重试 ({attempt}/{max_retries}): {e}")
+                logger.warning("%s 发送失败（可重试），%ss 后重试 (%s/%s): %s", channel_name, delay, attempt, max_retries, e)
                 await asyncio.sleep(delay)
             else:
-                logger.error(f"{channel_name} 发送失败，已重试 {max_retries} 次: {e}")
+                logger.error("%s 发送失败，已重试 %s 次: %s", channel_name, max_retries, e)
         except Exception as e:
             error_type = _classify_http_error(e)
             if error_type is NonRetryableError:
-                logger.error(f"{channel_name} 不可重试的错误: {e}")
+                logger.error("%s 不可重试的错误: %s", channel_name, e)
                 return False
             # Retryable
             if attempt < max_retries:
                 delay = 2 ** attempt
-                logger.warning(f"{channel_name} 发送失败（网络异常），{delay}s 后重试 ({attempt}/{max_retries}): {e}")
+                logger.warning("%s 发送失败（网络异常），%ss 后重试 (%s/%s): %s", channel_name, delay, attempt, max_retries, e)
                 await asyncio.sleep(delay)
             else:
-                logger.error(f"{channel_name} 发送失败，已重试 {max_retries} 次: {e}\n{traceback.format_exc()}")
+                logger.error("%s 发送失败，已重试 %s 次: %s\n%s", channel_name, max_retries, e, traceback.format_exc())
         attempt += 1
     return False

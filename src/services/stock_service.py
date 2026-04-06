@@ -47,7 +47,7 @@ class StockService:
             quote = manager.get_realtime_quote(stock_code)
             
             if quote is None:
-                logger.warning(f"获取 {stock_code} 实时行情失败")
+                logger.warning("获取 %s 实时行情失败", stock_code)
                 return None
             
             # UnifiedRealtimeQuote 是 dataclass，使用 getattr 安全访问字段
@@ -82,7 +82,7 @@ class StockService:
             logger.warning("DataFetcherManager 未找到，使用占位数据")
             return self._get_placeholder_quote(stock_code)
         except Exception as e:
-            logger.error(f"获取实时行情失败: {e}", exc_info=True)
+            logger.error("获取实时行情失败: %s", e, exc_info=True)
             return None
     
     def get_history_data(
@@ -120,7 +120,7 @@ class StockService:
             df, source = manager.get_daily_data(stock_code, days=days)
             
             if df is None or df.empty:
-                logger.warning(f"获取 {stock_code} 历史数据失败")
+                logger.warning("获取 %s 历史数据失败", stock_code)
                 return {"stock_code": stock_code, "period": period, "data": []}
             
             # 获取股票名称
@@ -157,7 +157,7 @@ class StockService:
             logger.warning("DataFetcherManager 未找到，返回空数据")
             return {"stock_code": stock_code, "period": period, "data": []}
         except Exception as e:
-            logger.error(f"获取历史数据失败: {e}", exc_info=True)
+            logger.error("获取历史数据失败: %s", e, exc_info=True)
             return {"stock_code": stock_code, "period": period, "data": []}
     
     def _get_placeholder_quote(self, stock_code: str) -> Dict[str, Any]:

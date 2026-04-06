@@ -77,7 +77,7 @@ class BatchCommand(BotCommand):
         if limit:
             stock_list = stock_list[:limit]
         
-        logger.info(f"[BatchCommand] 开始批量分析 {len(stock_list)} 只股票")
+        logger.info("[BatchCommand] 开始批量分析 %s 只股票", len(stock_list))
         
         # 获取异步任务服务
         service = await get_task_service()

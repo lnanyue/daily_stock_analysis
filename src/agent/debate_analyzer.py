@@ -27,7 +27,7 @@ class DebateAnalyzer:
         stock_name = context.get('stock_name', '未知股票')
         code = context.get('code', '未知代码')
         
-        logger.info(f"[{code}] 启动红蓝对垒辩论模式...")
+        logger.info("[%s] 启动红蓝对垒辩论模式...", code)
 
         # 1. 定义三方视角 Prompt
         bull_system = "你是一位极度乐观的【金牌交易员】。你的任务是挖掘该股所有潜在的利好、增长动能、主力吸筹证据和技术面突破信号。请给出最强力的买入理由。"
@@ -56,7 +56,7 @@ class DebateAnalyzer:
 {bear_view}
 """
         
-        logger.info(f"[{code}] 辩论完成，正在汇总最终决策...")
+        logger.info("[%s] 辩论完成，正在汇总最终决策...", code)
 
         # 4. 裁判给出最终结构化结果
         # 这里使用 analyze 方法，利用它已有的 JSON 解析和 AnalysisResult 转换逻辑
@@ -92,5 +92,5 @@ class DebateAnalyzer:
             )
             return content or f"{agent_name} 未能给出有效观点。"
         except Exception as e:
-            logger.error(f"{agent_name} 分析异常: {e}")
+            logger.error("%s 分析异常: %s", agent_name, e)
             return f"{agent_name} 分析出错。"

@@ -36,7 +36,7 @@ class FeishuSender:
 
         content_bytes = len(formatted_content.encode('utf-8'))
         if content_bytes > max_bytes:
-            logger.info(f"飞书消息内容超长({content_bytes}字节/{len(content)}字符)，将分批发送")
+            logger.info("飞书消息内容超长(%s字节/%s字符)，将分批发送", content_bytes, len(content))
             return await self._send_feishu_chunked(formatted_content, max_bytes)
 
         return await self._send_feishu_message(formatted_content)
@@ -47,17 +47,17 @@ class FeishuSender:
         total_chunks = len(chunks)
         success_count = 0
 
-        logger.info(f"飞书分批发送：共 {total_chunks} 批")
+        logger.info("飞书分批发送：共 %s 批", total_chunks)
 
         for i, chunk in enumerate(chunks):
             try:
                 if await self._send_feishu_message(chunk):
                     success_count += 1
-                    logger.info(f"飞书第 {i+1}/{total_chunks} 批发送成功")
+                    logger.info("飞书第 %s/%s 批发送成功", i+1, total_chunks)
                 else:
-                    logger.error(f"飞书第 {i+1}/{total_chunks} 批发送失败")
+                    logger.error("飞书第 %s/%s 批发送失败", i+1, total_chunks)
             except Exception:
-                logger.exception(f"飞书第 {i+1}/{total_chunks} 批发送异常")
+                logger.exception("飞书第 %s/%s 批发送异常", i+1, total_chunks)
 
             if i < total_chunks - 1:
                 await asyncio.sleep(1)
@@ -79,9 +79,9 @@ class FeishuSender:
                     logger.info("飞书消息发送成功")
                     return True
                 error_msg = result.get('msg') or result.get('StatusMessage', '未知错误')
-                logger.error(f"飞书返回错误 [code={code}]: {error_msg}")
+                logger.error("飞书返回错误 [code=%s]: %s", code, error_msg)
                 return False
-            logger.error(f"飞书请求失败: HTTP {response.status_code}")
+            logger.error("飞书请求失败: HTTP %s", response.status_code)
             return False
 
         # 1) 优先使用交互卡片

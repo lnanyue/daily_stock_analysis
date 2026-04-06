@@ -106,7 +106,7 @@ class TelegramSender:
                     return True
                 else:
                     error_desc = result.get('description', '未知错误')
-                    logger.error(f"Telegram 返回错误: {error_desc}")
+                    logger.error("Telegram 返回错误: %s", error_desc)
                     
                     # If Markdown parsing failed, fall back to plain text
                     if 'parse' in error_desc.lower() or 'markdown' in error_desc.lower():
@@ -128,11 +128,11 @@ class TelegramSender:
                 # Rate limited
                 result = response.json()
                 retry_after = result.get('parameters', {}).get('retry_after', 5)
-                logger.warning(f"Telegram rate limited, suggest retry after {retry_after}s")
+                logger.warning("Telegram rate limited, suggest retry after %ss", retry_after)
                 return False
             else:
-                logger.error(f"Telegram 请求失败: HTTP {response.status_code}")
-                logger.error(f"响应内容: {response.text}")
+                logger.error("Telegram 请求失败: HTTP %s", response.status_code)
+                logger.error("响应内容: %s", response.text)
                 return False
         except Exception:
             logger.exception("Telegram 网络请求异常")
@@ -155,7 +155,7 @@ class TelegramSender:
                 # 发送当前块
                 if current_chunk:
                     chunk_content = "\n---\n".join(current_chunk)
-                    logger.info(f"发送 Telegram 消息块 {chunk_index}...")
+                    logger.info("发送 Telegram 消息块 %s...", chunk_index)
                     if not await self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id):
                         all_success = False
                     chunk_index += 1
@@ -170,7 +170,7 @@ class TelegramSender:
         # 发送最后一块
         if current_chunk:
             chunk_content = "\n---\n".join(current_chunk)
-            logger.info(f"发送 Telegram 消息块 {chunk_index}...")
+            logger.info("发送 Telegram 消息块 %s...", chunk_index)
             if not await self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id):
                 all_success = False
                 

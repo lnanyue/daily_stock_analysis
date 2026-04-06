@@ -91,7 +91,7 @@ class DingtalkPlatform(BotPlatform):
         expected_sign = base64.b64encode(hmac_code).decode('utf-8')
         
         if sign != expected_sign:
-            logger.warning(f"[DingTalk] 签名验证失败")
+            logger.warning("[DingTalk] 签名验证失败")
             return False
         
         return True
@@ -129,7 +129,7 @@ class DingtalkPlatform(BotPlatform):
         # 检查消息类型
         msg_type = data.get('msgtype', '')
         if msg_type != 'text':
-            logger.debug(f"[DingTalk] 忽略非文本消息: {msg_type}")
+            logger.debug("[DingTalk] 忽略非文本消息: %s", msg_type)
             return None
         
         # 获取消息内容
@@ -303,12 +303,12 @@ class DingtalkPlatform(BotPlatform):
                     logger.info("[DingTalk] sessionWebhook 发送成功")
                     return True
                 else:
-                    logger.error(f"[DingTalk] sessionWebhook 发送失败: {result}")
+                    logger.error("[DingTalk] sessionWebhook 发送失败: %s", result)
                     return False
             else:
-                logger.error(f"[DingTalk] sessionWebhook 请求失败: {resp.status_code}")
+                logger.error("[DingTalk] sessionWebhook 请求失败: %s", resp.status_code)
                 return False
                 
         except Exception as e:
-            logger.error(f"[DingTalk] sessionWebhook 发送异常: {e}")
+            logger.error("[DingTalk] sessionWebhook 发送异常: %s", e)
             return False

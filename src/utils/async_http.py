@@ -44,7 +44,7 @@ class AsyncHttpClientManager:
                     follow_redirects=True,
                     verify=getattr(config, 'webhook_verify_ssl', True)
                 )
-                logger.info(f"Shared AsyncHttpClient created (proxy={'enabled' if proxy else 'disabled'})")
+                logger.info("Shared AsyncHttpClient created (proxy=%s)", 'enabled' if proxy else 'disabled')
             
             return self._client
 

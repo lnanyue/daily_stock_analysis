@@ -91,13 +91,13 @@ class HistoryService:
                 try:
                     start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
                 except ValueError:
-                    logger.warning(f"无效的 start_date 格式: {start_date}")
+                    logger.warning("无效的 start_date 格式: %s", start_date)
             
             if end_date:
                 try:
                     end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
                 except ValueError:
-                    logger.warning(f"无效的 end_date 格式: {end_date}")
+                    logger.warning("无效的 end_date 格式: %s", end_date)
             
             # Calculate offset
             offset = (page - 1) * limit
@@ -131,7 +131,7 @@ class HistoryService:
             }
             
         except Exception as e:
-            logger.error(f"查询历史列表失败: {e}", exc_info=True)
+            logger.error("查询历史列表失败: %s", e, exc_info=True)
             return {"total": 0, "items": []}
 
     def _resolve_record(self, record_id: str):
@@ -173,7 +173,7 @@ class HistoryService:
                 return None
             return self._record_to_detail_dict(record)
         except Exception as e:
-            logger.error(f"resolve_and_get_detail failed for {record_id}: {e}", exc_info=True)
+            logger.error("resolve_and_get_detail failed for %s: %s", record_id, e, exc_info=True)
             return None
 
     def resolve_and_get_news(self, record_id: str, limit: int = 20) -> List[Dict[str, str]]:
@@ -190,11 +190,11 @@ class HistoryService:
         try:
             record = self._resolve_record(record_id)
             if not record:
-                logger.warning(f"resolve_and_get_news: record not found for {record_id}")
+                logger.warning("resolve_and_get_news: record not found for %s", record_id)
                 return []
             return self.get_news_intel(query_id=record.query_id, limit=limit)
         except Exception as e:
-            logger.error(f"resolve_and_get_news failed for {record_id}: {e}", exc_info=True)
+            logger.error("resolve_and_get_news failed for %s: %s", record_id, e, exc_info=True)
             return []
 
     def get_history_detail_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
@@ -216,7 +216,7 @@ class HistoryService:
                 return None
             return self._record_to_detail_dict(record)
         except Exception as e:
-            logger.error(f"根据 ID 查询历史详情失败: {e}", exc_info=True)
+            logger.error("根据 ID 查询历史详情失败: %s", e, exc_info=True)
             return None
 
     @staticmethod
@@ -336,7 +336,7 @@ class HistoryService:
             return items
 
         except Exception as e:
-            logger.error(f"查询新闻情报失败: {e}", exc_info=True)
+            logger.error("查询新闻情报失败: %s", e, exc_info=True)
             return []
 
     def get_news_intel_by_record_id(self, record_id: int, limit: int = 20) -> List[Dict[str, str]]:
@@ -356,14 +356,14 @@ class HistoryService:
             # Look up the corresponding AnalysisHistory record by record_id
             record = self.db.get_analysis_history_by_id(record_id)
             if not record:
-                logger.warning(f"No analysis record found for record_id={record_id}")
+                logger.warning("No analysis record found for record_id=%s", record_id)
                 return []
 
             # Get query_id from record, then call original method
             return self.get_news_intel(query_id=record.query_id, limit=limit)
 
         except Exception as e:
-            logger.error(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
+            logger.error("根据 record_id 查询新闻情报失败: %s", e, exc_info=True)
             return []
 
     def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
@@ -458,13 +458,13 @@ class HistoryService:
         """
         record = self._resolve_record(record_id)
         if not record:
-            logger.warning(f"get_markdown_report: record not found for {record_id}")
+            logger.warning("get_markdown_report: record not found for %s", record_id)
             return None
 
         # Rebuild AnalysisResult from raw_result
         raw_result = parse_json_field(record.raw_result)
         if not raw_result:
-            logger.error(f"get_markdown_report: raw_result is empty for {record_id}")
+            logger.error("get_markdown_report: raw_result is empty for %s", record_id)
             raise MarkdownReportGenerationError(
                 f"raw_result is empty or invalid for record {record_id}",
                 record_id=record_id
@@ -473,14 +473,14 @@ class HistoryService:
         try:
             result = self._rebuild_analysis_result(raw_result, record)
         except Exception as e:
-            logger.error(f"get_markdown_report: failed to rebuild AnalysisResult for {record_id}: {e}", exc_info=True)
+            logger.error("get_markdown_report: failed to rebuild AnalysisResult for %s: %s", record_id, e, exc_info=True)
             raise MarkdownReportGenerationError(
                 f"Failed to rebuild AnalysisResult: {str(e)}",
                 record_id=record_id
             ) from e
 
         if not result:
-            logger.error(f"get_markdown_report: _rebuild_analysis_result returned None for {record_id}")
+            logger.error("get_markdown_report: _rebuild_analysis_result returned None for %s", record_id)
             raise MarkdownReportGenerationError(
                 f"Failed to rebuild AnalysisResult from raw_result",
                 record_id=record_id
@@ -490,7 +490,7 @@ class HistoryService:
         try:
             return self._generate_single_stock_markdown(result, record)
         except Exception as e:
-            logger.error(f"get_markdown_report: failed to generate markdown for {record_id}: {e}", exc_info=True)
+            logger.error("get_markdown_report: failed to generate markdown for %s: %s", record_id, e, exc_info=True)
             raise MarkdownReportGenerationError(
                 f"Failed to generate markdown report: {str(e)}",
                 record_id=record_id
@@ -554,7 +554,7 @@ class HistoryService:
                 model_used=raw_result.get("model_used"),
             )
         except Exception as e:
-            logger.error(f"Failed to rebuild AnalysisResult: {e}", exc_info=True)
+            logger.error("Failed to rebuild AnalysisResult: %s", e, exc_info=True)
             return None
 
     def _generate_single_stock_markdown(

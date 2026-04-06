@@ -106,10 +106,10 @@ class PushplusSender:
                 return True
 
             error_msg = result.get('msg', '未知错误')
-            logger.error(f"PushPlus 返回错误: {error_msg}")
+            logger.error("PushPlus 返回错误: %s", error_msg)
             return False
 
-        logger.error(f"PushPlus 请求失败: HTTP {response.status_code}")
+        logger.error("PushPlus 请求失败: HTTP %s", response.status_code)
         return False
 
     async def _send_pushplus_chunked(self, api_url: str, content: str, title: str, max_bytes: int) -> bool:
@@ -119,15 +119,15 @@ class PushplusSender:
         total_chunks = len(chunks)
         success_count = 0
 
-        logger.info(f"PushPlus 分批发送：共 {total_chunks} 批")
+        logger.info("PushPlus 分批发送：共 %s 批", total_chunks)
 
         for i, chunk in enumerate(chunks):
             chunk_title = f"{title} ({i+1}/{total_chunks})" if total_chunks > 1 else title
             if await self._send_pushplus_message(api_url, chunk, chunk_title):
                 success_count += 1
-                logger.info(f"PushPlus 第 {i+1}/{total_chunks} 批发送成功")
+                logger.info("PushPlus 第 %s/%s 批发送成功", i+1, total_chunks)
             else:
-                logger.error(f"PushPlus 第 {i+1}/{total_chunks} 批发送失败")
+                logger.error("PushPlus 第 %s/%s 批发送失败", i+1, total_chunks)
 
             if i < total_chunks - 1:
                 await asyncio.sleep(1)

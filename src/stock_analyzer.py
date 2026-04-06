@@ -216,7 +216,7 @@ class StockTrendAnalyzer:
         result = TrendAnalysisResult(code=code)
         
         if df is None or df.empty or len(df) < 20:
-            logger.warning(f"{code} 数据不足，无法进行趋势分析")
+            logger.warning("%s 数据不足，无法进行趋势分析", code)
             result.risk_factors.append("数据不足，无法完成分析")
             return result
 

@@ -373,7 +373,7 @@ def _handle_get_stock_info(stock_code: str) -> dict:
     try:
         fundamental_context = manager.get_fundamental_context(stock_code)
     except Exception as e:
-        logger.warning(f"get_stock_info via fundamental pipeline failed for {stock_code}: {e}")
+        logger.warning("get_stock_info via fundamental pipeline failed for %s: %s", stock_code, e)
         fundamental_context = manager.build_failed_fundamental_context(stock_code, str(e))
 
     compact_context = _compact_fundamental_context(fundamental_context)

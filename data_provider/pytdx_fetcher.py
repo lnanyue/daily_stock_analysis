@@ -55,9 +55,9 @@ def _parse_hosts_from_env() -> Optional[List[Tuple[str, int]]]:
                     try:
                         result.append((host, int(port_str)))
                     except ValueError:
-                        logger.warning(f"Invalid PYTDX_SERVERS entry: {part}")
+                        logger.warning("Invalid PYTDX_SERVERS entry: %s", part)
             else:
-                logger.warning(f"Invalid PYTDX_SERVERS entry (missing port): {part}")
+                logger.warning("Invalid PYTDX_SERVERS entry (missing port): %s", part)
         if result:
             return result
 
@@ -67,7 +67,7 @@ def _parse_hosts_from_env() -> Optional[List[Tuple[str, int]]]:
         try:
             return [(host, int(port_str))]
         except ValueError:
-            logger.warning(f"Invalid PYTDX_HOST/PYTDX_PORT: {host}:{port_str}")
+            logger.warning("Invalid PYTDX_HOST/PYTDX_PORT: %s:%s", host, port_str)
 
     return None
 
@@ -184,10 +184,10 @@ class PytdxFetcher(BaseFetcher):
                     if api.connect(host, port, time_out=5):
                         connected = True
                         self._current_host_idx = host_idx
-                        logger.debug(f"Pytdx 连接成功: {host}:{port}")
+                        logger.debug("Pytdx 连接成功: %s:%s", host, port)
                         break
                 except Exception as e:
-                    logger.debug(f"Pytdx 连接 {host}:{port} 失败: {e}")
+                    logger.debug("Pytdx 连接 %s:%s 失败: %s", host, port, e)
                     continue
             
             if not connected:
@@ -201,7 +201,7 @@ class PytdxFetcher(BaseFetcher):
                 api.disconnect()
                 logger.debug("Pytdx 连接已断开")
             except Exception as e:
-                logger.warning(f"Pytdx 断开连接时出错: {e}")
+                logger.warning("Pytdx 断开连接时出错: %s", e)
     
     def _get_market_code(self, stock_code: str) -> Tuple[int, str]:
         """
@@ -294,7 +294,7 @@ class PytdxFetcher(BaseFetcher):
         days = (end_dt - start_dt).days
         count = min(max(days * 5 // 7 + 10, 30), 800)  # 估算交易日，最大 800 条
         
-        logger.debug(f"调用 Pytdx get_security_bars(market={market}, code={code}, count={count})")
+        logger.debug("调用 Pytdx get_security_bars(market=%s, code=%s, count=%s)", market, code, count)
         
         with self._pytdx_session() as api:
             try:
@@ -400,7 +400,7 @@ class PytdxFetcher(BaseFetcher):
                     return name
                 
         except Exception as e:
-            logger.warning(f"Pytdx 获取股票名称失败 {stock_code}: {e}")
+            logger.warning("Pytdx 获取股票名称失败 %s: %s", stock_code, e)
         
         return None
     
@@ -440,7 +440,7 @@ class PytdxFetcher(BaseFetcher):
                         'ask_prices': [quote.get(f'ask{i}', 0) for i in range(1, 6)],
                     }
         except Exception as e:
-            logger.warning(f"Pytdx 获取实时行情失败 {stock_code}: {e}")
+            logger.warning("Pytdx 获取实时行情失败 %s: %s", stock_code, e)
         
         return None
 

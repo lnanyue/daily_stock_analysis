@@ -84,5 +84,5 @@ class AstrbotSender:
         if response.status_code == 200:
             logger.info("AstrBot 消息发送成功")
             return True
-        logger.error(f"AstrBot 发送失败: {response.status_code} {response.text}")
+        logger.error("AstrBot 发送失败: %s %s", response.status_code, response.text)
         return False

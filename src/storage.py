@@ -693,7 +693,7 @@ class DatabaseManager:
         Base.metadata.create_all(self._engine)
 
         self._initialized = True
-        logger.info(f"数据库初始化完成: {db_url}")
+        logger.info("数据库初始化完成: %s", db_url)
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(DatabaseManager._cleanup_engine, self._engine)
@@ -730,7 +730,7 @@ class DatabaseManager:
                 engine.dispose(close=True)
                 logger.debug("数据库引擎已清理")
         except Exception as e:
-            logger.warning(f"清理数据库引擎时出错: {e}")
+            logger.warning("清理数据库引擎时出错: %s", e)
 
     def _install_sqlite_pragma_handler(self) -> None:
         """为 SQLite 连接安装竞争保护参数。"""
@@ -1036,9 +1036,9 @@ class DatabaseManager:
                 f"save_news_intel[{code}]",
                 _write,
             )
-            logger.info(f"保存新闻情报成功: {code}, 新增 {saved_count} 条")
+            logger.info("保存新闻情报成功: %s, 新增 %s 条", code, saved_count)
         except Exception as e:
-            logger.error(f"保存新闻情报失败: {e}")
+            logger.error("保存新闻情报失败: %s", e)
             raise
 
         return saved_count
@@ -1221,7 +1221,7 @@ class DatabaseManager:
                 _write,
             )
         except Exception as e:
-            logger.error(f"保存分析历史失败: {e}")
+            logger.error("保存分析历史失败: %s", e)
             return 0
 
     def get_analysis_history(
@@ -1440,7 +1440,7 @@ class DatabaseManager:
             本次实际新增的记录数（不含更新）
         """
         if df is None or df.empty:
-            logger.warning(f"保存数据为空，跳过 {code}")
+            logger.warning("保存数据为空，跳过 %s", code)
             return 0
 
         now = datetime.now()
@@ -1563,10 +1563,10 @@ class DatabaseManager:
                 f"save_daily_data[{code}]",
                 _write,
             )
-            logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
+            logger.info("保存 %s 数据成功，新增 %s 条", code, saved_count)
             return saved_count
         except Exception as e:
-            logger.error(f"保存 {code} 数据失败: {e}")
+            logger.error("保存 %s 数据失败: %s", code, e)
             raise
     
     def get_analysis_context(
@@ -1597,7 +1597,7 @@ class DatabaseManager:
         recent_data = self.get_latest_data(code, days=2)
         
         if not recent_data:
-            logger.warning(f"未找到 {code} 的数据")
+            logger.warning("未找到 %s 的数据", code)
             return None
         
         today_data = recent_data[0]

@@ -108,7 +108,7 @@ class BaseSearchProvider(ABC):
             
             return response
             
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             self._record_error(api_key)
             elapsed = time.time() - start_time
             logger.error(f"[{self._name}] 搜索 '{query}' 失败: {e}")

@@ -41,7 +41,7 @@ def get_platform(platform_name: str) -> Optional['BotPlatform']:
         if platform_class:
             _platform_instances[platform_name] = platform_class()
         else:
-            logger.warning(f"[BotHandler] 未知平台: {platform_name}")
+            logger.warning("[BotHandler] 未知平台: %s", platform_name)
             return None
     
     return _platform_instances[platform_name]
@@ -67,7 +67,7 @@ def handle_webhook(
     Returns:
         WebhookResponse 响应对象
     """
-    logger.info(f"[BotHandler] 收到 {platform_name} Webhook 请求")
+    logger.info("[BotHandler] 收到 %s Webhook 请求", platform_name)
     
     # 检查机器人功能是否启用
     from src.config import get_config
@@ -86,17 +86,17 @@ def handle_webhook(
     try:
         data = json.loads(body.decode('utf-8')) if body else {}
     except json.JSONDecodeError as e:
-        logger.error(f"[BotHandler] JSON 解析失败: {e}")
+        logger.error("[BotHandler] JSON 解析失败: %s", e)
         return WebhookResponse.error("Invalid JSON", 400)
     
-    logger.debug(f"[BotHandler] 请求数据: {json.dumps(data, ensure_ascii=False)[:500]}")
+    logger.debug("[BotHandler] 请求数据: %s", json.dumps(data, ensure_ascii=False)[:500])
     
     # 处理 Webhook
     message, challenge_response = platform.handle_webhook(headers, body, data)
     
     # 如果是验证请求，直接返回验证响应
     if challenge_response:
-        logger.info(f"[BotHandler] 返回验证响应")
+        logger.info("[BotHandler] 返回验证响应")
         return challenge_response
     
     # 如果没有消息需要处理，返回空响应
@@ -104,7 +104,7 @@ def handle_webhook(
         logger.debug("[BotHandler] 无需处理的消息")
         return WebhookResponse.success()
     
-    logger.info(f"[BotHandler] 解析到消息: user={message.user_name}, content={message.content[:50]}")
+    logger.info("[BotHandler] 解析到消息: user=%s, content=%s", message.user_name, message.content[:50])
     
     # 分发到命令处理器
     dispatcher = get_dispatcher()

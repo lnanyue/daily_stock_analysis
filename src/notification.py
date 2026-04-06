@@ -183,7 +183,7 @@ class NotificationService(
         else:
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             channel_names.extend(self._context_channels)
-            logger.info(f"已配置 {len(channel_names)} 个通知渠道：{', '.join(channel_names)}")
+            logger.info("已配置 %s 个通知渠道：%s", len(channel_names), ', '.join(channel_names))
 
     def _normalize_report_type(self, report_type: Any) -> ReportType:
         """Normalize string/enum input into ReportType."""
@@ -404,7 +404,7 @@ class NotificationService(
                 else:
                     logger.error("钉钉会话（Stream）推送失败")
             except Exception as e:
-                logger.error(f"钉钉会话（Stream）推送异常: {e}")
+                logger.error("钉钉会话（Stream）推送异常: %s", e)
 
         # 尝试飞书会话
         feishu_info = self._extract_feishu_reply_info()
@@ -416,7 +416,7 @@ class NotificationService(
                 else:
                     logger.error("飞书会话（Stream）推送失败")
             except Exception as e:
-                logger.error(f"飞书会话（Stream）推送异常: {e}")
+                logger.error("飞书会话（Stream）推送异常: %s", e)
 
         return success
 
@@ -460,10 +460,10 @@ class NotificationService(
             return reply_client.send_to_chat(chat_id, content)
             
         except ImportError as e:
-            logger.error(f"导入飞书 Stream 模块失败: {e}")
+            logger.error("导入飞书 Stream 模块失败: %s", e)
             return False
         except Exception as e:
-            logger.error(f"飞书 Stream 回复异常: {e}")
+            logger.error("飞书 Stream 回复异常: %s", e)
             return False
 
     async def _send_feishu_stream_chunked(
@@ -529,7 +529,7 @@ class NotificationService(
             
             if not reply_client.send_to_chat(chat_id, chunk):
                 success = False
-                logger.error(f"飞书 Stream 分块 {i+1}/{len(chunks)} 发送失败")
+                logger.error("飞书 Stream 分块 %s/%s 发送失败", i+1, len(chunks))
         
         return success
         
@@ -1614,7 +1614,7 @@ class NotificationService(
                 )
 
         channel_names = self.get_channel_names()
-        logger.info(f"正在向 {len(self._available_channels)} 个渠道发送通知：{channel_names}")
+        logger.info("正在向 %s 个渠道发送通知：%s", len(self._available_channels), channel_names)
 
         # 构建各渠道的发送任务（包含图片决策）
         coros = []
@@ -1639,14 +1639,14 @@ class NotificationService(
             channel = self._available_channels[i]
             channel_name = ChannelDetector.get_channel_name(channel)
             if isinstance(res, Exception):
-                logger.error(f"{channel_name} 发送异常: {res}")
+                logger.error("%s 发送异常: %s", channel_name, res)
                 fail_count += 1
             elif res:
                 success_count += 1
             else:
                 fail_count += 1
 
-        logger.info(f"通知发送完成：成功 {success_count} 个，失败 {fail_count} 个")
+        logger.info("通知发送完成：成功 %s 个，失败 %s 个", success_count, fail_count)
         return success_count > 0 or context_success
 
     def send_sync(self, content, email_stock_codes=None, email_send_to_all=False) -> bool:
@@ -1694,7 +1694,7 @@ class NotificationService(
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"{channel_name} 发送失败，已重试 {max_retries} 次: {e}")
+                    logger.error("%s 发送失败，已重试 %s 次: %s", channel_name, max_retries, e)
         return False
 
     async def _send_single_channel(
@@ -1745,7 +1745,7 @@ class NotificationService(
         elif channel == NotificationChannel.ASTRBOT:
             return await self.send_to_astrbot(content)
         else:
-            logger.warning(f"不支持的通知渠道: {channel}")
+            logger.warning("不支持的通知渠道: %s", channel)
             return False
    
     def save_report_to_file(
@@ -1778,7 +1778,7 @@ class NotificationService(
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        logger.info(f"日报已保存到: {filepath}")
+        logger.info("日报已保存到: %s", filepath)
         return str(filepath)
 
 

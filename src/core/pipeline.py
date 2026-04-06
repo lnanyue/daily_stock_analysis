@@ -231,7 +231,7 @@ class StockAnalysisPipeline:
             return result
 
         except Exception as e:
-            logger.error(f"{code} 分析失败: {e}")
+            logger.error("%s 分析失败: %s", code, e)
             logger.exception(e)
             return None
 

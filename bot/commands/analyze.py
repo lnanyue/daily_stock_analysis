@@ -73,7 +73,7 @@ class AnalyzeCommand(BotCommand):
         report_type = "simple"
         if len(args) > 1 and args[1].lower() in ["full", "完整", "详细"]:
             report_type = "full"
-        logger.info(f"[AnalyzeCommand] 分析股票: {code}, 报告类型: {report_type}")
+        logger.info("[AnalyzeCommand] 分析股票: %s, 报告类型: %s", code, report_type)
         
         try:
             # 调用分析服务
@@ -105,5 +105,5 @@ class AnalyzeCommand(BotCommand):
                 return BotResponse.error_response(f"提交分析任务失败: {error}")
                 
         except Exception as e:
-            logger.error(f"[AnalyzeCommand] 执行失败: {e}")
+            logger.error("[AnalyzeCommand] 执行失败: %s", e)
             return BotResponse.error_response(f"分析失败: {str(e)[:100]}")

@@ -118,9 +118,9 @@ class BaostockFetcher(BaseFetcher):
                 if logout_result.error_code == '0':
                     logger.debug("Baostock 登出成功")
                 else:
-                    logger.warning(f"Baostock 登出异常: {logout_result.error_msg}")
+                    logger.warning("Baostock 登出异常: %s", logout_result.error_msg)
             except Exception as e:
-                logger.warning(f"Baostock 登出时发生错误: {e}")
+                logger.warning("Baostock 登出时发生错误: %s", e)
     
     def _convert_stock_code(self, stock_code: str) -> str:
         """
@@ -162,7 +162,7 @@ class BaostockFetcher(BaseFetcher):
         elif code.startswith(('000', '002', '300')):
             return f"sz.{code}"
         else:
-            logger.warning(f"无法确定股票 {code} 的市场，默认使用深市")
+            logger.warning("无法确定股票 %s 的市场，默认使用深市", code)
             return f"sz.{code}"
     
     @retry(
@@ -201,7 +201,7 @@ class BaostockFetcher(BaseFetcher):
         # 转换代码格式
         bs_code = self._convert_stock_code(stock_code)
         
-        logger.debug(f"调用 Baostock query_history_k_data_plus({bs_code}, {start_date}, {end_date})")
+        logger.debug("调用 Baostock query_history_k_data_plus(%s, %s, %s)", bs_code, start_date, end_date)
         
         with self._baostock_session() as bs:
             try:
@@ -310,11 +310,11 @@ class BaostockFetcher(BaseFetcher):
                         if name_idx is not None and len(data_list[0]) > name_idx:
                             name = data_list[0][name_idx]
                             self._stock_name_cache[stock_code] = name
-                            logger.debug(f"Baostock 获取股票名称成功: {stock_code} -> {name}")
+                            logger.debug("Baostock 获取股票名称成功: %s -> %s", stock_code, name)
                             return name
                 
         except Exception as e:
-            logger.warning(f"Baostock 获取股票名称失败 {stock_code}: {e}")
+            logger.warning("Baostock 获取股票名称失败 %s: %s", stock_code, e)
         
         return None
     
@@ -350,11 +350,11 @@ class BaostockFetcher(BaseFetcher):
                         for _, row in df.iterrows():
                             self._stock_name_cache[row['code']] = row['name']
                         
-                        logger.info(f"Baostock 获取股票列表成功: {len(df)} 条")
+                        logger.info("Baostock 获取股票列表成功: %s 条", len(df))
                         return df[['code', 'name']]
                 
         except Exception as e:
-            logger.warning(f"Baostock 获取股票列表失败: {e}")
+            logger.warning("Baostock 获取股票列表失败: %s", e)
         
         return None
 

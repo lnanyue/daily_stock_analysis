@@ -1401,14 +1401,14 @@ class Config:
         if not path.is_absolute():
             path = Path(__file__).parent.parent / path
         if not path.exists():
-            _logger.warning(f"LITELLM_CONFIG file not found: {path}")
+            logger.warning("LITELLM_CONFIG file not found: %s", path)
             return []
 
         try:
             with open(path, encoding='utf-8') as f:
                 yaml_config = yaml.safe_load(f) or {}
         except Exception as e:
-            _logger.warning(f"Failed to parse LITELLM_CONFIG: {e}")
+            logger.warning("Failed to parse LITELLM_CONFIG: %s", e)
             return []
 
         model_list = yaml_config.get('model_list', [])
@@ -1425,7 +1425,7 @@ class Config:
                     env_name = val.split('/', 1)[1]
                     params[key] = os.getenv(env_name, '')
 
-        _logger.info(f"LITELLM_CONFIG: loaded {len(model_list)} model deployment(s) from {path}")
+        logger.info("LITELLM_CONFIG: loaded %s model deployment(s) from %s", len(model_list), path)
         return model_list
 
     @classmethod
@@ -1475,10 +1475,10 @@ class Config:
                 try:
                     extra_headers = json.loads(extra_headers_raw)
                 except json.JSONDecodeError:
-                    _logger.warning(f"LLM_{ch_upper}_EXTRA_HEADERS: invalid JSON, ignored")
+                    logger.warning("LLM_%s_EXTRA_HEADERS: invalid JSON, ignored", ch_upper)
 
             if not enabled:
-                _logger.info(f"LLM channel '{ch_name}': disabled, skipped")
+                logger.info("LLM channel '%s': disabled, skipped", ch_name)
                 continue
 
             if protocol_raw and canonicalize_llm_channel_protocol(protocol_raw) not in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
@@ -1493,10 +1493,10 @@ class Config:
                 api_keys = [""]
 
             if not api_keys:
-                _logger.warning(f"LLM channel '{ch_name}': no API key configured, skipped")
+                logger.warning("LLM channel '%s': no API key configured, skipped", ch_name)
                 continue
             if not models:
-                _logger.warning(f"LLM channel '{ch_name}': no models configured, skipped")
+                logger.warning("LLM channel '%s': no models configured, skipped", ch_name)
                 continue
 
             channels.append({
@@ -1508,7 +1508,7 @@ class Config:
                 'models': models,
                 'extra_headers': extra_headers,
             })
-            _logger.info(f"LLM channel '{ch_name}': {len(models)} model(s), {len(api_keys)} key(s)")
+            logger.info("LLM channel '%s': %s model(s), %s key(s)", ch_name, len(models), len(api_keys))
 
         return channels
 

@@ -128,18 +128,18 @@ class CommandDispatcher:
         name = command.name.lower()
         
         if name in self._commands:
-            logger.warning(f"[Dispatcher] 命令 '{name}' 已存在，将被覆盖")
+            logger.warning("[Dispatcher] 命令 '%s' 已存在，将被覆盖", name)
         
         self._commands[name] = command
-        logger.debug(f"[Dispatcher] 注册命令: {name}")
+        logger.debug("[Dispatcher] 注册命令: %s", name)
         
         # 注册别名
         for alias in command.aliases:
             alias_lower = alias.lower()
             if alias_lower in self._aliases:
-                logger.warning(f"[Dispatcher] 别名 '{alias_lower}' 已存在，将被覆盖")
+                logger.warning("[Dispatcher] 别名 '%s' 已存在，将被覆盖", alias_lower)
             self._aliases[alias_lower] = name
-            logger.debug(f"[Dispatcher] 注册别名: {alias_lower} -> {name}")
+            logger.debug("[Dispatcher] 注册别名: %s -> %s", alias_lower, name)
     
     def register_class(self, command_class: Type[BotCommand]) -> None:
         """
@@ -171,7 +171,7 @@ class CommandDispatcher:
         for alias in command.aliases:
             self._aliases.pop(alias.lower(), None)
         
-        logger.debug(f"[Dispatcher] 注销命令: {name}")
+        logger.debug("[Dispatcher] 注销命令: %s", name)
         return True
     
     def get_command(self, name: str) -> Optional[BotCommand]:
@@ -257,7 +257,7 @@ class CommandDispatcher:
             # 非命令消息，不处理
             return BotResponse.text_response("")
         
-        logger.info(f"[Dispatcher] 收到命令: {cmd_name}, 参数: {args}, 用户: {message.user_name}")
+        logger.info("[Dispatcher] 收到命令: %s, 参数: %s, 用户: %s", cmd_name, args, message.user_name)
         
         # 3. 查找命令处理器
         command = self.get_command(cmd_name)
@@ -283,10 +283,10 @@ class CommandDispatcher:
         try:
             # ★ Async call
             response = await command.execute(message, args)
-            logger.info(f"[Dispatcher] 命令 {cmd_name} 执行成功")
+            logger.info("[Dispatcher] 命令 %s 执行成功", cmd_name)
             return response
         except Exception as e:
-            logger.error(f"[Dispatcher] 命令 {cmd_name} 执行失败: {e}")
+            logger.error("[Dispatcher] 命令 %s 执行失败: %s", cmd_name, e)
             logger.exception(e)
             return BotResponse.error_response(f"命令执行失败: {str(e)[:100]}")
     
@@ -332,7 +332,7 @@ def get_dispatcher() -> CommandDispatcher:
         for command_class in ALL_COMMANDS:
             _dispatcher.register_class(command_class)
         
-        logger.info(f"[Dispatcher] 初始化完成，已注册 {len(_dispatcher._commands)} 个命令")
+        logger.info("[Dispatcher] 初始化完成，已注册 %s 个命令", len(_dispatcher._commands))
     
     return _dispatcher
 

@@ -53,7 +53,7 @@ class ConversationManager:
 
             if session_id not in self._sessions:
                 self._sessions[session_id] = ConversationSession(session_id=session_id)
-                logger.info(f"Created new conversation session: {session_id}")
+                logger.info("Created new conversation session: %s", session_id)
             else:
                 # Update last active time
                 self._sessions[session_id].last_active = datetime.now()
@@ -75,7 +75,7 @@ class ConversationManager:
         with self._lock:
             if session_id in self._sessions:
                 del self._sessions[session_id]
-                logger.info(f"Cleared conversation session: {session_id}")
+                logger.info("Cleared conversation session: %s", session_id)
         # We don't delete from DB here to keep history, or we could add a delete method.
         # For now, just clear from memory.
 
@@ -89,7 +89,7 @@ class ConversationManager:
             ]
             for sid in expired:
                 del self._sessions[sid]
-                logger.info(f"Cleaned up expired conversation session: {sid}")
+                logger.info("Cleaned up expired conversation session: %s", sid)
 
 # Global instance
 conversation_manager = ConversationManager()

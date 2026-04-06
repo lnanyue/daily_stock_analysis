@@ -128,7 +128,7 @@ class AskCommand(BotCommand):
         skill_id = self._parse_skill(args)
         skill_text = " ".join(args[1:]).strip() if len(args) > 1 else ""
 
-        logger.info(f"[AskCommand] Stock: {code}, Skill: {skill_id}, Extra: {skill_text}")
+        logger.info("[AskCommand] Stock: %s, Skill: %s, Extra: %s", code, skill_id, skill_text)
 
         try:
             from src.agent.factory import build_agent_executor
@@ -164,6 +164,6 @@ class AskCommand(BotCommand):
                 return BotResponse.text_response(f"⚠️ 分析失败: {result.error}")
 
         except Exception as e:
-            logger.error(f"Ask command failed: {e}")
+            logger.error("Ask command failed: %s", e)
             logger.exception("Ask error details:")
             return BotResponse.text_response(f"⚠️ 问股执行出错: {str(e)}")

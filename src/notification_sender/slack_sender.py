@@ -55,7 +55,7 @@ class SlackSender:
         try:
             chunks = chunk_content_by_max_bytes(content, _BLOCK_TEXT_LIMIT, add_page_marker=True)
         except Exception as e:
-            logger.error(f"分割 Slack 消息失败: {e}, 尝试整段发送。")
+            logger.error("分割 Slack 消息失败: %s, 尝试整段发送。", e)
             chunks = [content]
 
         # 优先使用 Bot API
@@ -104,7 +104,7 @@ class SlackSender:
         if response.status_code == 200 and response.text == "ok":
             logger.info("Slack Webhook 消息发送成功")
             return True
-        logger.error(f"Slack Webhook 发送失败: HTTP {response.status_code} {response.text[:200]}")
+        logger.error("Slack Webhook 发送失败: HTTP %s %s", response.status_code, response.text[:200])
         return False
 
     async def _send_slack_bot(self, content: str) -> bool:
@@ -129,7 +129,7 @@ class SlackSender:
         if result.get("ok"):
             logger.info("Slack Bot 消息发送成功")
             return True
-        logger.error(f"Slack Bot 发送失败: {result.get('error', 'unknown')}")
+        logger.error("Slack Bot 发送失败: %s", result.get('error', 'unknown'))
         return False
 
     async def _send_slack_image(self, image_bytes: bytes, fallback_content: str = "") -> bool:

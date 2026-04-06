@@ -55,7 +55,7 @@ class DiscordSender:
         try:
             chunks = chunk_content_by_max_words(content, self._discord_max_words)
         except ValueError as e:
-            logger.error(f"分割 Discord 消息失败: {e}, 尝试整段发送。")
+            logger.error("分割 Discord 消息失败: %s, 尝试整段发送。", e)
             chunks = [content]
 
         # 优先使用 Webhook（配置简单，权限低）
@@ -104,7 +104,7 @@ class DiscordSender:
         if response.status_code in [200, 204]:
             logger.info("Discord Webhook 消息发送成功")
             return True
-        logger.error(f"Discord Webhook 发送失败: {response.status_code} {response.text}")
+        logger.error("Discord Webhook 发送失败: %s %s", response.status_code, response.text)
         return False
     
     async def _send_discord_bot(self, content: str) -> bool:
@@ -135,5 +135,5 @@ class DiscordSender:
         if response.status_code == 200:
             logger.info("Discord Bot 消息发送成功")
             return True
-        logger.error(f"Discord Bot 发送失败: {response.status_code} {response.text}")
+        logger.error("Discord Bot 发送失败: %s %s", response.status_code, response.text)
         return False
