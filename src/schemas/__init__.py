@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-===================================
-Report Engine Schemas
-===================================
-
-Pydantic schemas for LLM report output validation.
+数据模型和 Schema
 """
 
-from src.schemas.report_schema import AnalysisReportSchema
+from .report_schema import AnalysisReportSchema
+from .analysis_result import (
+    AnalysisResult,
+    check_content_integrity,
+    apply_placeholder_fill,
+)
 
-__all__ = ["AnalysisReportSchema"]
+__all__ = [
+    "AnalysisReportSchema",
+    "AnalysisResult",
+    "check_content_integrity",
+    "apply_placeholder_fill",
+]
