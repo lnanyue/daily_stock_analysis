@@ -66,9 +66,7 @@ class GuruAnalyzer:
 """
         
         try:
-            import asyncio
-            content = await asyncio.to_thread(
-                self.analyzer.generate_text,
+            content = await self.analyzer.generate_text_async(
                 prompt,
                 2048,
                 0.8 # 稍微高一点随机性，增加大师的“智慧感”

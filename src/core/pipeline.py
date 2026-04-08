@@ -219,7 +219,7 @@ class StockAnalysisPipeline:
                 debate_analyzer = DebateAnalyzer(self.config, self.analyzer)
                 result = await debate_analyzer.analyze(enhanced_context, final_news)
             else:
-                result = await asyncio.to_thread(self.analyzer.analyze, enhanced_context, final_news)
+                result = await self.analyzer.analyze_async(enhanced_context, final_news)
 
             if result:
                 result.query_id = query_id

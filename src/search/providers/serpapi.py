@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 
 from ..types import SearchResult, SearchResponse
 from ..base_provider import BaseSearchProvider
-from ..http_utils import fetch_url_content
+from ..http_utils import fetch_url_content, fetch_url_content_async
 
 logger = logging.getLogger(__name__)
 

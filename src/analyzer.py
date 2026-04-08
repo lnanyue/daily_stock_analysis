@@ -704,6 +704,75 @@ class GeminiAnalyzer:
         """Check if LiteLLM is properly configured with at least one API key."""
         return self._router is not None or self._litellm_available
 
+    async def _call_litellm_async(
+        self,
+        prompt: str,
+        generation_config: dict,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        """Asynchronous version of _call_litellm."""
+        config = self._get_runtime_config()
+        max_tokens = (
+            generation_config.get('max_output_tokens')
+            or generation_config.get('max_tokens')
+            or 8192
+        )
+        temperature = generation_config.get('temperature', 0.7)
+
+        models_to_try = [config.litellm_model] + (config.litellm_fallback_models or [])
+        models_to_try = [m for m in models_to_try if m]
+
+        use_channel_router = self._has_channel_config(config)
+
+        last_error = None
+        effective_system_prompt = system_prompt or self.TEXT_SYSTEM_PROMPT
+        for model in models_to_try:
+            try:
+                model_short = model.split("/")[-1] if "/" in model else model
+                call_kwargs: Dict[str, Any] = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": effective_system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                }
+                extra = get_thinking_extra_body(model_short)
+                if extra:
+                    call_kwargs["extra_body"] = extra
+
+                _router_model_names = set(get_configured_llm_models(config.llm_model_list))
+                if use_channel_router and self._router and model in _router_model_names:
+                    response = await self._router.acompletion(**call_kwargs)
+                elif self._router and model == config.litellm_model and not use_channel_router:
+                    response = await self._router.acompletion(**call_kwargs)
+                else:
+                    keys = get_api_keys_for_model(model, config)
+                    if keys:
+                        call_kwargs["api_key"] = keys[0]
+                    call_kwargs.update(extra_litellm_params(model, config))
+                    response = await litellm.acompletion(**call_kwargs)
+
+                if response and response.choices and response.choices[0].message.content:
+                    usage: Dict[str, Any] = {}
+                    if response.usage:
+                        usage = {
+                            "prompt_tokens": response.usage.prompt_tokens or 0,
+                            "completion_tokens": response.usage.completion_tokens or 0,
+                            "total_tokens": response.usage.total_tokens or 0,
+                        }
+                    return (response.choices[0].message.content, model, usage)
+                raise ValueError("LLM returned empty response")
+
+            except Exception as e:
+                logger.warning(f"[LiteLLM Async] {model} failed: {e}")
+                last_error = e
+                continue
+
+        raise Exception(f"All LLM models failed in async (tried {len(models_to_try)} model(s)). Last error: {last_error}")
+
     def _call_litellm(
         self,
         prompt: str,
@@ -792,6 +861,27 @@ class GeminiAnalyzer:
 
         raise Exception(f"All LLM models failed (tried {len(models_to_try)} model(s)). Last error: {last_error}")
 
+    async def generate_text_async(
+        self,
+        prompt: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+    ) -> Optional[str]:
+        """Asynchronous version of generate_text."""
+        try:
+            result = await self._call_litellm_async(
+                prompt,
+                generation_config={"max_tokens": max_tokens, "temperature": temperature},
+            )
+            if isinstance(result, tuple):
+                text, model_used, usage = result
+                persist_llm_usage(usage, model_used, call_type="market_review")
+                return text
+            return result
+        except Exception as exc:
+            logger.error("[generate_text_async] LLM call failed: %s", exc)
+            return None
+
     def generate_text(
         self,
         prompt: str,
@@ -825,6 +915,97 @@ class GeminiAnalyzer:
         except Exception as exc:
             logger.error("[generate_text] LLM call failed: %s", exc)
             return None
+
+    async def analyze_async(
+        self, 
+        context: Dict[str, Any],
+        news_context: Optional[str] = None
+    ) -> AnalysisResult:
+        """
+        Asynchronous version of analyze().
+        """
+        code = context.get('code', 'Unknown')
+        config = self._get_runtime_config()
+        report_language = normalize_report_language(getattr(config, "report_language", "zh"))
+        system_prompt = self._get_analysis_system_prompt(report_language, stock_code=code)
+        
+        # 请求前增加延时（异步等待，不阻塞线程）
+        request_delay = config.gemini_request_delay
+        if request_delay > 0:
+            logger.debug(f"[LLM Async] 请求前等待 {request_delay:.1f} 秒...")
+            await asyncio.sleep(request_delay)
+        
+        # 优先从上下文获取股票名称
+        name = context.get('stock_name')
+        if not name or name.startswith('股票'):
+            if 'realtime' in context and context['realtime'].get('name'):
+                name = context['realtime']['name']
+            else:
+                name = STOCK_NAME_MAP.get(code, f'股票{code}')
+        
+        if not self.is_available():
+            return AnalysisResult(
+                code=code, name=name, sentiment_score=50,
+                trend_prediction='Sideways' if report_language == "en" else '震荡',
+                operation_advice='Hold' if report_language == "en" else '持有',
+                confidence_level='Low' if report_language == "en" else '低',
+                analysis_summary='AI analysis is unavailable because no API key is configured.' if report_language == "en" else 'AI 分析功能未启用（未配置 API Key）',
+                success=False, error_message='LLM API key is not configured',
+                report_language=report_language,
+            )
+        
+        try:
+            prompt = self._format_prompt(context, name, news_context, report_language=report_language)
+            model_name = config.litellm_model or "unknown"
+            logger.info(f"========== AI 分析 (Async) {name}({code}) ==========")
+
+            generation_config = {"temperature": config.llm_temperature, "max_output_tokens": 8192}
+            current_prompt = prompt
+            retry_count = 0
+            max_retries = config.report_integrity_retry if config.report_integrity_enabled else 0
+
+            while True:
+                start_time = time.time()
+                response_text, model_used, llm_usage = await self._call_litellm_async(
+                    current_prompt, generation_config, system_prompt=system_prompt
+                )
+                elapsed = time.time() - start_time
+                logger.info(f"[LLM返回 Async] {model_used} 成功, 耗时 {elapsed:.2f}s")
+
+                result = self._parse_response(response_text, code, name)
+                result.raw_response = response_text
+                result.search_performed = bool(news_context)
+                result.market_snapshot = self._build_market_snapshot(context)
+                result.model_used = model_used
+                result.report_language = report_language
+
+                if not config.report_integrity_enabled:
+                    break
+                pass_integrity, missing_fields = self._check_content_integrity(result)
+                if pass_integrity:
+                    break
+                if retry_count < max_retries:
+                    current_prompt = self._build_integrity_retry_prompt(prompt, response_text, missing_fields, report_language)
+                    retry_count += 1
+                    logger.info("[LLM完整性 Async] 必填字段缺失 %s，第 %d 次重试", missing_fields, retry_count)
+                else:
+                    self._apply_placeholder_fill(result, missing_fields)
+                    break
+
+            persist_llm_usage(llm_usage, model_used, call_type="analysis", stock_code=code)
+            return result
+            
+        except Exception as e:
+            logger.error(f"AI 分析 (Async) {name}({code}) 失败: {e}")
+            return AnalysisResult(
+                code=code, name=name, sentiment_score=50,
+                trend_prediction='Sideways' if report_language == "en" else '震荡',
+                operation_advice='Hold' if report_language == "en" else '持有',
+                confidence_level='Low' if report_language == "en" else '低',
+                analysis_summary=f'Analysis failed: {str(e)[:100]}',
+                success=False, error_message=str(e),
+                report_language=report_language,
+            )
 
     def analyze(
         self, 

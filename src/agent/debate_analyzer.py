@@ -59,13 +59,10 @@ class DebateAnalyzer:
         logger.info("[%s] 辩论完成，正在汇总最终决策...", code)
 
         # 4. 裁判给出最终结构化结果
-        # 这里使用 analyze 方法，利用它已有的 JSON 解析和 AnalysisResult 转换逻辑
-        # 注入辩论记录到 news_context
+        # 这里使用 analyze_async 方法
         final_news_context = (news_context or "") + "\n\n" + debate_summary
         
-        # 调整裁判的系统提示词
-        result = await asyncio.to_thread.run_sync(
-            self.analyzer.analyze, 
+        result = await self.analyzer.analyze_async(
             context, 
             final_news_context
         )
@@ -82,9 +79,8 @@ class DebateAnalyzer:
         prompt = f"请基于以下数据分析股票 {context.get('stock_name')}({context.get('code')})：\n\n数据：{context}\n\n新闻：{news_context}"
         
         try:
-            # 包装同步调用为异步
-            content = await asyncio.to_thread(
-                self.analyzer.generate_text,
+            # 使用原生异步方法
+            content = await self.analyzer.generate_text_async(
                 prompt,
                 2048,
                 0.7

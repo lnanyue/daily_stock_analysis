@@ -164,27 +164,21 @@ def _is_us_code(stock_code: str) -> bool:
     return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
-def _ef_call_with_timeout(func, *args, timeout=None, **kwargs):
-    """Run an efinance library call in a thread with a timeout.
+# Shared executor for efinance calls to avoid per-call overhead
+_ef_executor = ThreadPoolExecutor(max_workers=20)
+_EF_CALL_TIMEOUT = 60
 
-    efinance internally uses requests/urllib3 with no timeout, so when
-    eastmoney hosts are unreachable the call can hang for many minutes.
-    This helper caps the *calling thread's* wait time.  Note: Python threads
-    cannot be forcibly killed, so the worker thread may continue running in
-    the background until the OS-level TCP timeout fires or the process exits.
-    This is acceptable — the calling thread returns promptly on timeout.
-    """
+def _ef_call_with_timeout(func, *args, timeout=None, **kwargs):
+    """Run an efinance library call in a shared thread pool with a timeout."""
     if timeout is None:
         timeout = _EF_CALL_TIMEOUT
-    # Do NOT use 'with ThreadPoolExecutor(...)' here: the context manager calls
-    # shutdown(wait=True) on __exit__, which would re-block on the hung thread.
-    executor = ThreadPoolExecutor(max_workers=1)
+    
+    future = _ef_executor.submit(func, *args, **kwargs)
     try:
-        future = executor.submit(func, *args, **kwargs)
         return future.result(timeout=timeout)
-    finally:
-        # wait=False: calling thread returns immediately; worker cleans up later
-        executor.shutdown(wait=False)
+    except Exception:
+        # Note: Thread continues running until timeout/completion
+        raise
 
 
 def _classify_eastmoney_error(exc: Exception) -> Tuple[str, str]:

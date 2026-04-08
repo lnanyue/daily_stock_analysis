@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """HTTP 工具函数：带重试的请求、网页正文抓取。"""
 
+import asyncio
 import logging
 from typing import Dict, Any
 from urllib.parse import urlparse
 
+import httpx
 import requests
 from newspaper import Article, Config
 from tenacity import (
@@ -31,6 +33,7 @@ SEARCH_TRANSIENT_EXCEPTIONS = (
     wait=wait_exponential(multiplier=1, min=1, max=10),
     retry=retry_if_exception_type(SEARCH_TRANSIENT_EXCEPTIONS),
     before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
 )
 def post_with_retry(url: str, *, headers: Dict[str, str], json: Dict[str, Any], timeout: int) -> requests.Response:
     """POST with retry on transient SSL/network errors."""
@@ -51,8 +54,8 @@ def get_with_retry(
     return requests.get(url, headers=headers, params=params, timeout=timeout)
 
 
-def fetch_url_content(url: str, timeout: int = 5) -> str:
-    """获取 URL 网页正文内容 (使用 newspaper3k)"""
+def _fetch_url_content_sync(url: str, timeout: int = 5) -> str:
+    """获取 URL 网页正文内容 (使用 newspaper3k) — sync internal."""
     try:
         config = Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -70,9 +73,22 @@ def fetch_url_content(url: str, timeout: int = 5) -> str:
 
         return text[:1500]
     except Exception as e:
-        logger.debug("Fetch content failed for %s: %s", url, e)
+        logger.warning("Fetch content failed for %s: %s", url, e)
 
     return ""
+
+
+def fetch_url_content(url: str, timeout: int = 5) -> str:
+    """获取 URL 网页正文内容 (使用 newspaper3k) — sync."""
+    return _fetch_url_content_sync(url, timeout)
+
+
+async def fetch_url_content_async(url: str, timeout: int = 5) -> str:
+    """Async version — runs blocking newspaper3k call in executor."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _fetch_url_content_sync, url, timeout
+    )
 
 
 def extract_domain(url: str) -> str:
