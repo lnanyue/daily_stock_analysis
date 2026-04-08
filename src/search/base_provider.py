@@ -70,9 +70,54 @@ class BaseSearchProvider(ABC):
     
     @abstractmethod
     def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
-        """执行搜索（子类实现）"""
+        """执行搜索（同步，子类必须实现）"""
         pass
+
+    async def _do_search_async(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        """执行搜索（异步，默认回退到线程池）"""
+        import asyncio
+        return await asyncio.to_thread(self._do_search, query, api_key, max_results, days=days)
     
+    async def search_async(self, query: str, max_results: int = 5, days: int = 7) -> SearchResponse:
+        """
+        执行异步搜索
+        """
+        api_key = self._get_next_key()
+        if not api_key:
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self._name,
+                success=False,
+                error_message=f"{self._name} 未配置 API Key"
+            )
+        
+        start_time = time.time()
+        try:
+            response = await self._do_search_async(query, api_key, max_results, days=days)
+            response.search_time = time.time() - start_time
+            
+            if response.success:
+                self._record_success(api_key)
+                logger.info(f"[{self._name} Async] 成功，耗时 {response.search_time:.2f}s")
+            else:
+                self._record_error(api_key)
+            
+            return response
+            
+        except Exception as e:
+            self._record_error(api_key)
+            elapsed = time.time() - start_time
+            logger.error(f"[{self._name} Async] 失败: {e}")
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self._name,
+                success=False,
+                error_message=str(e),
+                search_time=elapsed
+            )
+
     def search(self, query: str, max_results: int = 5, days: int = 7) -> SearchResponse:
         """
         执行搜索

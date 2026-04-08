@@ -441,6 +441,96 @@ class SearchService:
             search_time=response.search_time,
         )
     
+    async def search_stock_news_async(
+        self,
+        stock_code: str,
+        stock_name: str,
+        max_results: int = 5,
+        focus_keywords: Optional[List[str]] = None
+    ) -> SearchResponse:
+        """异步搜索股票新闻"""
+        search_days = self._effective_news_window_days()
+        provider_max_results = self._provider_request_size(max_results)
+
+        is_foreign = self._is_foreign_stock(stock_code)
+        if focus_keywords:
+            query = " ".join(focus_keywords)
+        elif is_foreign:
+            query = f"{stock_name} {stock_code} stock latest news"
+        else:
+            query = f"{stock_name} {stock_code} 股票 最新消息"
+
+        logger.info(
+            f"[搜索新闻 Async] {stock_name}({stock_code}), query='{query}', 范围: {search_days}d"
+        )
+
+        cache_key = self._cache_key(query, max_results, search_days)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        had_provider_success = False
+        for provider in self._providers:
+            if not provider.is_available: continue
+
+            search_kwargs: Dict[str, Any] = {}
+            if hasattr(provider, "search_async"):
+                response = await provider.search_async(query, provider_max_results, days=search_days, **search_kwargs)
+                filtered_response = self._filter_news_response(
+                    response, search_days=search_days, max_results=max_results,
+                    log_scope=f"{stock_code}:{provider.name}:stock_news_async",
+                )
+                had_provider_success = had_provider_success or bool(response.success)
+                if filtered_response.success and filtered_response.results:
+                    self._put_cache(cache_key, filtered_response)
+                    return filtered_response
+            
+        return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
+
+    async def search_comprehensive_intel_async(
+        self,
+        stock_code: str,
+        stock_name: str,
+        max_searches: int = 3
+    ) -> Dict[str, SearchResponse]:
+        """并发执行多维度的异步深度情报搜索"""
+        is_foreign = self._is_foreign_stock(stock_code)
+        is_index_etf = self.is_index_or_etf(stock_code, stock_name)
+
+        search_dimensions = [
+            {
+                'name': 'latest_news',
+                'query': f"{stock_name} {stock_code} latest news events",
+                'desc': '最新消息',
+                'strict_freshness': True,
+            },
+            {
+                'name': 'risk_check',
+                'query': f"{stock_name} {stock_code} risk insider selling lawsuit" if not is_index_etf else f"{stock_name} tracking error outlook",
+                'desc': '风险排查',
+                'strict_freshness': not is_index_etf,
+            },
+            {
+                'name': 'earnings',
+                'query': f"{stock_name} {stock_code} earnings forecast revenue profit" if not is_index_etf else f"{stock_name} performance outlook",
+                'desc': '业绩预期',
+                'strict_freshness': False,
+            }
+        ]
+
+        # 限制维度数量
+        search_dimensions = search_dimensions[:max_searches]
+        
+        async def _single_dimension_search(dim):
+            return dim['name'], await self.search_stock_news_async(
+                stock_code, stock_name, max_results=5, focus_keywords=[dim['query']]
+            )
+
+        tasks = [_single_dimension_search(dim) for dim in search_dimensions]
+        results_list = await asyncio.gather(*tasks)
+        
+        return {name: resp for name, resp in results_list}
+
     def search_stock_news(
         self,
         stock_code: str,

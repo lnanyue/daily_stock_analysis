@@ -193,11 +193,12 @@ class StockAnalysisPipeline:
                 if trend_result.ma_alignment == "bullish": visual_description += "- 形态: 均线典型【多头排列】，具备向上爆发力。\n"
                 elif trend_result.ma_alignment == "bearish": visual_description += "- 形态: 均线【空头排列】，破位压力明显。\n"
 
-            # 6. 情报搜索 (通用)
+            # 5. 搜索深度情报 (Async native)
             news_context = ""
             if self.search_service.is_available:
-                intel = await asyncio.to_thread(self.search_service.search_comprehensive_intel, code, stock_name, 5)
+                intel = await self.search_service.search_comprehensive_intel_async(code, stock_name, 5)
                 if intel: news_context = self.search_service.format_intel_report(intel, stock_name)
+
 
             # 7. 组装最终上下文并调用 AI
             enhanced_context = self._enhance_context(
