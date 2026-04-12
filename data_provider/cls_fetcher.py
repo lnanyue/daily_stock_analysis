@@ -9,24 +9,31 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from ._async_client import get_async_client
-from .utils import summarize_exception
+import asyncio
+import random
+from .utils import summarize_exception, pick_random_user_agent
 
 logger = logging.getLogger(__name__)
 
 class ClsTelegramFetcher:
     """
     专门负责获取财联社实时电报和个股快讯
+    
+    加固点：
+    1. 随机 User-Agent 池
+    2. 随机抖动延迟 (Jitter)
+    3. 增量抓取支持
     """
     
     BASE_URL = "https://www.cls.cn/nodeapi/telegraphList"
     
     async def fetch_latest_telegrams(self, last_time: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        获取最新的电报流
-        
-        Args:
-            last_time: 起始时间戳（秒），用于翻页或增量获取
+        获取最新的电报流 (带隐身保护)
         """
+        # 反封锁 1: 随机微小延迟 (0.1 - 0.5s)
+        await asyncio.sleep(random.uniform(0.1, 0.5))
+        
         params = {
             "refresh_type": 1,
             "rn": 20,
@@ -37,14 +44,20 @@ class ClsTelegramFetcher:
             
         try:
             client = await get_async_client()
-            # 财联社 API 通常需要特定的 User-Agent
+            
+            # 反封锁 2: 随机 User-Agent
             headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://www.cls.cn/telegraph"
+                "User-Agent": pick_random_user_agent(),
+                "Referer": "https://www.cls.cn/telegraph",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             }
             
             response = await client.get(self.BASE_URL, params=params, headers=headers, timeout=10)
-            if response.status_code != 200:
+            if response.status_code == 403:
+                logger.error("[财联社] 被封锁 (403 Forbidden)，请考虑降低频率或更换代理")
+                return []
+            elif response.status_code != 200:
                 logger.error(f"[财联社] API 请求失败: {response.status_code}")
                 return []
                 

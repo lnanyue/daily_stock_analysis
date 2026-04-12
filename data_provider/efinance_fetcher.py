@@ -56,7 +56,7 @@ from src.config import get_config
 from .base import BaseFetcher, DataFetchError, RateLimitError
 from .utils import (
     classify_http_error,
-    DEFAULT_USER_AGENTS,
+    pick_random_user_agent,
     build_history_failure_message,
     STANDARD_COLUMNS,
     is_bse_code,
@@ -270,7 +270,7 @@ class EfinanceFetcher(BaseFetcher):
         这是关键的反爬策略之一
         """
         try:
-            random_ua = random.choice(USER_AGENTS)
+            random_ua = pick_random_user_agent()
             logger.debug(f"设置 User-Agent: {random_ua[:50]}...")
         except Exception as e:
             logger.debug(f"设置 User-Agent 失败: {e}")

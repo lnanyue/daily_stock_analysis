@@ -15,6 +15,25 @@ STANDARD_COLUMNS = ['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 
 ETF_PREFIXES = ("51", "52", "56", "58", "15", "16", "18")
 
 
+import random
+
+# === 现代浏览器 User-Agent 池 (Issue #612) ===
+# 涵盖 Chrome, Safari, Edge 在 macOS, Windows, iOS, Android 上的主流版本
+DEFAULT_USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+]
+
+def pick_random_user_agent() -> str:
+    """随机选择一个 User-Agent"""
+    return random.choice(DEFAULT_USER_AGENTS)
+
+
 def unwrap_exception(exc: Exception) -> Exception:
     """获取链式异常的最深层原因"""
     current = exc
