@@ -41,6 +41,7 @@ from src.config.utils import (
     legacy_keys_to_model_list,
     parse_litellm_yaml,
     setup_env,
+    load_stocks_from_yaml,
     SUPPORTED_LLM_CHANNEL_PROTOCOLS,
 )
 
@@ -53,6 +54,9 @@ class Config:
     """
     # === 自选股配置 ===
     stock_list: List[str] = field(default_factory=list)
+    stock_config_path: str = "stocks.yaml"
+    
+    # ... rest of the fields ...
     
     # === 飞书配置 ===
     feishu_app_id: Optional[str] = None
@@ -290,11 +294,20 @@ class Config:
     def _load_from_env(cls) -> 'Config':
         setup_env()
         
-        # Simple extraction for now to reduce complexity
-        stock_list_str = os.getenv('STOCK_LIST', '600519,000001,300750')
-        stock_list = [s.strip().upper() for s in stock_list_str.split(',') if s.strip()]
+        # 1. 尝试从 YAML 文件加载股票列表 (优先)
+        stock_config_path = os.getenv('STOCK_CONFIG_PATH', 'stocks.yaml')
+        stock_list = load_stocks_from_yaml(stock_config_path)
         
-        litellm_model = os.getenv('LITELLM_MODEL')
+        # 2. 如果 YAML 未配置，尝试从环境变量读取
+        if not stock_list:
+            stock_list_str = os.getenv('STOCK_LIST', '')
+            stock_list = [s.strip().upper() for s in stock_list_str.split(',') if s.strip()]
+        
+        # 3. 兜底默认值
+        if not stock_list:
+            stock_list = ['600519', '000001', '300750']
+        
+        # ... rest of the loading logic ...
         llm_channels_str = os.getenv('LLM_CHANNELS', '')
         llm_channels = parse_llm_channels(llm_channels_str)
         
@@ -327,6 +340,25 @@ class Config:
             database_path=os.getenv('DATABASE_PATH', './data/stock_analysis.db'),
             # ... many more fields would be loaded here in a full implementation
         )
+
+    def refresh_stock_list(self) -> None:
+        """
+        热读取股票列表并更新配置
+        优先级：YAML 文件 > 环境变量 > 默认值
+        """
+        # 1. 尝试从 YAML 文件读取
+        stock_list = load_stocks_from_yaml(self.stock_config_path)
+        
+        # 2. 如果 YAML 未配置，尝试从 .env 文件/环境变量读取
+        if not stock_list:
+            # 重新加载 .env 以防有变动
+            setup_env()
+            stock_list_str = os.getenv('STOCK_LIST', '')
+            stock_list = [s.strip().upper() for s in stock_list_str.split(',') if s.strip()]
+
+        if stock_list:
+            self.stock_list = stock_list
+            logger.info(f"股票列表已更新，当前共 {len(self.stock_list)} 只股票")
 
     def validate(self) -> List[str]:
         return []

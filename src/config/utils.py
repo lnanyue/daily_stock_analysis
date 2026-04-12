@@ -321,6 +321,57 @@ def parse_litellm_yaml(config_path: str) -> List[Dict[str, Any]]:
     return model_list
 
 
+def load_stocks_from_yaml(file_path: str) -> List[str]:
+    """
+    从 YAML 文件加载股票列表
+    
+    支持格式：
+    1. 简单列表：
+       - "600519"
+       - "000001"
+    2. 带分组的字典：
+       stocks:
+         - "600519"
+       groups:
+         tech: ["300750"]
+    """
+    try:
+        import yaml
+    except ImportError:
+        logger.warning("PyYAML 未安装，无法读取 YAML 股票列表")
+        return []
+
+    path = Path(file_path)
+    if not path.exists():
+        return []
+
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+            
+        if not data:
+            return []
+            
+        stocks = []
+        if isinstance(data, list):
+            stocks = data
+        elif isinstance(data, dict):
+            # 支持 'stocks' 键
+            if 'stocks' in data and isinstance(data['stocks'], list):
+                stocks.extend(data['stocks'])
+            # 支持 'groups' 键中的所有股票
+            if 'groups' in data and isinstance(data['groups'], dict):
+                for group_stocks in data['groups'].values():
+                    if isinstance(group_stocks, list):
+                        stocks.extend(group_stocks)
+        
+        # 规范化：去重、转大写
+        return list(dict.fromkeys([str(s).strip().upper() for s in stocks if s]))
+    except Exception as e:
+        logger.error(f"解析股票配置文件失败 {file_path}: {e}")
+        return []
+
+
 def setup_env():
     """Load environment variables from .env file."""
     from dotenv import load_dotenv
