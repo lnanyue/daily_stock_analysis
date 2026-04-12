@@ -372,6 +372,26 @@ def load_stocks_from_yaml(file_path: str) -> List[str]:
         return []
 
 
+def load_settings_from_yaml(file_path: str) -> Dict[str, Any]:
+    """从 YAML 文件加载系统设置"""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+
+    path = Path(file_path)
+    if not path.exists():
+        return {}
+
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.error(f"解析配置文件失败 {file_path}: {e}")
+        return {}
+
+
 def setup_env():
     """Load environment variables from .env file."""
     from dotenv import load_dotenv
