@@ -74,32 +74,86 @@ def _build_chip_structure_from_data(chip_data: Any, language: str = "zh") -> Dic
     }
 
 
+def _identify_chip_pattern(
+    profit_ratio: float, 
+    concentration_90: float, 
+    current_price: float, 
+    avg_cost: float
+) -> Tuple[str, str]:
+    """
+    识别筹码形态 (Pattern Recognition)
+    
+    Returns:
+        Tuple[pattern_name, description]
+    """
+    if concentration_90 < 0.10:
+        if current_price > avg_cost * 1.1:
+            return "高位单峰密集", "主力获利丰厚，警惕派发风险"
+        elif current_price < avg_cost * 0.9:
+            return "低位超跌密集", "股价处于筹码密集区下方，存在反弹动力"
+        else:
+            return "低位单峰密集", "主力高度控盘，底部支撑极强，爆发潜力大"
+    
+    if concentration_90 > 0.25:
+        return "筹码高度分散", "多空分歧大，上涨抛压重，短期难有大行情"
+    
+    if profit_ratio > 0.95:
+        return "全员获利", "几乎无套牢盘，上攻无压力，但需防范获利盘踩踏"
+    elif profit_ratio < 0.05:
+        return "深度套牢", "多头信心涣散，抛压枯竭，等待绝望中的反弹"
+        
+    return "筹码结构平稳", "分布相对均衡，跟随趋势为主"
+
+
 def fill_chip_structure_if_needed(result: AnalysisResult, chip_data: Any) -> None:
-    """When chip_data exists, fill chip_structure placeholder fields from chip_data (in-place)."""
+    """当存在筹码数据时，填充占位字段并增加深度形态识别 (Issue #589)"""
     if not result or not chip_data:
         return
     try:
         if not result.dashboard:
             result.dashboard = {}
         dash = result.dashboard
-        # Use `or {}` rather than setdefault so that an explicit `null` from LLM is also replaced
         dp = dash.get("data_perspective") or {}
         dash["data_perspective"] = dp
         cs = dp.get("chip_structure") or {}
+        
         filled = _build_chip_structure_from_data(
             chip_data,
             language=getattr(result, "report_language", "zh"),
         )
-        # Start from a copy of cs to preserve any extra keys the LLM may have added
+        
+        # 提取核心指标用于形态识别
+        if hasattr(chip_data, "profit_ratio"):
+            pr = _safe_float(chip_data.profit_ratio)
+            c90 = _safe_float(chip_data.concentration_90)
+            ac = _safe_float(chip_data.avg_cost)
+        else:
+            d = chip_data if isinstance(chip_data, dict) else {}
+            pr = _safe_float(d.get("profit_ratio"))
+            c90 = _safe_float(d.get("concentration_90"))
+            ac = _safe_float(d.get("avg_cost"))
+            
+        curr_price = getattr(result, "current_price", 0.0) or 0.0
+        
+        # 深度形态识别
+        pattern, pattern_desc = _identify_chip_pattern(pr, c90, curr_price, ac)
+        filled["pattern"] = pattern
+        filled["pattern_description"] = pattern_desc
+        
+        # 合并 LLM 结果与量化识别结果
         merged = dict(cs)
         for k in _CHIP_KEYS:
             if _is_value_placeholder(merged.get(k)):
                 merged[k] = filled[k]
-        if merged != cs:
-            dp["chip_structure"] = merged
-            logger.info("[chip_structure] Filled placeholder chip fields from data source (Issue #589)")
+        
+        # 始终注入识别到的形态（量化识别通常比 LLM 更准）
+        merged["pattern"] = pattern
+        merged["pattern_desc"] = pattern_desc
+        
+        dp["chip_structure"] = merged
+        logger.info(f"[筹码深度识别] {result.code} 识别为: {pattern}")
     except Exception as e:
-        logger.warning("[chip_structure] Fill failed, skipping: %s", e)
+        logger.warning("[chip_structure] 深度分析失败: %s", e)
 
 
 _PRICE_POS_KEYS = ("ma5", "ma10", "ma20", "bias_ma5", "bias_status", "current_price", "support_level", "resistance_level")

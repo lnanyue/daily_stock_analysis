@@ -193,11 +193,33 @@ class StockAnalysisPipeline:
                 if trend_result.ma_alignment == "bullish": visual_description += "- 形态: 均线典型【多头排列】，具备向上爆发力。\n"
                 elif trend_result.ma_alignment == "bearish": visual_description += "- 形态: 均线【空头排列】，破位压力明显。\n"
 
-            # 5. 搜索深度情报 (Async native)
+            # 5. 搜索深度情报 (Async native + Cls Telegram)
             news_context = ""
             if self.search_service.is_available:
-                intel = await self.search_service.search_comprehensive_intel_async(code, stock_name, 5)
-                if intel: news_context = self.search_service.format_intel_report(intel, stock_name)
+                # 并发抓取：通用搜索 + 财联社电报
+                from data_provider.cls_fetcher import ClsTelegramFetcher
+                cls_fetcher = ClsTelegramFetcher()
+                
+                search_tasks = [
+                    self.search_service.search_comprehensive_intel_async(code, stock_name, 5),
+                    cls_fetcher.get_stock_news(stock_name, code)
+                ]
+                
+                intel_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+                
+                # 处理通用搜索结果
+                intel = intel_results[0] if not isinstance(intel_results[0], Exception) else {}
+                if intel:
+                    news_context = self.search_service.format_intel_report(intel, stock_name)
+                
+                # 处理财联社电报（注入灵魂）
+                cls_news = intel_results[1] if len(intel_results) > 1 and not isinstance(intel_results[1], Exception) else []
+                if cls_news:
+                    cls_text = "\n\n### ⚡ 财联社实时快讯\n" + "\n".join([
+                        f"- [{n['date']}] {n['content']}" for n in cls_news[:5]
+                    ])
+                    news_context += cls_text
+                    logger.info(f"[{code}] 成功注入 {len(cls_news)} 条财联社电报")
 
 
             # 7. 组装最终上下文并调用 AI
@@ -225,6 +247,7 @@ class StockAnalysisPipeline:
             if result:
                 result.query_id = query_id
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
+                fill_chip_structure_if_needed(result, chip_data)
                 # 保存历史
                 await asyncio.to_thread(self.db.save_analysis_history, result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
 
