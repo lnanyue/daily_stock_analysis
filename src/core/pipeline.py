@@ -13,7 +13,9 @@ A股自选股智能分析系统 - 核心分析流水线
 
 import asyncio
 import logging
-import time
+import random
+import uuid
+
 import uuid
 from collections import defaultdict
 from datetime import date, timedelta
@@ -311,11 +313,33 @@ class StockAnalysisPipeline:
     async def run(self, stock_codes=None, dry_run=False, send_notification=True, merge_notification=False):
         if stock_codes is None: stock_codes = self.config.stock_list
         if not stock_codes: return []
-        semaphore = asyncio.Semaphore(self.max_workers)
-        async def _bounded_process(code):
-            async with semaphore: return await self.process_single_stock(code, dry_run, getattr(self.config, 'single_stock_notify', False) and send_notification)
-        results_raw = await asyncio.gather(*[_bounded_process(c) for c in stock_codes], return_exceptions=True)
+        
+        # 强制并发限制：单个 IP 建议最大并发 2，避免触发封锁
+        concurrency_limit = max(1, min(self.max_workers, 2))
+        semaphore = asyncio.Semaphore(concurrency_limit)
+        
+        async def _bounded_process(code, index):
+            async with semaphore:
+                # 反封锁 3: 任务间随机休眠 (Jitter)
+                # 在任务开始前增加随机等待，确保请求在时间轴上离散化
+                if index > 0:
+                    delay = random.uniform(1.0, 3.0)
+                    logger.debug(f"[{code}] 频率控制：等待 {delay:.1f}s 后开始...")
+                    await asyncio.sleep(delay)
+                
+                return await self.process_single_stock(
+                    code, dry_run, 
+                    getattr(self.config, 'single_stock_notify', False) and send_notification
+                )
+        
+        logger.info(f"开始批量分析，并发限制: {concurrency_limit}，预计最小耗时: {len(stock_codes)*1.5:.1f}s")
+        
+        # 使用列表推导式配合索引来触发不同的等待时长
+        tasks = [_bounded_process(c, i) for i, c in enumerate(stock_codes)]
+        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+        
         results = [r for r in results_raw if isinstance(r, AnalysisResult)]
+        
         if results and send_notification and not dry_run and not getattr(self.config, 'single_stock_notify', False) and not merge_notification:
             report_text = self.notifier.generate_dashboard_report(results)
             await self.notifier.send(report_text, email_stock_codes=stock_codes)

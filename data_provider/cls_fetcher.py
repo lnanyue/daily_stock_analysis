@@ -31,8 +31,8 @@ class ClsTelegramFetcher:
         """
         获取最新的电报流 (带隐身保护)
         """
-        # 反封锁 1: 随机微小延迟 (0.1 - 0.5s)
-        await asyncio.sleep(random.uniform(0.1, 0.5))
+        # 反封锁 1: 随机微小延迟 (0.5 - 1.5s)
+        await asyncio.sleep(random.uniform(0.5, 1.5))
         
         params = {
             "refresh_type": 1,
