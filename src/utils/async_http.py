@@ -5,12 +5,41 @@ Shared Async HTTP Client Manager with connection pooling and proxy support.
 import logging
 import httpx
 import asyncio
-from typing import Optional, Any
+import random
+from typing import Optional, Any, Callable
 from contextlib import asynccontextmanager
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 logger = logging.getLogger(__name__)
 
+# --- 全局异步重试策略 ---
+
+def async_retry(
+    max_attempts: int = 3,
+    min_wait: float = 1.0,
+    max_wait: float = 10.0,
+    exceptions: tuple = (httpx.HTTPError, asyncio.TimeoutError),
+):
+    """
+    通用异步指数退避重试装饰器
+    """
+    return retry(
+        stop=stop_after_attempt(max_attempts),
+        wait=wait_exponential(multiplier=min_wait, max=max_wait),
+        retry=retry_if_exception_type(exceptions),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
+
+
 class AsyncHttpClientManager:
+
     _instance: Optional['AsyncHttpClientManager'] = None
     _client: Optional[httpx.AsyncClient] = None
     _lock = asyncio.Lock()

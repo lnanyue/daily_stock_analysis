@@ -5,13 +5,14 @@
 
 import logging
 import time
+import asyncio
+import random
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from ._async_client import get_async_client
-import asyncio
-import random
 from .utils import summarize_exception, pick_random_user_agent
+from src.utils.async_http import async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +24,15 @@ class ClsTelegramFetcher:
     1. 随机 User-Agent 池
     2. 随机抖动延迟 (Jitter)
     3. 增量抓取支持
+    4. 自动重试机制
     """
     
     BASE_URL = "https://www.cls.cn/nodeapi/telegraphList"
     
+    @async_retry(max_attempts=3, min_wait=2.0)
     async def fetch_latest_telegrams(self, last_time: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        获取最新的电报流 (带隐身保护)
+        获取最新的电报流 (带隐身保护与自动重试)
         """
         # 反封锁 1: 随机微小延迟 (0.5 - 1.5s)
         await asyncio.sleep(random.uniform(0.5, 1.5))

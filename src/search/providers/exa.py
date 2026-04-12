@@ -7,7 +7,7 @@ from typing import List
 
 from ..types import SearchResult, SearchResponse
 from ..base_provider import BaseSearchProvider
-from ..http_utils import post_with_retry
+from src.utils.async_http import get_global_client, async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,44 @@ class ExaSearchProvider(BaseSearchProvider):
 
     def __init__(self, api_keys: List[str]):
         super().__init__(api_keys, "Exa")
+
+    @async_retry(max_attempts=2, min_wait=1.0)
+    async def _do_search_async(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        """执行异步 Exa 搜索"""
+        headers = {
+            'x-api-key': api_key,
+            'Content-Type': 'application/json',
+        }
+        start_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        payload = {
+            "query": query,
+            "numResults": max_results,
+            "startPublishedDate": start_date,
+            "useAutoprompt": True,
+            "type": "neural"
+        }
+
+        try:
+            client = await get_global_client()
+            response = await client.post(self.API_ENDPOINT, headers=headers, json=payload, timeout=15)
+            
+            if response.status_code != 200:
+                return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=f"HTTP {response.status_code}")
+            
+            data = response.json()
+            results = []
+            for item in data.get('results', []):
+                results.append(SearchResult(
+                    title=item.get('title', ''),
+                    snippet=(item.get('text', '') or item.get('snippet', '') or '')[:500],
+                    url=item.get('url', ''),
+                    source=self._extract_domain(item.get('url', '')),
+                    published_date=item.get('publishedDate'),
+                ))
+            
+            return SearchResponse(query=query, results=results, provider=self.name, success=True)
+        except Exception as e:
+            return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=str(e))
 
     def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
         try:

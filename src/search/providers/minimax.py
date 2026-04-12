@@ -10,7 +10,7 @@ import requests
 
 from ..types import SearchResult, SearchResponse
 from ..base_provider import BaseSearchProvider
-from ..http_utils import post_with_retry
+from src.utils.async_http import get_global_client, async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,50 @@ class MiniMaxSearchProvider(BaseSearchProvider):
         super().__init__(api_keys, "MiniMax")
         self._consecutive_failures = 0
         self._circuit_open_until: float = 0.0
+
+    @async_retry(max_attempts=2, min_wait=1.0)
+    async def _do_search_async(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        """执行异步 MiniMax 搜索"""
+        has_cjk = any('\u4e00' <= ch <= '\u9fff' for ch in query)
+        time_hint = self._time_hint(days, is_chinese=has_cjk)
+        augmented_query = f"{query} {time_hint}"
+
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            'MM-API-Source': 'Minimax-MCP',
+        }
+        payload = {"q": augmented_query}
+
+        try:
+            client = await get_global_client()
+            response = await client.post(self.API_ENDPOINT, headers=headers, json=payload, timeout=15)
+            
+            if response.status_code != 200:
+                return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=f"HTTP {response.status_code}")
+            
+            data = response.json()
+            base_resp = data.get('base_resp', {})
+            if base_resp.get('status_code', 0) != 0:
+                return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=base_resp.get('status_msg', 'Unknown API error'))
+
+            results = []
+            for item in data.get('organic', []):
+                date_val = item.get('date')
+                if not self._is_within_days(date_val, days): continue
+
+                results.append(SearchResult(
+                    title=item.get('title', ''),
+                    snippet=(item.get('snippet', '') or '')[:500],
+                    url=item.get('link', ''),
+                    source=self._extract_domain(item.get('link', '')),
+                    published_date=date_val,
+                ))
+                if len(results) >= max_results: break
+            
+            return SearchResponse(query=query, results=results, provider=self.name, success=True)
+        except Exception as e:
+            return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=str(e))
 
     @property
     def is_available(self) -> bool:

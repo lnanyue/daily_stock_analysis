@@ -8,7 +8,7 @@ import requests
 
 from ..types import SearchResult, SearchResponse
 from ..base_provider import BaseSearchProvider
-from ..http_utils import post_with_retry
+from src.utils.async_http import get_global_client, async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,57 @@ class BochaSearchProvider(BaseSearchProvider):
     
     def __init__(self, api_keys: List[str]):
         super().__init__(api_keys, "Bocha")
+
+    @async_retry(max_attempts=2, min_wait=1.0)
+    async def _do_search_async(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        """执行异步博查搜索"""
+        url = "https://api.bocha.cn/v1/web-search"
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        freshness = "oneWeek"
+        if days <= 1: freshness = "oneDay"
+        elif days <= 7: freshness = "oneWeek"
+        elif days <= 30: freshness = "oneMonth"
+        else: freshness = "oneYear"
+
+        payload = {
+            "query": query,
+            "freshness": freshness,
+            "summary": True,
+            "count": min(max_results, 50)
+        }
+        
+        try:
+            client = await get_global_client()
+            response = await client.post(url, headers=headers, json=payload, timeout=15)
+            
+            if response.status_code != 200:
+                return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=f"HTTP {response.status_code}")
+            
+            data = response.json()
+            if data.get('code') != 200:
+                return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=data.get('msg', 'Unknown API Error'))
+            
+            results = []
+            web_pages = data.get('data', {}).get('webPages', {})
+            value_list = web_pages.get('value', [])
+            
+            for item in value_list[:max_results]:
+                snippet = item.get('summary') or item.get('snippet', '')
+                results.append(SearchResult(
+                    title=item.get('name', ''),
+                    snippet=snippet[:500] if snippet else "",
+                    url=item.get('url', ''),
+                    source=item.get('siteName') or self._extract_domain(item.get('url', '')),
+                    published_date=item.get('datePublished'),
+                ))
+            
+            return SearchResponse(query=query, results=results, provider=self.name, success=True)
+        except Exception as e:
+            return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=str(e))
     
     def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
         """执行博查搜索"""
