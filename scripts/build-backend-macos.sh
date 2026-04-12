@@ -22,29 +22,13 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
-log "Building React UI (static assets)..."
-pushd "${ROOT_DIR}/apps/dsa-web" >/dev/null
-if [[ ! -d node_modules ]]; then
-  npm install
-fi
-npm run build
-popd >/dev/null
-
-log "Building backend executable..."
+log "Building backend executable (CLI Pro)..."
 if ! "${PYTHON_BIN}" -m PyInstaller --version >/dev/null 2>&1; then
   "${PYTHON_BIN}" -m pip install pyinstaller
 fi
 
 log "Installing backend dependencies..."
 "${PYTHON_BIN}" -m pip install -r "${ROOT_DIR}/requirements.txt"
-
-log "Checking python-multipart availability..."
-"${PYTHON_BIN}" -c "import multipart, multipart.multipart"
-
-if [[ -d "${ROOT_DIR}/dist/backend" ]]; then
-  rm -rf "${ROOT_DIR}/dist/backend"
-fi
-mkdir -p "${ROOT_DIR}/dist/backend"
 
 if [[ -d "${ROOT_DIR}/dist/stock_analysis" ]]; then
   rm -rf "${ROOT_DIR}/dist/stock_analysis"
@@ -54,44 +38,27 @@ if [[ -d "${ROOT_DIR}/build/stock_analysis" ]]; then
   rm -rf "${ROOT_DIR}/build/stock_analysis"
 fi
 
+# Hidden imports for core modules now modularized
 hidden_imports=(
-  "multipart"
-  "multipart.multipart"
   "json_repair"
   "tiktoken"
   "tiktoken_ext"
   "tiktoken_ext.openai_public"
-  "api"
-  "api.app"
-  "api.deps"
-  "api.v1"
-  "api.v1.router"
-  "api.v1.endpoints"
-  "api.v1.endpoints.analysis"
-  "api.v1.endpoints.history"
-  "api.v1.endpoints.stocks"
-  "api.v1.endpoints.health"
-  "api.v1.schemas"
-  "api.v1.schemas.analysis"
-  "api.v1.schemas.history"
-  "api.v1.schemas.stocks"
-  "api.v1.schemas.common"
-  "api.middlewares"
-  "api.middlewares.error_handler"
-  "src.services"
-  "src.services.task_queue"
-  "src.services.analysis_service"
-  "src.services.history_service"
-  "uvicorn.logging"
-  "uvicorn.loops"
-  "uvicorn.loops.auto"
-  "uvicorn.protocols"
-  "uvicorn.protocols.http"
-  "uvicorn.protocols.http.auto"
-  "uvicorn.protocols.websockets"
-  "uvicorn.protocols.websockets.auto"
-  "uvicorn.lifespan"
-  "uvicorn.lifespan.on"
+  "src.config"
+  "src.config.manager"
+  "src.config.utils"
+  "src.config.models"
+  "src.analyzer"
+  "src.analyzer.core"
+  "src.analyzer.utils"
+  "src.analyzer.prompt_builder"
+  "src.notification"
+  "src.notification.service"
+  "src.notification.renderer"
+  "src.notification.utils"
+  "src.schemas"
+  "src.schemas.analysis_result"
+  "src.schemas.storage_models"
 )
 
 hidden_import_args=()
@@ -100,13 +67,12 @@ for module in "${hidden_imports[@]}"; do
 done
 
 pushd "${ROOT_DIR}" >/dev/null
-cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconfirm --noconsole --add-data "static:static" --collect-data litellm --collect-data tiktoken)
+# CLI version: --console instead of --noconsole, no --add-data "static:static"
+cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconfirm --console --collect-data litellm --collect-data tiktoken)
 cmd+=("${hidden_import_args[@]}" "main.py")
 
 echo "Running: ${cmd[*]}"
 "${cmd[@]}"
 popd >/dev/null
 
-cp -R "${ROOT_DIR}/dist/stock_analysis" "${ROOT_DIR}/dist/backend/stock_analysis"
-
-log "Backend build completed."
+log "CLI Backend build completed."

@@ -16,33 +16,14 @@ from .utils import (
     summarize_exception,
     STANDARD_COLUMNS,
 )
+from .exceptions import DataFetchError, RateLimitError, DataSourceUnavailableError
 
 logger = logging.getLogger(__name__)
-
-
-class DataFetchError(Exception):
-    """数据获取异常基类"""
-    pass
-
-
-class RateLimitError(DataFetchError):
-    """API 速率限制异常"""
-    pass
-
-
-class DataSourceUnavailableError(DataFetchError):
-    """数据源不可用异常"""
-    pass
 
 
 class BaseFetcher(ABC):
     """
     数据源抽象基类
-    
-    职责：
-    1. 定义统一的数据获取接口
-    2. 提供数据标准化方法
-    3. 实现通用的技术指标计算
     """
     
     name: str = "BaseFetcher"
@@ -91,7 +72,7 @@ class BaseFetcher(ABC):
             return df
             
         except Exception as e:
-            error_type, error_reason = summarize_exception(e)
+            _, error_reason = summarize_exception(e)
             logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
             raise DataFetchError(f"[{self.name}] {stock_code}: {error_reason}") from e
     

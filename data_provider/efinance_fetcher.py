@@ -62,7 +62,8 @@ from .utils import (
     is_bse_code,
     is_st_stock,
     is_kc_cy_stock,
-    normalize_stock_code
+    normalize_stock_code,
+    DEFAULT_USER_AGENTS
 )
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,

@@ -21,26 +21,30 @@ NEWS_STRATEGY_WINDOWS: Dict[str, int] = {
 }
 
 
-def parse_env_bool(value: Optional[str], default: bool = False) -> bool:
-    """解析布尔值环境变量"""
+def parse_env_bool(value: Any, default: bool = False) -> bool:
+    """解析布尔值（支持环境变量字符串或 YAML 布尔对象）"""
+    if isinstance(value, bool):
+        return value
     if value is None:
         return default
-    normalized = value.strip().lower()
+    normalized = str(value).strip().lower()
     if not normalized:
         return default
     return normalized not in _FALSEY_ENV_VALUES
 
 
 def parse_env_int(
-    value: Optional[str],
+    value: Any,
     default: int,
     *,
     field_name: str,
     minimum: Optional[int] = None,
     maximum: Optional[int] = None,
 ) -> int:
-    """解析整数环境变量"""
-    if value is None or not str(value).strip():
+    """解析整数（支持环境变量字符串或 YAML 整数对象）"""
+    if isinstance(value, int):
+        parsed = value
+    elif value is None or not str(value).strip():
         parsed = default
     else:
         try:
@@ -57,15 +61,17 @@ def parse_env_int(
 
 
 def parse_env_float(
-    value: Optional[str],
+    value: Any,
     default: float,
     *,
     field_name: str,
     minimum: Optional[float] = None,
     maximum: Optional[float] = None,
 ) -> float:
-    """解析浮点数环境变量"""
-    if value is None or not str(value).strip():
+    """解析浮点数（支持环境变量字符串或 YAML 数值对象）"""
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+    elif value is None or not str(value).strip():
         parsed = default
     else:
         try:

@@ -22,7 +22,8 @@ from .realtime_types import (
     get_chip_circuit_breaker,
 )
 from .fundamental_adapter import AkshareFundamentalAdapter
-from .base import BaseFetcher, DataFetchError
+from .base import BaseFetcher
+from .exceptions import DataFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -115,14 +116,12 @@ class DataFetcherManager:
 
     async def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """异步获取实时行情（带熔断与缓存）"""
-        # 这里可以实现更复杂的调度和缓存逻辑
         for fetcher in self._fetchers:
             try:
                 if hasattr(fetcher, "get_realtime_quote"):
                     quote = await fetcher.get_realtime_quote(stock_code)
                     if quote: return quote
-            except Exception:
-                continue
+            except Exception: continue
         return None
 
     def get_stock_name(self, stock_code: str) -> Optional[str]:
@@ -133,3 +132,75 @@ class DataFetcherManager:
                 if name: return name
             except Exception: continue
         return None
+
+    # --- 补全被截断的公开 API ---
+
+    def get_main_indices(self, region: str = "cn") -> Dict[str, Any]:
+        """获取主要指数行情"""
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "get_main_indices"):
+                    return fetcher.get_main_indices(region=region)
+            except Exception: continue
+        return {}
+
+    def get_market_stats(self) -> Dict[str, Any]:
+        """获取大盘统计数据（涨跌分布等）"""
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "get_market_stats"):
+                    return fetcher.get_market_stats()
+            except Exception: continue
+        return {}
+
+    def get_sector_rankings(self) -> List[Dict[str, Any]]:
+        """获取板块排名"""
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "get_sector_rankings"):
+                    return fetcher.get_sector_rankings()
+            except Exception: continue
+        return []
+
+    def get_chip_distribution(self, stock_code: str) -> Optional[ChipDistribution]:
+        """获取筹码分布数据"""
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "get_chip_distribution"):
+                    return fetcher.get_chip_distribution(stock_code)
+            except Exception: continue
+        return None
+
+    def get_fundamental_context(self, stock_code: str) -> Dict[str, Any]:
+        """获取基本面上下文"""
+        return self._fundamental_adapter.get_fundamental_context(stock_code)
+
+    def get_belong_boards(self, stock_code: str) -> List[str]:
+        """获取所属板块"""
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "get_belong_boards"):
+                    return fetcher.get_belong_boards(stock_code)
+            except Exception: continue
+        return []
+
+    def prefetch_stock_names(self) -> None:
+        """预取所有股票名称（加速映射）"""
+        from src.data.stock_mapping import STOCK_NAME_MAP
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "get_all_stock_names"):
+                    names = fetcher.get_all_stock_names()
+                    if names:
+                        STOCK_NAME_MAP.update(names)
+                        logger.info(f"已从 {fetcher.name} 预取 {len(names)} 条股票名称")
+                        break
+            except Exception: continue
+
+    def close(self) -> None:
+        """关闭所有数据源连接"""
+        for fetcher in self._fetchers:
+            try:
+                if hasattr(fetcher, "close"):
+                    fetcher.close()
+            except Exception: continue

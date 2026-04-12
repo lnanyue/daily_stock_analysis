@@ -1,323 +1,174 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-大盘复盘分析模块
+大盘复盘分析器
 ===================================
 
 职责：
-1. 获取大盘指数数据（上证、深证、创业板、标普、纳指等）
-2. 搜索市场新闻形成复盘情报
-3. 使用大模型生成每日大盘复盘报告（支持 A 股、美股及全球联动模式）
+1. 汇总全市场行情数据
+2. 结合宏观新闻进行 AI 分析
+3. 生成全局视角复盘报告
 """
 
-import asyncio
 import logging
-import time
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Optional, Dict, Any, List
-
-import pandas as pd
-import anyio
+from datetime import date
+from typing import Dict, Any, List, Optional
 
 from src.config import get_config
 from src.search_service import SearchService
 from src.core.market_profile import get_profile, MarketProfile
 from src.core.market_strategy import get_market_strategy_blueprint
-from data_provider.base import DataFetcherManager
+from data_provider import DataFetcherManager
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MarketIndex:
-    """大盘指数数据"""
-    code: str                    # 指数代码
-    name: str                    # 指数名称
-    current: float = 0.0         # 当前点位
-    change: float = 0.0          # 涨跌点数
-    change_pct: float = 0.0      # 涨跌幅(%)
-    open: float = 0.0            # 开盘点位
-    high: float = 0.0            # 最高点位
-    low: float = 0.0             # 最低点位
-    prev_close: float = 0.0      # 昨收点位
-    volume: float = 0.0          # 成交量（手）
-    amount: float = 0.0          # 成交额（元）
-    amplitude: float = 0.0       # 振幅(%)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'code': self.code,
-            'name': self.name,
-            'current': self.current,
-            'change': self.change,
-            'change_pct': self.change_pct,
-            'open': self.open,
-            'high': self.high,
-            'low': self.low,
-            'volume': self.volume,
-            'amount': self.amount,
-            'amplitude': self.amplitude,
-        }
-
-
-@dataclass
-class MarketOverview:
-    """市场概览数据"""
-    date: str                           # 日期
-    indices: List[MarketIndex] = field(default_factory=list)  # 主要指数
-    up_count: int = 0                   # 上涨家数
-    down_count: int = 0                 # 下跌家数
-    flat_count: int = 0                 # 平盘家数
-    limit_up_count: int = 0             # 涨停家数
-    limit_down_count: int = 0           # 跌停家_count
-    total_amount: float = 0.0           # 两市成交额（亿元）
-    
-    # 板块涨幅榜
-    top_sectors: List[Dict] = field(default_factory=list)     # 涨幅前5板块
-    bottom_sectors: List[Dict] = field(default_factory=list)  # 跌幅前5板块
-
-    # 全球模式额外数据
-    us_indices: List[MarketIndex] = field(default_factory=list)
-    cn_indices: List[MarketIndex] = field(default_factory=list)
+class MarketAnalysisContext:
+    """大盘分析上下文"""
+    region: str = "cn"
+    date: str = field(default_factory=lambda: date.today().isoformat())
+    indices: Dict[str, Any] = field(default_factory=dict)
+    stats: Dict[str, Any] = field(default_factory=dict)
+    sector_rankings: Dict[str, Any] = field(default_factory=dict)
+    market_news: List[Any] = field(default_factory=list)
+    strategy_blueprint: Dict[str, Any] = field(default_factory=dict)
 
 
 class MarketAnalyzer:
     """
-    大盘复盘分析器
-    
-    功能：
-    1. 获取大盘指数实时行情
-    2. 获取市场涨跌统计
-    3. 获取板块涨跌榜
-    4. 搜索市场新闻
-    5. 生成大盘复盘报告（支持全球联动模式）
+    大盘分析核心类
     """
     
-    def __init__(
-        self,
-        search_service: Optional[SearchService] = None,
-        analyzer=None,
-        region: str = "cn",
-    ):
-        """
-        初始化大盘分析器
-
-        Args:
-            search_service: 搜索服务实例
-            analyzer: AI分析器实例
-            region: 市场区域 cn=A股 us=美股 global=全球联动
-        """
+    def __init__(self, data_manager: Optional[DataFetcherManager] = None, analyzer = None, search_service: Optional[SearchService] = None, region: str = "cn"):
         self.config = get_config()
-        self.search_service = search_service
-        self.analyzer = analyzer
-        self.data_manager = DataFetcherManager()
-        self.region = region if region in ("cn", "us", "global") else "cn"
-        self.profile: MarketProfile = get_profile(self.region)
-        self.strategy = get_market_strategy_blueprint(self.region)
+        self.data_manager = data_manager or DataFetcherManager(config=self.config)
+        self.search_service = search_service or SearchService(
+            bocha_keys=self.config.bocha_api_keys,
+            tavily_keys=self.config.tavily_api_keys,
+            exa_keys=self.config.exa_api_keys,
+            news_max_age_days=self.config.news_max_age_days,
+        )
+        self.analyzer = analyzer  # GeminiAnalyzer instance
+        self.region = region
 
-    def get_market_overview(self) -> MarketOverview:
-        """
-        获取市场概览数据
+    def _get_market_name(self, region: str) -> str:
+        names = {"cn": "A股", "us": "美股", "hk": "港股", "global": "全球联动"}
+        return names.get(region, region)
+
+    def run_daily_review(self) -> str:
+        """运行每日复盘"""
+        return self.analyze(self.region)
+
+    def analyze(self, region: Optional[str] = None) -> str:
+        target_region = region or self.region
+        market_name = self._get_market_name(target_region)
+        logger.info(f"========== 开始 [{target_region}] {market_name} 复盘分析 ==========")
         
-        Returns:
-            MarketOverview: 市场概览数据对象
-        """
-        today = datetime.now().strftime('%Y-%m-%d')
-        overview = MarketOverview(date=today)
+        context = MarketAnalysisContext(region=target_region)
         
-        if self.region == "global":
-            # 全球模式：同时获取 A 股和美股指数
-            overview.cn_indices = self._get_main_indices_by_region("cn")
-            overview.us_indices = self._get_main_indices_by_region("us")
-            overview.indices = overview.cn_indices + overview.us_indices
-            
-            # 全球模式下依然获取 A 股统计数据（美股暂无）
-            self._get_market_statistics(overview)
-            self._get_sector_rankings(overview)
-        else:
-            # 1. 获取主要指数行情（按 region 切换 A 股/美股）
-            overview.indices = self._get_main_indices_by_region(self.region)
-
-            # 2. 获取涨跌统计（A 股有，美股无等效数据）
-            if self.profile.has_market_stats:
-                self._get_market_statistics(overview)
-
-            # 3. 获取板块涨跌榜（A 股有，美股暂无）
-            if self.profile.has_sector_rankings:
-                self._get_sector_rankings(overview)
-        
-        return overview
-
-    def _get_main_indices_by_region(self, region: str) -> List[MarketIndex]:
-        """按区域获取主要指数实时行情"""
-        indices = []
+        # 1. 获取指数行情
         try:
-            logger.info(f"[大盘] 获取 {region} 主要指数实时行情...")
-            data_list = self.data_manager.get_main_indices(region=region)
-            if data_list:
-                for item in data_list:
-                    index = MarketIndex(
-                        code=item['code'],
-                        name=item['name'],
-                        current=item['current'],
-                        change=item['change'],
-                        change_pct=item['change_pct'],
-                        open=item['open'],
-                        high=item['high'],
-                        low=item['low'],
-                        prev_close=item['prev_close'],
-                        volume=item['volume'],
-                        amount=item['amount'],
-                        amplitude=item['amplitude']
-                    )
-                    indices.append(index)
-            if not indices:
-                logger.warning(f"[大盘] {region} 指数行情获取为空")
+            indices = self.data_manager.get_main_indices(region=target_region)
+            if indices:
+                context.indices = indices
         except Exception as e:
-            logger.error(f"[大盘] 获取 {region} 指数行情失败: {e}")
-        return indices
+            logger.error(f"[大盘] 获取指数行情失败: {e}")
 
-    def _get_main_indices(self) -> List[MarketIndex]:
-        """获取主要指数实时行情 (兼容旧调用)"""
-        return self._get_main_indices_by_region(self.region)
+        # 2. 获取市场统计
+        if target_region == "cn":
+            try:
+                stats = self.data_manager.get_market_stats()
+                if stats: context.stats = stats
+            except Exception as e:
+                logger.error(f"[大盘] 获取市场统计失败: {e}")
 
-    def _get_market_statistics(self, overview: MarketOverview):
-        """获取市场涨跌统计"""
-        try:
-            logger.info("[大盘] 获取市场涨跌统计...")
-            stats = self.data_manager.get_market_stats()
-            if stats:
-                overview.up_count = stats.get('up_count', 0)
-                overview.down_count = stats.get('down_count', 0)
-                overview.flat_count = stats.get('flat_count', 0)
-                overview.limit_up_count = stats.get('limit_up_count', 0)
-                overview.limit_down_count = stats.get('limit_down_count', 0)
-                overview.total_amount = stats.get('total_amount', 0.0)
-                logger.info(f"[大盘] 涨:{overview.up_count} 跌:{overview.down_count} 成交额:{overview.total_amount:.0f}亿")
-        except Exception as e:
-            logger.error(f"[大盘] 获取涨跌统计失败: {e}")
+            # 3. 获取板块涨跌榜
+            try:
+                sector_rankings = self.data_manager.get_sector_rankings()
+                if sector_rankings:
+                    context.sector_rankings = {
+                        'top': sector_rankings[:5],
+                        'bottom': sector_rankings[-5:]
+                    }
+            except Exception as e:
+                logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
 
-    def _get_sector_rankings(self, overview: MarketOverview):
-        """获取板块涨跌榜"""
+        # 4. 联网搜索大盘情报
         try:
-            logger.info("[大盘] 获取板块涨跌榜...")
-            top_sectors, bottom_sectors = self.data_manager.get_sector_rankings(5)
-            if top_sectors or bottom_sectors:
-                overview.top_sectors = top_sectors
-                overview.bottom_sectors = bottom_sectors
-                logger.info(f"[大盘] 领涨板块: {[s['name'] for s in overview.top_sectors[:3]]}")
-        except Exception as e:
-            logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
-    
-    def search_market_news(self) -> List[Dict]:
-        """
-        搜索市场新闻
-        
-        Returns:
-            新闻列表
-        """
-        if not self.search_service:
-            logger.warning("[大盘] 搜索服务未配置，跳过新闻搜索")
-            return []
-        
-        all_news = []
-        try:
-            for query in self.profile.news_queries:
-                logger.info(f"[大盘] 搜索新闻: {query}...")
-                # SearchService.search_stock_news requires (stock_name, max_results)
-                # For market news, we use the query as the stock_name
-                results = self.search_service.search_stock_news(query, max_results=3)
-                if results and results.success:
-                    all_news.extend(results.results)
-                # 避免请求过快
-                time.sleep(0.5)
+            query = f"{market_name} 大盘 复盘"
+            news_resp = self.search_service.search_stock_news(
+                stock_code=target_region,
+                stock_name=market_name,
+                focus_keywords=[query]
+            )
+            if news_resp and news_resp.results:
+                context.market_news = news_resp.results
         except Exception as e:
             logger.error(f"[大盘] 搜索市场新闻失败: {e}")
-            
-        return all_news
 
-    def generate_market_review(self, overview: MarketOverview, news: List[Dict]) -> str:
-        """
-        生成大盘复盘报告
+        context.strategy_blueprint = get_market_strategy_blueprint(target_region)
+        return self._generate_report(context)
+
+    def _generate_report(self, context: MarketAnalysisContext) -> str:
+        logger.info("[大盘] 正在调用 AI 生成复盘报告...")
+        prompt = self._build_prompt(context)
         
-        Args:
-            overview: 市场概览数据
-            news: 市场新闻列表
+        if not self.analyzer or not self.analyzer.is_available():
+            return self._generate_fallback_report(context)
             
-        Returns:
-            复盘报告文本
-        """
-        if not self.analyzer:
-            logger.warning("[大盘] AI 分析器未配置，使用模板生成报告")
-            return self._generate_template_review(overview, news)
-            
-        # 1. 构建 Prompt
-        prompt = self._build_review_prompt(overview, news)
-        
-        # 2. 调用大模型
         try:
-            logger.info("[大盘] 正在调用 AI 生成复盘报告...")
-            # Use generate_text for free-form market review (analyze is for single stock JSON)
-            content = self.analyzer.generate_text(
-                prompt=prompt,
-                max_tokens=2048,
-                temperature=0.7
-            )
-            return content if content else self._generate_template_review(overview, news)
+            report = self.analyzer.generate_text(prompt)
+            return report if report else self._generate_fallback_report(context)
         except Exception as e:
             logger.error(f"[大盘] AI 生成报告失败: {e}")
-            return self._generate_template_review(overview, news)
+            return self._generate_fallback_report(context)
 
-    def _build_review_prompt(self, overview: MarketOverview, news: List) -> str:
-        """构建复盘报告 Prompt"""
-        # 指数行情信息
+    def _build_prompt(self, context: MarketAnalysisContext) -> str:
+        market_name = self._get_market_name(context.region)
+        
+        # 安全地获取指数数据
         indices_text = ""
-        if self.region == "global":
-            indices_text += "### A股指数\n"
-            for idx in overview.cn_indices:
-                dir_sym = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-                indices_text += f"- {idx.name}: {idx.current:.2f} ({dir_sym}{abs(idx.change_pct):.2f}%)\n"
-            indices_text += "\n### 美股指数\n"
-            for idx in overview.us_indices:
-                dir_sym = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-                indices_text += f"- {idx.name}: {idx.current:.2f} ({dir_sym}{abs(idx.change_pct):.2f}%)\n"
-        else:
-            for idx in overview.indices:
-                dir_sym = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-                indices_text += f"- {idx.name}: {idx.current:.2f} ({dir_sym}{abs(idx.change_pct):.2f}%)\n"
+        if isinstance(context.indices, dict):
+            for idx_name, idx_data in context.indices.items():
+                if isinstance(idx_data, dict):
+                    price = idx_data.get('price', 'N/A')
+                    change = idx_data.get('change_pct', 'N/A')
+                    indices_text += f"- {idx_name}: {price} ({change}%)\n"
         
-        # 板块信息
-        top_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:3]])
-        bottom_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.bottom_sectors[:3]])
+        # 安全地获取统计数据
+        up = context.stats.get('up', 0) if isinstance(context.stats, dict) else 0
+        down = context.stats.get('down', 0) if isinstance(context.stats, dict) else 0
+        l_up = context.stats.get('limit_up', 0) if isinstance(context.stats, dict) else 0
+        vol = context.stats.get('volume_total', 0) if isinstance(context.stats, dict) else 0
+        stats_text = f"- 上涨: {up} | 下跌: {down} | 涨停: {l_up}\n- 成交额: {vol} 亿元\n"
         
-        # 新闻信息
-        news_text = ""
-        for i, n in enumerate(news[:8], 1):
-            title = getattr(n, 'title', n.get('title', ''))[:60]
-            snippet = getattr(n, 'snippet', n.get('snippet', ''))[:120]
-            news_text += f"{i}. {title}\n   {snippet}\n"
+        # 安全地获取板块数据
+        sectors_text = "- 领涨: 暂无\n- 领跌: 暂无\n"
+        if isinstance(context.sector_rankings, dict):
+            top_list = context.sector_rankings.get('top', [])
+            bottom_list = context.sector_rankings.get('bottom', [])
+            if top_list:
+                t_str = ", ".join([f"{s.get('name', '未知')}({s.get('change_pct', 0)}%)" for s in top_list if isinstance(s, dict)])
+                b_str = ", ".join([f"{s.get('name', '未知')}({s.get('change_pct', 0)}%)" for s in bottom_list if isinstance(s, dict)])
+                sectors_text = f"- 领涨: {t_str}\n- 领跌: {b_str}\n"
+            
+        # 安全地获取新闻数据
+        news_text = "暂无相关新闻\n"
+        if context.market_news:
+            lines = []
+            for n in context.market_news[:5]:
+                title = getattr(n, 'title', '') or (n.get('title') if isinstance(n, dict) else '')
+                p_date = getattr(n, 'published_date', '今日') or (n.get('published_date') if isinstance(n, dict) else '今日')
+                lines.append(f"- [{p_date}] {title}")
+            if lines: news_text = "\n".join(lines) + "\n"
+
+        blueprint = context.strategy_blueprint
+        blueprint_name = getattr(blueprint, 'name', '默认策略') if blueprint else '默认策略'
+        blueprint_desc = getattr(blueprint, 'description', '') if blueprint else ''
+        strategy_text = f"## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
         
-        # 组装数据区块
-        stats_block = f"""## 市场统计 (A股)
-- 上涨: {overview.up_count} | 下跌: {overview.down_count} | 涨停: {overview.limit_up_count}
-- 成交额: {overview.total_amount:.0f} 亿元""" if self.region != "us" else ""
-
-        sector_block = f"""## 板块表现 (A股)
-- 领涨: {top_sectors_text if top_sectors_text else "暂无"}
-- 领跌: {bottom_sectors_text if bottom_sectors_text else "暂无"}""" if self.region != "us" else ""
-
-        # 全球模式特别提示
-        global_hint = ""
-        if self.region == "global":
-            global_hint = """
-【重点分析要求】：
-1. 深入分析 **美股领先板块对 A 股相关行业** 的启发性与联动效应（例如：美股 AI/半导体强势如何映射到 A 股科技股）。
-2. 分析全球宏观因子（美元、美债等）对两市风险偏好的统一影响。
-3. 比较两市目前的强弱关系，给出跨市场的投资视角。
-"""
-
-        # 构造最终 Prompt
         return f"""你是一位专业的全球市场分析师，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
 
 【输出要求】：
@@ -328,56 +179,48 @@ class MarketAnalyzer:
 
 ---
 
-# 今日市场数据 ({overview.date})
+# 今日市场数据 ({context.date})
 
 ## 主要指数
 {indices_text}
 
-{stats_block}
+## 市场统计 ({market_name})
+{stats_text}
 
-{sector_block}
+## 板块表现 ({market_name})
+{sectors_text}
 
 ## 市场新闻
-{news_text if news_text else "暂无相关新闻"}
+{news_text}
 
-{global_hint}
-
-{self.strategy.to_prompt_block()}
-
----
+{strategy_text}
 
 # 输出格式模板
 
-## {overview.date} 全球市场复盘
+## {context.date} {market_name}市场复盘
 
 ### 一、全球视野
 （总结今日中美市场整体表现及联动主线，2-3句话）
 
-### 二、指数联动点评
+### 二、行情联动点评
 （对比分析 A 股与美股主要指数的走势特征及相互影响）
 
 ### 三、行业映射与热点
-（重点解析美股强势板块对 A 股相关行业的启发性映射，以及 A 股自身热点逻辑）
+（重点解析强势板块及自身热点逻辑）
 
 ### 四、后市展望
-（结合两市走势与宏观背景，给出后续预判）
+（结合走势与背景，给出后续预判）
 
 ### 五、策略建议
-（根据全球联动情况，给出针对性的仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）
+（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）
 
 ---
 请直接输出报告。
 """
 
-    def _generate_template_review(self, overview: MarketOverview, news: List) -> str:
-        """模板生成逻辑（省略，保持原有逻辑或简单合并）"""
-        return f"## {overview.date} 复盘报告\n\n指数表现：\n" + "\n".join([f"- {i.name}: {i.change_pct:+.2f}%" for i in overview.indices])
-
-    def run_daily_review(self) -> str:
-        """执行每日大盘复盘流程"""
-        logger.info(f"========== 开始 [{self.region}] 大盘复盘分析 ==========")
-        overview = self.get_market_overview()
-        news = self.search_market_news()
-        report = self.generate_market_review(overview, news)
-        logger.info(f"========== [{self.region}] 大盘复盘分析完成 ==========")
-        return report
+    def _generate_fallback_report(self, context: MarketAnalysisContext) -> str:
+        market_name = self._get_market_name(context.region)
+        vol = context.stats.get('volume_total', 'N/A') if isinstance(context.stats, dict) else 'N/A'
+        up = context.stats.get('up', 0) if isinstance(context.stats, dict) else 0
+        down = context.stats.get('down', 0) if isinstance(context.stats, dict) else 0
+        return f"# {context.date} {market_name} 简要复盘\n\n> 提示：AI 分析服务暂时不可用，以下为基于原始数据的简报。\n\n- 成交统计: {vol} 亿\n- 涨跌分布: 上涨 {up} / 下跌 {down}"
