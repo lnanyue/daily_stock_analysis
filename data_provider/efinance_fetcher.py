@@ -53,11 +53,16 @@ except (ValueError, TypeError):
 
 from patch.eastmoney_patch import eastmoney_patch
 from src.config import get_config
-from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
+from .base import BaseFetcher, DataFetchError, RateLimitError
 from .utils import (
     classify_http_error,
     DEFAULT_USER_AGENTS,
     build_history_failure_message,
+    STANDARD_COLUMNS,
+    is_bse_code,
+    is_st_stock,
+    is_kc_cy_stock,
+    normalize_stock_code
 )
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,

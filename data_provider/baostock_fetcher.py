@@ -29,7 +29,8 @@ from tenacity import (
     before_sleep_log,
 )
 
-from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code, _is_hk_market
+from .base import BaseFetcher, DataFetchError
+from .utils import STANDARD_COLUMNS, is_bse_code, _is_hk_market
 import os
 
 logger = logging.getLogger(__name__)
