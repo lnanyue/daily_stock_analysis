@@ -313,10 +313,11 @@ class Config:
         
         # Priority for model list: LITELLM_CONFIG YAML > LLM_CHANNELS > Legacy Keys
         llm_model_list = []
-        litellm_config_path = os.getenv('LITELLM_CONFIG')
-        if litellm_config_path:
-            # We would normally parse YAML here
-            pass
+        litellm_config_path = os.getenv('LITELLM_CONFIG', 'litellm_config.yaml')
+        if litellm_config_path and Path(litellm_config_path).exists():
+            llm_model_list = parse_litellm_yaml(litellm_config_path)
+            if llm_model_list:
+                logger.info(f"已从 {litellm_config_path} 加载 {len(llm_model_list)} 个模型部署")
         
         if not llm_model_list and llm_channels:
             llm_model_list = channels_to_model_list(llm_channels)
