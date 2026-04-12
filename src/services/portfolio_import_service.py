@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from data_provider.base import canonical_stock_code
+from data_provider import canonical_stock_code
 from src.repositories.portfolio_repo import PortfolioRepository
 from src.services.portfolio_service import (
     PortfolioBusyError,

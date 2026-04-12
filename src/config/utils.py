@@ -4,7 +4,10 @@
 """
 
 import logging
-from typing import Optional, List, Dict
+import os
+import json
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +108,6 @@ def canonicalize_llm_channel_protocol(value: Optional[str]) -> str:
     return aliases.get(candidate, candidate)
 
 
-from urllib.parse import urlparse
-
 def resolve_llm_channel_protocol(
     protocol: Optional[str],
     *,
@@ -114,37 +115,33 @@ def resolve_llm_channel_protocol(
     models: Optional[List[str]] = None,
     channel_name: Optional[str] = None,
 ) -> str:
-    """Resolve the effective protocol for a channel."""
+    """解析通道的实际协议"""
+    from urllib.parse import urlparse
     explicit = canonicalize_llm_channel_protocol(protocol)
     if explicit in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
         return explicit
 
     for model in models or []:
-        if "/" not in model:
-            continue
+        if "/" not in model: continue
         prefix = canonicalize_llm_channel_protocol(model.split("/", 1)[0])
-        if prefix in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
-            return prefix
+        if prefix in SUPPORTED_LLM_CHANNEL_PROTOCOLS: return prefix
 
     if channel_name:
         name_protocol = canonicalize_llm_channel_protocol(channel_name)
-        if name_protocol in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
-            return name_protocol
+        if name_protocol in SUPPORTED_LLM_CHANNEL_PROTOCOLS: return name_protocol
 
     if base_url:
         parsed = urlparse(base_url)
-        if parsed.hostname in {"127.0.0.1", "localhost", "0.0.0.0"}:
-            return "openai"
+        if parsed.hostname in {"127.0.0.1", "localhost", "0.0.0.0"}: return "openai"
         return "openai"
-
     return ""
 
 
 def channel_allows_empty_api_key(protocol: Optional[str], base_url: Optional[str]) -> bool:
     """Return True when a channel can run without an API key."""
+    from urllib.parse import urlparse
     resolved_protocol = resolve_llm_channel_protocol(protocol, base_url=base_url)
-    if resolved_protocol == "ollama":
-        return True
+    if resolved_protocol == "ollama": return True
     parsed = urlparse(base_url or "")
     return parsed.hostname in {"127.0.0.1", "localhost", "0.0.0.0"}
 
@@ -152,38 +149,17 @@ def channel_allows_empty_api_key(protocol: Optional[str], base_url: Optional[str
 def normalize_llm_channel_model(model: str, protocol: Optional[str], base_url: Optional[str] = None) -> str:
     """Attach a provider prefix when the model omits it."""
     normalized_model = model.strip()
-    if not normalized_model:
-        return normalized_model
+    if not normalized_model: return normalized_model
+    if "/" in normalized_model: return normalized_model
 
     resolved_protocol = resolve_llm_channel_protocol(protocol, base_url=base_url, models=[normalized_model])
-
-    if "/" in normalized_model:
-        return normalized_model
-
-    # Auto-prefixing
     if resolved_protocol == "anthropic" and not normalized_model.lower().startswith("claude"):
         return f"anthropic/{normalized_model}"
     if resolved_protocol == "gemini" and not normalized_model.lower().startswith("gemini"):
         return f"gemini/{normalized_model}"
     if resolved_protocol in ("vertex_ai", "deepseek", "openai"):
         return f"{resolved_protocol}/{normalized_model}"
-    
     return normalized_model
-
-
-def _get_litellm_provider(model: str) -> str:
-    """Extract provider prefix from a LiteLLM model string."""
-    if not model: return ""
-    if "/" in model:
-        return model.split("/")[0].lower()
-    return "openai"
-
-
-def _uses_direct_env_provider(model: str) -> bool:
-    """True when the model's provider is one that LiteLLM handles via direct env vars."""
-    provider = _get_litellm_provider(model)
-    managed = {"gemini", "vertex_ai", "anthropic", "openai", "deepseek"}
-    return provider not in managed
 
 
 def get_configured_llm_models(model_list: List[Dict[str, Any]]) -> List[str]:
@@ -205,8 +181,38 @@ def get_effective_agent_primary_model(config: Any) -> Optional[str]:
     return getattr(config, "litellm_model", None)
 
 
-import os
-import json
+def get_effective_agent_models_to_try(config: Any) -> List[str]:
+    """Resolve the list of models to try in Agent mode."""
+    primary = get_effective_agent_primary_model(config)
+    models = [primary] if primary else []
+    fallbacks = getattr(config, "litellm_fallback_models", [])
+    if fallbacks:
+        models.extend([m for m in fallbacks if m not in models])
+    return [m for m in models if m]
+
+
+def resolve_unified_llm_temperature(model: str) -> float:
+    """Resolve default temperature based on model type."""
+    if not model: return 0.7
+    m_lower = model.lower()
+    if "o1-" in m_lower or "o3-" in m_lower or "deepseek-reasoner" in m_lower:
+        return 0.0
+    return 0.7
+
+
+def _get_litellm_provider(model: str) -> str:
+    """Extract provider prefix from a LiteLLM model string."""
+    if not model: return ""
+    if "/" in model: return model.split("/")[0].lower()
+    return "openai"
+
+
+def _uses_direct_env_provider(model: str) -> bool:
+    """True when the model's provider is one that LiteLLM handles via direct env vars."""
+    provider = _get_litellm_provider(model)
+    managed = {"gemini", "vertex_ai", "anthropic", "openai", "deepseek"}
+    return provider not in managed
+
 
 def parse_llm_channels(channels_str: str) -> List[Dict[str, Any]]:
     """Parse LLM_CHANNELS env var and per-channel env vars."""
@@ -215,30 +221,24 @@ def parse_llm_channels(channels_str: str) -> List[Dict[str, Any]]:
         ch_name = raw_name.strip()
         if not ch_name: continue
         ch_upper = ch_name.upper()
-
         base_url = os.getenv(f'LLM_{ch_upper}_BASE_URL', '').strip() or None
         protocol_raw = os.getenv(f'LLM_{ch_upper}_PROTOCOL', '').strip()
         enabled = parse_env_bool(os.getenv(f'LLM_{ch_upper}_ENABLED'), default=True)
-
         api_keys_raw = os.getenv(f'LLM_{ch_upper}_API_KEYS', '')
         api_keys = [k.strip() for k in api_keys_raw.split(',') if k.strip()]
         if not api_keys:
             single_key = os.getenv(f'LLM_{ch_upper}_API_KEY', '').strip()
             if single_key: api_keys = [single_key]
-
         models_raw = os.getenv(f'LLM_{ch_upper}_MODELS', '')
         raw_models = [m.strip() for m in models_raw.split(',') if m.strip()]
         protocol = resolve_llm_channel_protocol(protocol_raw, base_url=base_url, models=raw_models, channel_name=ch_name)
         models = [normalize_llm_channel_model(m, protocol, base_url) for m in raw_models]
-
         extra_headers_raw = os.getenv(f'LLM_{ch_upper}_EXTRA_HEADERS', '').strip()
         extra_headers = None
         if extra_headers_raw:
             try: extra_headers = json.loads(extra_headers_raw)
-            except json.JSONDecodeError: pass
-
+            except: pass
         if not enabled or not api_keys or not models: continue
-
         channels.append({
             'name': ch_name.lower(), 'protocol': protocol, 'enabled': enabled,
             'base_url': base_url, 'api_keys': api_keys, 'models': models,
@@ -296,21 +296,15 @@ def parse_litellm_yaml(config_path: str) -> List[Dict[str, Any]]:
     """Parse a standard LiteLLM config YAML file into Router model_list."""
     try:
         import yaml
-    except ImportError:
-        logger.warning("PyYAML not installed; LITELLM_CONFIG ignored.")
-        return []
-
+    except ImportError: return []
     path = Path(config_path)
     if not path.exists(): return []
-
     try:
         with open(path, encoding='utf-8') as f:
             yaml_config = yaml.safe_load(f) or {}
-    except Exception: return []
-
+    except: return []
     model_list = yaml_config.get('model_list', [])
     if not isinstance(model_list, list): return []
-
     for entry in model_list:
         params = entry.get('litellm_params', {})
         for key in list(params.keys()):
@@ -322,74 +316,39 @@ def parse_litellm_yaml(config_path: str) -> List[Dict[str, Any]]:
 
 
 def load_stocks_from_yaml(file_path: str) -> List[str]:
-    """
-    从 YAML 文件加载股票列表
-    
-    支持格式：
-    1. 简单列表：
-       - "600519"
-       - "000001"
-    2. 带分组的字典：
-       stocks:
-         - "600519"
-       groups:
-         tech: ["300750"]
-    """
+    """从 YAML 文件加载股票列表"""
     try:
         import yaml
-    except ImportError:
-        logger.warning("PyYAML 未安装，无法读取 YAML 股票列表")
-        return []
-
+    except ImportError: return []
     path = Path(file_path)
-    if not path.exists():
-        return []
-
+    if not path.exists(): return []
     try:
         with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
-            
-        if not data:
-            return []
-            
+        if not data: return []
         stocks = []
-        if isinstance(data, list):
-            stocks = data
+        if isinstance(data, list): stocks = data
         elif isinstance(data, dict):
-            # 支持 'stocks' 键
-            if 'stocks' in data and isinstance(data['stocks'], list):
-                stocks.extend(data['stocks'])
-            # 支持 'groups' 键中的所有股票
+            if 'stocks' in data and isinstance(data['stocks'], list): stocks.extend(data['stocks'])
             if 'groups' in data and isinstance(data['groups'], dict):
-                for group_stocks in data['groups'].values():
-                    if isinstance(group_stocks, list):
-                        stocks.extend(group_stocks)
-        
-        # 规范化：去重、转大写
+                for gs in data['groups'].values():
+                    if isinstance(gs, list): stocks.extend(gs)
         return list(dict.fromkeys([str(s).strip().upper() for s in stocks if s]))
-    except Exception as e:
-        logger.error(f"解析股票配置文件失败 {file_path}: {e}")
-        return []
+    except: return []
 
 
 def load_settings_from_yaml(file_path: str) -> Dict[str, Any]:
     """从 YAML 文件加载系统设置"""
     try:
         import yaml
-    except ImportError:
-        return {}
-
+    except ImportError: return {}
     path = Path(file_path)
-    if not path.exists():
-        return {}
-
+    if not path.exists(): return {}
     try:
         with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
         return data if isinstance(data, dict) else {}
-    except Exception as e:
-        logger.error(f"解析配置文件失败 {file_path}: {e}")
-        return {}
+    except: return {}
 
 
 def setup_env():

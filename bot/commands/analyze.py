@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from bot.commands.base import BotCommand
 from bot.models import BotMessage, BotResponse
-from data_provider.base import canonical_stock_code
+from data_provider import canonical_stock_code
 
 logger = logging.getLogger(__name__)
 

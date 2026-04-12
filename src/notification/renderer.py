@@ -19,7 +19,7 @@ from src.report_language import (
     normalize_report_language,
 )
 from src.utils.data_processing import normalize_model_used
-from src.notification.utils import get_source_display_name, format_price, format_pct
+from .utils import get_source_display_name, format_price, format_pct
 
 logger = logging.getLogger(__name__)
 

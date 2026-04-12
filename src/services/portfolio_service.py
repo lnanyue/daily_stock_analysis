@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from data_provider.base import canonical_stock_code
+from data_provider import canonical_stock_code
 from src.config import get_config
 from src.repositories.portfolio_repo import (
     DuplicateTradeDedupHashError,

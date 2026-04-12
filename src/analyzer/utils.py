@@ -5,7 +5,7 @@ AI 分析辅助函数与数据填充逻辑
 
 import logging
 import math
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.report_language import localize_chip_health

@@ -4,15 +4,15 @@ AI 分析提示词构建逻辑
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.report_language import (
     get_no_data_text,
     get_unknown_text,
     normalize_report_language,
-    resolve_news_window_days,
 )
+from src.config import resolve_news_window_days
 
 logger = logging.getLogger(__name__)
 
