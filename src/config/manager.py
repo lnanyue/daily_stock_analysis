@@ -312,11 +312,19 @@ def get_config() -> Config:
 def get_api_keys_for_model(model: str, config: Config) -> List[str]:
     from .utils import _get_litellm_provider
     provider = _get_litellm_provider(model)
-    if provider in {"gemini", "vertex_ai"}:
+    m_lower = model.lower()
+    
+    # 1. 识别 Gemini
+    if provider in {"gemini", "vertex_ai"} or "gemini" in m_lower:
         return [k for k in config.gemini_api_keys if len(k) >= 8]
-    if provider == "deepseek":
+        
+    # 2. 识别 DeepSeek (强制从环境变量提取)
+    if provider == "deepseek" or "deepseek" in m_lower:
         val = os.getenv("DEEPSEEK_API_KEY", "").strip()
-        return [val] if val else []
+        if val:
+            logger.debug(f"成功获取 DeepSeek API Key (长度: {len(val)})")
+            return [val]
+        
     return []
 
 def extra_litellm_params(model: str, config: Config) -> Dict[str, Any]:

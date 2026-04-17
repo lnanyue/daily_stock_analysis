@@ -65,14 +65,14 @@ async def run_market_review(
                 analyzer=analyzer,
                 region='global'
             )
-            review_report = global_analyzer.run_daily_review()
+            review_report = await global_analyzer.run_daily_review()
         else:
             market_analyzer = MarketAnalyzer(
                 search_service=search_service,
                 analyzer=analyzer,
                 region=region,
             )
-            review_report = market_analyzer.run_daily_review()
+            review_report = await market_analyzer.run_daily_review()
         
         if review_report:
             # 保存报告到文件
