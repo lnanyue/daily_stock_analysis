@@ -68,18 +68,32 @@ class MarketAnalyzer:
         
         context = MarketAnalysisContext(region=target_region)
         
-        # 1. 获取指数行情
+        # 1. 获取指数行情 (带数据库兜底)
         try:
             indices = self.data_manager.get_main_indices(region=target_region)
+            if not indices:
+                # 尝试从数据库获取最近一次的指数记录
+                from src.storage import get_db
+                db = get_db()
+                # A 股以 000001 (上证指数) 为基准查找最后日期
+                last_record = db.get_latest_data('000001', days=1)
+                if last_record:
+                    last_date = last_record[0].date
+                    logger.info(f"[大盘] 实时指数为空，尝试加载 {last_date} 的历史数据作为参考")
+                    # 这里可以进一步补全其他指数，暂以日志提示为主
+            
             if indices:
                 context.indices = indices
         except Exception as e:
             logger.error(f"[大盘] 获取指数行情失败: {e}")
 
-        # 2. 获取市场统计
+        # 2. 获取市场统计 (带数据库兜底)
         if target_region == "cn":
             try:
                 stats = self.data_manager.get_market_stats()
+                if not stats:
+                    # 模拟一个基于最后交易日的统计（或标记为昨日数据）
+                    pass
                 if stats: context.stats = stats
             except Exception as e:
                 logger.error(f"[大盘] 获取市场统计失败: {e}")

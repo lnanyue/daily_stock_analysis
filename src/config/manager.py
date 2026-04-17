@@ -314,6 +314,9 @@ def get_api_keys_for_model(model: str, config: Config) -> List[str]:
     provider = _get_litellm_provider(model)
     if provider in {"gemini", "vertex_ai"}:
         return [k for k in config.gemini_api_keys if len(k) >= 8]
+    if provider == "deepseek":
+        val = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        return [val] if val else []
     return []
 
 def extra_litellm_params(model: str, config: Config) -> Dict[str, Any]:
