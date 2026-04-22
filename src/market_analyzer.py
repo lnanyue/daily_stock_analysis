@@ -80,6 +80,79 @@ class MarketAnalyzer:
         names = {"cn": "A股", "us": "美股", "hk": "港股", "global": "全球联动"}
         return names.get(region, region)
 
+    def _get_prompt_scaffold(self, context: MarketAnalysisContext) -> tuple[str, str, str]:
+        """Return role, missing-data guidance, and output template by region."""
+        if context.region == "global":
+            role = "你是一位专业的全球市场分析师"
+            missing_data_guidance = (
+                "若市场新闻为空或缺少跨市场消息，不要把“无新闻”直接等同于“无法评估全球市场”；"
+                "应明确说明消息面样本有限，并优先基于已提供的指数、统计与板块数据完成复盘。"
+            )
+            template = f"""## {context.date} 全球市场联动复盘
+
+### 一、全球视野
+（总结今日中美市场整体表现及联动主线，2-3句话）
+
+### 二、行情联动点评
+（仅基于已提供的数据，对比分析 A 股与美股主要指数的走势特征及相互影响；若缺少某一侧数据，需要明确说明，不要臆测。）
+
+### 三、行业映射与热点
+（重点解析强势板块及跨市场映射逻辑）
+
+### 四、后市展望
+（结合走势与背景，给出后续预判）
+
+### 五、策略建议
+（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
+            return role, missing_data_guidance, template
+
+        if context.region == "us":
+            role = "你是一位专业的美股市场分析师"
+            missing_data_guidance = (
+                "若市场新闻为空，请明确说明消息面样本有限，并以已提供的美股指数与主题线索为主完成复盘；"
+                "不要臆测 A 股表现或中美联动。"
+            )
+            template = f"""## {context.date} 美股市场复盘
+
+### 一、市场总览
+（总结今日美股整体表现与主要驱动，2-3句话）
+
+### 二、指数与风格点评
+（分析标普、纳指、道指、波动率或风格轮动特征）
+
+### 三、板块与主题
+（重点解析强势/弱势板块及主题主线）
+
+### 四、后市展望
+（结合走势与背景，给出后续预判）
+
+### 五、策略建议
+（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
+            return role, missing_data_guidance, template
+
+        role = "你是一位专业的A股市场分析师"
+        missing_data_guidance = (
+            "若市场新闻为空，请明确说明消息面样本有限，并以 A 股盘面数据为主完成复盘；"
+            "不要臆测全球市场或跨市场联动。"
+        )
+        template = f"""## {context.date} A股市场复盘
+
+### 一、市场总览
+（总结今日A股整体表现与核心特征，2-3句话）
+
+### 二、盘面结构点评
+（结合主要指数、量能、涨跌分布，分析市场强弱与风格切换）
+
+### 三、行业映射与热点
+（重点解析强势板块及自身热点逻辑）
+
+### 四、后市展望
+（结合走势与背景，给出后续预判）
+
+### 五、策略建议
+（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
+        return role, missing_data_guidance, template
+
     async def run_daily_review(self) -> str:
         """运行每日复盘 (异步)"""
         return await self.analyze(self.region)
@@ -200,6 +273,7 @@ class MarketAnalyzer:
 
     def _build_prompt(self, context: MarketAnalysisContext) -> str:
         market_name = self._get_market_name(context.region)
+        role, missing_data_guidance, output_template = self._get_prompt_scaffold(context)
         indices_text = ""
 
         # 支持 dict 格式（旧格式）
@@ -251,13 +325,15 @@ class MarketAnalyzer:
             blueprint_desc = getattr(blueprint, 'description', '') if blueprint else ''
             strategy_text = f"{strategy_section_title}\n## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
         
-        return f"""你是一位专业的全球市场分析师，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
+        return f"""{role}，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
 
 【输出要求】：
 - 必须使用纯 Markdown 格式
 - 禁止 JSON 或代码块
 - 标题处可少量使用 emoji
 - 逻辑清晰，重点突出
+- 只能基于已提供的数据进行判断，没有提供的信息不要扩写成确定性结论
+- {missing_data_guidance}
 
 ---
 
@@ -279,22 +355,7 @@ class MarketAnalyzer:
 
 # 输出格式模板
 
-## {context.date} {market_name}市场复盘
-
-### 一、全球视野
-（总结今日中美市场整体表现及联动主线，2-3句话）
-
-### 二、行情联动点评
-（对比分析 A 股与美股主要指数的走势特征及相互影响）
-
-### 三、行业映射与热点
-（重点解析强势板块及自身热点逻辑）
-
-### 四、后市展望
-（结合走势与背景，给出后续预判）
-
-### 五、策略建议
-（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）
+{output_template}
 
 ---
 请直接输出报告。
