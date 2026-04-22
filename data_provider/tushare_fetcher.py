@@ -437,6 +437,48 @@ class TushareFetcher(BaseFetcher):
             logger.warning(f"无法确定股票 {code} 的市场，默认使用深市")
             return f"{code}.SZ"
     
+    async def _fetch_raw_data_async(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """从 Tushare 获取原始数据 (Async)"""
+        if self._api is None:
+            raise DataFetchError("Tushare API 未初始化，请检查 Token 配置")
+        
+        # US stocks not supported
+        if _is_us_code(stock_code):
+            raise DataFetchError(f"TushareFetcher 不支持美股 {stock_code}，请使用 AkshareFetcher 或 YfinanceFetcher")
+
+        # HK stocks not supported
+        if _is_hk_market(stock_code):
+            raise DataFetchError(f"TushareFetcher 不支持港股 {stock_code}，请使用 AkshareFetcher")
+        
+        # Rate-limit check (Async)
+        await self._check_rate_limit_async()
+        
+        # Convert code format
+        ts_code = self._convert_stock_code(stock_code)
+        
+        # Convert date format (Tushare requires YYYYMMDD)
+        ts_start = start_date.replace('-', '')
+        ts_end = end_date.replace('-', '')
+        
+        is_etf = _is_etf_code(stock_code)
+        api_name = "fund_daily" if is_etf else "daily"
+        logger.debug(f"调用 Tushare Async {api_name}({ts_code}, {ts_start}, {ts_end})")
+        
+        try:
+            df = await self._api_post(
+                api_name,
+                ts_code=ts_code,
+                start_date=ts_start,
+                end_date=ts_end,
+            )
+            return df
+        except Exception as e:
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限']):
+                logger.warning(f"Tushare 配额可能超限: {e}")
+                raise RateLimitError(f"Tushare 配额超限: {e}") from e
+            raise DataFetchError(f"Tushare 获取数据失败: {e}") from e
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=30),

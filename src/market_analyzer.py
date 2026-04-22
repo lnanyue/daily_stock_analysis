@@ -11,6 +11,8 @@
 """
 
 import logging
+import asyncio
+import inspect
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, Any, List, Optional
@@ -22,6 +24,25 @@ from src.core.market_strategy import get_market_strategy_blueprint
 from data_provider import DataFetcherManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MarketIndex:
+    """主要指数数据"""
+    code: str
+    name: str
+    current: float
+    change: float
+    change_pct: float
+
+
+@dataclass
+class MarketOverview:
+    """大盘概览数据"""
+    date: str
+    indices: List[MarketIndex] = field(default_factory=list)
+    stats: Dict[str, Any] = field(default_factory=dict)
+    news: List[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -52,6 +73,8 @@ class MarketAnalyzer:
         )
         self.analyzer = analyzer  # GeminiAnalyzer instance
         self.region = region
+        self.profile = get_profile(region)
+        self.strategy = get_market_strategy_blueprint(region)
 
     def _get_market_name(self, region: str) -> str:
         names = {"cn": "A股", "us": "美股", "hk": "港股", "global": "全球联动"}
@@ -60,6 +83,43 @@ class MarketAnalyzer:
     async def run_daily_review(self) -> str:
         """运行每日复盘 (异步)"""
         return await self.analyze(self.region)
+
+    def generate_market_review(self, context: MarketAnalysisContext, news: List[Any]) -> str:
+        """同步复盘分析入口 (封装异步调用以兼容旧代码)"""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            # 适配旧参数：如果传入的是 MarketOverview，则转换为 MarketAnalysisContext
+            if not isinstance(context, MarketAnalysisContext):
+                ctx = MarketAnalysisContext(
+                    date=getattr(context, "date", date.today().isoformat()),
+                    region=getattr(self, "region", "cn"),
+                    indices={idx.code: idx.__dict__ for idx in getattr(context, "indices", [])},
+                    stats=getattr(context, "stats", {}) if hasattr(context, "stats") else {},
+                    market_news=news,
+                )
+            else:
+                ctx = context
+            return loop.run_until_complete(self._generate_report(ctx))
+        finally:
+            loop.close()
+
+    def _build_review_prompt(self, overview: MarketOverview, news: List[Any]) -> str:
+        """向后兼容的旧 Prompt 构建入口。"""
+        context = MarketAnalysisContext(
+            date=getattr(overview, "date", date.today().isoformat()),
+            region=getattr(self, "region", "cn"),
+            indices={idx.code: idx.__dict__ for idx in getattr(overview, "indices", [])},
+            stats=getattr(overview, "stats", {}) if hasattr(overview, "stats") else {},
+            market_news=news or [],
+            strategy_blueprint=get_market_strategy_blueprint(getattr(self, "region", "cn")),
+        )
+        return self._build_prompt(context)
+
+    async def _maybe_await(self, value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
 
     async def analyze(self, region: Optional[str] = None) -> str:
         """执行完整的大盘分析流程 (异步)"""
@@ -71,7 +131,7 @@ class MarketAnalyzer:
         
         # 1. 获取指数行情 (带数据库兜底)
         try:
-            indices = self.data_manager.get_main_indices(region=target_region)
+            indices = await self._maybe_await(self.data_manager.get_main_indices(region=target_region))
             if not indices:
                 from src.storage import get_db
                 db = get_db()
@@ -86,23 +146,27 @@ class MarketAnalyzer:
         # 2. 获取市场统计
         if target_region == "cn":
             try:
-                stats = self.data_manager.get_market_stats()
+                stats = await self._maybe_await(self.data_manager.get_market_stats())
                 if stats: context.stats = stats
             except Exception as e:
                 logger.error(f"[大盘] 获取市场统计失败: {e}")
 
             # 3. 获取板块涨跌榜
             try:
-                sector_rankings = self.data_manager.get_sector_rankings()
+                sector_rankings = await self._maybe_await(self.data_manager.get_sector_rankings())
                 if sector_rankings:
-                    context.sector_rankings = {'top': sector_rankings[:5], 'bottom': sector_rankings[-5:]}
+                    if isinstance(sector_rankings, tuple) and len(sector_rankings) == 2:
+                        top, bottom = sector_rankings
+                        context.sector_rankings = {'top': top, 'bottom': bottom}
+                    else:
+                        context.sector_rankings = {'top': sector_rankings[:5], 'bottom': sector_rankings[-5:]}
             except Exception as e:
                 logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
 
         # 4. 联网搜索大盘情报
         try:
             query = f"{market_name} 大盘 复盘"
-            news_resp = self.search_service.search_stock_news(stock_code=target_region, stock_name=market_name, focus_keywords=[query])
+            news_resp = await self.search_service.search_stock_news_async(stock_code=target_region, stock_name=market_name, focus_keywords=[query])
             if news_resp and news_resp.results:
                 context.market_news = news_resp.results
         except Exception as e:
@@ -120,8 +184,15 @@ class MarketAnalyzer:
             return self._generate_fallback_report(context)
             
         try:
-            # 重要修复：在异步环境下调用异步生成方法
-            report = await self.analyzer.generate_text_async(prompt)
+            report = None
+
+            # 优先走同步兼容接口，避免旧实现/测试继续依赖私有属性或异步细节。
+            if hasattr(self.analyzer, "generate_text"):
+                report = await asyncio.to_thread(self.analyzer.generate_text, prompt)
+
+            if not report and hasattr(self.analyzer, "generate_text_async"):
+                report = await self.analyzer.generate_text_async(prompt)
+
             return report if report else self._generate_fallback_report(context)
         except Exception as e:
             logger.error(f"[大盘] AI 生成报告失败: {e}")
@@ -130,12 +201,22 @@ class MarketAnalyzer:
     def _build_prompt(self, context: MarketAnalysisContext) -> str:
         market_name = self._get_market_name(context.region)
         indices_text = ""
+
+        # 支持 dict 格式（旧格式）
         if isinstance(context.indices, dict):
             for idx_name, idx_data in context.indices.items():
                 if isinstance(idx_data, dict):
                     price = idx_data.get('price', 'N/A')
                     change = idx_data.get('change_pct', 'N/A')
                     indices_text += f"- {idx_name}: {price} ({change}%)\n"
+        # 支持 list 格式（各 fetcher 实际返回的格式）
+        elif isinstance(context.indices, list):
+            for idx in context.indices:
+                if isinstance(idx, dict):
+                    name = idx.get('name', idx.get('code', 'N/A'))
+                    price = idx.get('current', idx.get('price', 'N/A'))
+                    change = idx.get('change_pct', 'N/A')
+                    indices_text += f"- {name}: {price} ({change}%)\n"
         
         up = context.stats.get('up', 0) if isinstance(context.stats, dict) else 0
         down = context.stats.get('down', 0) if isinstance(context.stats, dict) else 0
@@ -162,9 +243,13 @@ class MarketAnalyzer:
             if lines: news_text = "\n".join(lines) + "\n"
 
         blueprint = context.strategy_blueprint
-        blueprint_name = getattr(blueprint, 'name', '默认策略') if blueprint else '默认策略'
-        blueprint_desc = getattr(blueprint, 'description', '') if blueprint else ''
-        strategy_text = f"## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
+        strategy_section_title = "## 策略计划" if context.region == "cn" else "## Strategy Plan"
+        if blueprint and hasattr(blueprint, "to_prompt_block"):
+            strategy_text = f"{strategy_section_title}\n{blueprint.to_prompt_block()}\n\n"
+        else:
+            blueprint_name = getattr(blueprint, 'name', '默认策略') if blueprint else '默认策略'
+            blueprint_desc = getattr(blueprint, 'description', '') if blueprint else ''
+            strategy_text = f"{strategy_section_title}\n## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
         
         return f"""你是一位专业的全球市场分析师，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
 

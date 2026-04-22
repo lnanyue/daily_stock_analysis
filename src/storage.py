@@ -38,6 +38,7 @@ from sqlalchemy import (
     desc,
     event,
     func,
+    text,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import sessionmaker, Session
@@ -46,11 +47,21 @@ from sqlalchemy.exc import OperationalError
 from src.config import get_config
 from src.schemas.storage_models import (
     Base,
-    StockDaily,
-    NewsIntel,
-    FundamentalSnapshot,
     AnalysisHistory,
+    BacktestResult,
+    BacktestSummary,
     LLMUsage,
+    FundamentalSnapshot,
+    NewsIntel,
+    PortfolioAccount,
+    PortfolioCashLedger,
+    PortfolioCorporateAction,
+    PortfolioDailySnapshot,
+    PortfolioFxRate,
+    PortfolioPosition,
+    PortfolioPositionLot,
+    PortfolioTrade,
+    StockDaily,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,6 +118,16 @@ class DatabaseManager:
             cls._instance = DatabaseManager()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        if cls._instance is not None and hasattr(cls._instance, "_engine"):
+            try:
+                cls._instance._engine.dispose()
+            except Exception:
+                pass
+        cls._instance = None
+        cls._initialized = False
+
     @staticmethod
     def _cleanup_engine(engine):
         try:
@@ -148,7 +169,7 @@ class DatabaseManager:
     def _run_write_transaction(self, name: str, operation: Callable[[Session], T]) -> T:
         with self.get_session() as session:
             if self._is_sqlite_engine:
-                session.execute(Text("BEGIN IMMEDIATE"))
+                session.execute(text("BEGIN IMMEDIATE"))
             
             retry_count = 0
             while retry_count <= self._sqlite_write_retry_max:
@@ -207,43 +228,84 @@ class DatabaseManager:
             return new_count
         return self._run_write_transaction("save_news_intel", _write)
 
-    def save_analysis_history(self, result: Any, query_id: str, query_source: str = "cli") -> int:
+    def save_analysis_history(
+        self, 
+        result: Any, 
+        query_id: str, 
+        query_source: str = "cli",
+        report_type: str = "standard",
+        news_content: Optional[str] = None,
+        news_intel: List[Dict] = None,
+        context_snapshot: Dict = None,
+        save_snapshot: bool = False
+    ) -> int:
         def _write(session: Session) -> int:
-            session.add(AnalysisHistory(
-                query_id=query_id, code=result.code, name=result.name,
-                sentiment_score=result.sentiment_score, trend_prediction=result.trend_prediction,
-                operation_advice=result.operation_advice, decision_type=result.decision_type or 'hold',
-                confidence_level=result.confidence_level, full_result_json=json.dumps(result.to_dict(), ensure_ascii=False),
-                model_used=result.model_used, search_performed=result.search_performed,
-                report_language=result.report_language, current_price=result.current_price,
-                change_pct=result.change_pct, query_source=query_source, analyzed_at=datetime.now(),
-            ))
+            history = AnalysisHistory(
+                query_id=query_id, 
+                code=result.code, 
+                name=result.name,
+                sentiment_score=result.sentiment_score, 
+                trend_prediction=result.trend_prediction,
+                operation_advice=result.operation_advice, 
+                decision_type=result.decision_type or 'hold',
+                confidence_level=result.confidence_level, 
+                full_result_json=json.dumps(result.to_dict(), ensure_ascii=False),
+                model_used=result.model_used, 
+                search_performed=result.search_performed,
+                report_language=result.report_language, 
+                current_price=result.current_price,
+                change_pct=result.change_pct, 
+                query_source=query_source, 
+                analyzed_at=datetime.now(),
+            )
+            session.add(history)
+            
+            # Save context snapshot if requested
+            if save_snapshot and context_snapshot:
+                snapshot = FundamentalSnapshot(
+                    query_id=query_id,
+                    code=result.code,
+                    payload=json.dumps(context_snapshot, ensure_ascii=False)
+                )
+                session.add(snapshot)
+            
             return 1
         return self._run_write_transaction(f"save_analysis_history[{result.code}]", _write)
 
-    def save_daily_data(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
-        if df is None or df.empty: return 0
-        now = datetime.now()
-        def _write(session: Session) -> int:
-            new_count = 0
-            for row in df.to_dict(orient='records'):
-                row_date = self._normalize_daily_date(row.get('date'))
-                record = {
-                    'code': code, 'date': row_date, 'open': self._normalize_sql_value(row.get('open')),
-                    'high': self._normalize_sql_value(row.get('high')), 'low': self._normalize_sql_value(row.get('low')),
-                    'close': self._normalize_sql_value(row.get('close')), 'volume': self._normalize_sql_value(row.get('volume')),
-                    'amount': self._normalize_sql_value(row.get('amount')), 'pct_chg': self._normalize_sql_value(row.get('pct_chg')),
-                    'ma5': self._normalize_sql_value(row.get('ma5')), 'ma10': self._normalize_sql_value(row.get('ma10')),
-                    'ma20': self._normalize_sql_value(row.get('ma20')), 'volume_ratio': self._normalize_sql_value(row.get('volume_ratio')),
-                    'data_source': data_source, 'created_at': now, 'updated_at': now,
-                }
-                stmt = sqlite_insert(StockDaily).values(record).on_conflict_do_update(
-                    index_elements=['code', 'date'],
-                    set_={k: v for k, v in record.items() if k not in ('code', 'date', 'created_at')}
-                )
-                if session.execute(stmt).rowcount > 0: new_count += 1
-            return new_count
-        return self._run_write_transaction(f"save_daily_data[{code}]", _write)
+    def get_data_range(self, code: str, start_date: date, end_date: date) -> List[StockDaily]:
+        """获取指定日期范围内的数据"""
+        with self.get_session() as session:
+            results = session.execute(
+                select(StockDaily)
+                .where(and_(StockDaily.code == code, StockDaily.date >= start_date, StockDaily.date <= end_date))
+                .order_by(StockDaily.date.asc())
+            ).scalars().all()
+            return list(results)
+
+    async def get_data_range_async(self, code: str, start_date: date, end_date: date) -> List[StockDaily]:
+        """异步获取指定日期范围内的数据"""
+        return await asyncio.to_thread(self.get_data_range, code, start_date, end_date)
+
+    async def save_daily_data_async(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
+        """异步保存日线数据"""
+        return await asyncio.to_thread(self.save_daily_data, df, code, data_source)
+
+    async def save_analysis_history_async(
+        self, 
+        result: Any, 
+        query_id: str, 
+        report_type: str = "standard",
+        news_content: Optional[str] = None,
+        news_intel: List[Dict] = None,
+        context_snapshot: Dict = None,
+        save_snapshot: bool = False
+    ) -> int:
+        """异步保存分析历史"""
+        query_source = result.query_source if hasattr(result, "query_source") else "cli"
+        return await asyncio.to_thread(
+            self.save_analysis_history, 
+            result, query_id, query_source, report_type, news_content, news_intel, context_snapshot, save_snapshot
+        )
 
     def get_analysis_context(self, code: str, target_date: Optional[date] = None) -> Optional[Dict[str, Any]]:
         recent = self.get_latest_data(code, days=2)

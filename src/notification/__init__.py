@@ -3,6 +3,7 @@
 通知推送包
 """
 
+from src.config import get_config
 from .service import (
     NotificationService,
     NotificationChannel,

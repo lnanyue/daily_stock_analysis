@@ -12,10 +12,10 @@ A股自选股智能分析系统 - 核心分析流水线
 """
 
 import asyncio
+import inspect
 import logging
 import random
-import uuid
-
+import re
 import uuid
 from collections import defaultdict
 from datetime import date, timedelta
@@ -106,21 +106,94 @@ class StockAnalysisPipeline:
         )
 
     async def fetch_and_save_stock_data(self, code: str, force_refresh: bool = False) -> Tuple[bool, Optional[str]]:
-        stock_name = self.fetcher_manager.get_stock_name(code)
+        stock_name = await self.fetcher_manager.get_stock_name(code)
         try:
-            if not force_refresh and self.db.has_today_data(code, date.today()):
+            if not force_refresh and self.db.has_today_data(code):
                 return True, None
-            df, source_name = await asyncio.to_thread(self.fetcher_manager.get_daily_data, code, 30)
+            df, source_name = await self.fetcher_manager.get_daily_data(code, days=30)
             if df is None or df.empty: return False, "获取数据为空"
-            await asyncio.to_thread(self.db.save_daily_data, df, code, source_name)
+            await self.db.save_daily_data_async(df, code, source_name)
             return True, None
         except Exception as e:
             return False, str(e)
-    
-    async def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
+
+    def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return self._analyze_stock_sync(code, report_type, query_id)
+        return self._analyze_stock_async(code, report_type, query_id)
+
+    def _analyze_stock_sync(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
+        stock_name = STOCK_NAME_MAP.get(code) or code
+
+        get_name = getattr(self.fetcher_manager, "get_stock_name", None)
+        if callable(get_name):
+            try:
+                maybe_name = get_name(code)
+                if inspect.isawaitable(maybe_name):
+                    maybe_name = asyncio.run(maybe_name)
+                if maybe_name:
+                    stock_name = maybe_name
+            except Exception:
+                pass
+
+        realtime_quote = None
+        get_quote = getattr(self.fetcher_manager, "get_realtime_quote", None)
+        if callable(get_quote):
+            try:
+                maybe_quote = get_quote(code)
+                if inspect.isawaitable(maybe_quote):
+                    maybe_quote = asyncio.run(maybe_quote)
+                realtime_quote = maybe_quote
+                if realtime_quote and getattr(realtime_quote, "name", None):
+                    stock_name = realtime_quote.name
+            except Exception:
+                realtime_quote = None
+
+        chip_data = None
+        get_chip = getattr(self.fetcher_manager, "get_chip_distribution", None)
+        if callable(get_chip):
+            try:
+                maybe_chip = get_chip(code)
+                if inspect.isawaitable(maybe_chip):
+                    maybe_chip = asyncio.run(maybe_chip)
+                chip_data = maybe_chip
+            except Exception:
+                chip_data = None
+
+        fundamental_context: Dict[str, Any] = {}
+        trend_result = None
+
+        if getattr(self.config, "agent_mode", False):
+            return self._analyze_with_agent(
+                code,
+                report_type,
+                query_id,
+                stock_name,
+                realtime_quote,
+                chip_data,
+                fundamental_context,
+                trend_result,
+            )
+
+        enhanced_context = self._enhance_context(
+            {'code': code, 'stock_name': stock_name, 'date': date.today().isoformat()},
+            realtime_quote,
+            chip_data,
+            trend_result,
+            stock_name,
+            fundamental_context,
+        )
+        result = self.analyzer.analyze(enhanced_context, "")
+        if result:
+            result.query_id = query_id
+        return result
+
+    async def _analyze_stock_async(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """分析单只股票异步主流程"""
         try:
-            stock_name = self.fetcher_manager.get_stock_name(code)
+            stock_name = await self.fetcher_manager.get_stock_name(code)
 
             # 1. 实时行情
             realtime_quote = await self.fetcher_manager.get_realtime_quote(code)
@@ -128,11 +201,11 @@ class StockAnalysisPipeline:
                 stock_name = realtime_quote.name
 
             # 2. 筹码分布
-            chip_data = await asyncio.to_thread(self.fetcher_manager.get_chip_distribution, code)
+            chip_data = await self.fetcher_manager.get_chip_distribution(code)
 
             # 3. 基本面上下文
-            fundamental_context = await asyncio.to_thread(self.fetcher_manager.get_fundamental_context, code)
-            fundamental_context = self._attach_belong_boards_to_fundamental_context(code, fundamental_context)
+            fundamental_context = await self.fetcher_manager.get_fundamental_context(code)
+            fundamental_context = await self._attach_belong_boards_to_fundamental_context(code, fundamental_context)
 
             # 4. A股深度情报与资金面增强 (重点注入点)
             a_stock_intelligence = ""
@@ -144,30 +217,30 @@ class StockAnalysisPipeline:
             
             if ak_fetcher:
                 # 4.1 财务质量 (巴菲特/芒格)
-                quality_metrics = await asyncio.to_thread(ak_fetcher.get_value_metrics, code)
+                quality_metrics = await ak_fetcher.get_value_metrics_async(code)
                 if fundamental_context and quality_metrics:
                     fundamental_context['quality_metrics'] = quality_metrics
                 
                 # 4.2 龙虎榜/研报/电报
-                lhb = await asyncio.to_thread(ak_fetcher.get_lhb_data, code)
+                lhb = await ak_fetcher.get_lhb_data_async(code)
                 if lhb:
                     a_stock_intelligence += "\n### 龙虎榜动向 (近30日)\n" + "\n".join([f"- {i['date']}: {i['reason']} (净买额: {i['net_amount']:.2f}万)" for i in lhb[:3]])
                 
-                reports = await asyncio.to_thread(ak_fetcher.get_research_reports, code)
+                reports = await ak_fetcher.get_research_reports_async(code)
                 if reports and reports.get('reports'):
                     a_stock_intelligence += "\n### 机构研报观点\n" + "\n".join([f"- [{r['org']}] {r['title']} (评级: {r['rating']})" for r in reports['reports'][:2]])
                 
-                telegraphs = await asyncio.to_thread(ak_fetcher.get_latest_telegraph, [stock_name])
+                telegraphs = await ak_fetcher.get_latest_telegraph_async([stock_name])
                 if telegraphs:
                     a_stock_intelligence += "\n### 财联社实时快讯\n" + "\n".join([f"- [{t['time']}] {t['title']}" for t in telegraphs[:3]])
 
                 # 4.3 资金流向
-                flow = await asyncio.to_thread(ak_fetcher.get_money_flow, code)
+                flow = await ak_fetcher.get_money_flow_async(code)
                 if flow and flow.get('main_inflow'):
                     money_flow_intelligence += f"\n### 资金面动向\n- 主力净流入: {flow['main_inflow']:.2f}万 ({flow['main_pct']:.2f}%)\n"
                 
                 # 4.4 题材梯队 (龙头识别依据)
-                zt_pool = await asyncio.to_thread(ak_fetcher.get_limit_up_pool)
+                zt_pool = await ak_fetcher.get_limit_up_pool_async()
                 if zt_pool:
                     money_flow_intelligence += "### 题材热度\n" + "\n".join([f"- {t['name']} ({t['count']}家涨停): 龙头={', '.join(t['leaders'])}" for t in zt_pool[:2]])
 
@@ -181,7 +254,7 @@ class StockAnalysisPipeline:
 
             # 5. 趋势分析与视觉形态
             end_date = date.today()
-            hist = await asyncio.to_thread(self.db.get_data_range, code, end_date - timedelta(days=89), end_date)
+            hist = await self.db.get_data_range_async(code, end_date - timedelta(days=89), end_date)
             trend_result = None
             visual_description = ""
             if hist:
@@ -195,7 +268,20 @@ class StockAnalysisPipeline:
                 if trend_result.ma_alignment == "bullish": visual_description += "- 形态: 均线典型【多头排列】，具备向上爆发力。\n"
                 elif trend_result.ma_alignment == "bearish": visual_description += "- 形态: 均线【空头排列】，破位压力明显。\n"
 
-            # 5. 搜索深度情报 (Async native + Cls Telegram)
+            if getattr(self.config, "agent_mode", False):
+                return await asyncio.to_thread(
+                    self._analyze_with_agent,
+                    code,
+                    report_type,
+                    query_id,
+                    stock_name,
+                    realtime_quote,
+                    chip_data,
+                    fundamental_context,
+                    trend_result,
+                )
+
+            # 6. 搜索深度情报 (Async native + Cls Telegram)
             news_context = ""
             if self.search_service.is_available:
                 # 并发抓取：通用搜索 + 财联社电报
@@ -250,8 +336,15 @@ class StockAnalysisPipeline:
                 result.query_id = query_id
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 fill_chip_structure_if_needed(result, chip_data)
-                # 保存历史
-                await asyncio.to_thread(self.db.save_analysis_history, result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
+                # 8. 保存历史
+                await self.db.save_analysis_history_async(
+                    result=result,
+                    query_id=query_id,
+                    report_type=report_type.value,
+                    news_content=final_news,
+                    context_snapshot={},
+                    save_snapshot=self.save_context_snapshot,
+                )
 
             return result
 
@@ -280,10 +373,10 @@ class StockAnalysisPipeline:
             }
         return enhanced
 
-    def _attach_belong_boards_to_fundamental_context(self, code: str, fundamental_context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _attach_belong_boards_to_fundamental_context(self, code: str, fundamental_context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         enriched = dict(fundamental_context) if isinstance(fundamental_context, dict) else {}
         try:
-            boards = self.fetcher_manager.get_belong_boards(code)
+            boards = await self.fetcher_manager.get_belong_boards(code)
             enriched["belong_boards"] = boards if isinstance(boards, list) else []
         except: pass
         return enriched
@@ -300,6 +393,154 @@ class StockAnalysisPipeline:
             new_row = {'code': code, 'date': date.today(), 'close': price, 'open': price, 'high': price, 'low': price, 'volume': 0}
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         return df
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 50) -> int:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        text = str(value).strip()
+        if not text:
+            return default
+        match = re.search(r"-?\d+", text)
+        if not match:
+            return default
+        try:
+            return int(match.group(0))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _is_placeholder_stock_name(name: Optional[str], code: str) -> bool:
+        text = (name or "").strip()
+        if not text:
+            return True
+        lowered = text.lower()
+        return (
+            text == code
+            or text.startswith("股票")
+            or lowered in {"unknown", "未知", "n/a"}
+        )
+
+    def _agent_result_to_analysis_result(
+        self,
+        agent_result: Any,
+        code: str,
+        stock_name: str,
+        report_type: ReportType,
+        query_id: str,
+    ) -> AnalysisResult:
+        dashboard_payload = agent_result.dashboard or {}
+        if not dashboard_payload and getattr(agent_result, "content", ""):
+            try:
+                parsed = json.loads(agent_result.content)
+                if isinstance(parsed, dict):
+                    dashboard_payload = parsed
+            except Exception:
+                dashboard_payload = {}
+
+        dashboard_name = str(dashboard_payload.get("stock_name") or "").strip() if isinstance(dashboard_payload, dict) else ""
+        resolved_name = dashboard_name if self._is_placeholder_stock_name(stock_name, code) and dashboard_name else stock_name
+        provider_tag = f"agent:{getattr(agent_result, 'provider', '')}".rstrip(":")
+
+        if not getattr(agent_result, "success", False):
+            error_message = getattr(agent_result, "error", None) or getattr(agent_result, "content", "") or "Agent 分析失败"
+            return AnalysisResult(
+                code=code,
+                name=resolved_name or code,
+                sentiment_score=50,
+                trend_prediction="震荡",
+                operation_advice="观望",
+                decision_type="hold",
+                confidence_level="中",
+                dashboard=None,
+                analysis_summary=error_message,
+                data_sources=provider_tag,
+                success=False,
+                error_message=error_message,
+                query_id=query_id,
+                model_used=getattr(agent_result, "model", None) or getattr(agent_result, "provider", None),
+            )
+
+        nested_dashboard = dashboard_payload.get("dashboard") if isinstance(dashboard_payload, dict) else None
+        dashboard_value = nested_dashboard if isinstance(nested_dashboard, dict) else dashboard_payload or None
+        confidence_level = dashboard_payload.get("confidence_level") if isinstance(dashboard_payload, dict) else None
+
+        return AnalysisResult(
+            code=code,
+            name=resolved_name or code,
+            sentiment_score=self._safe_int(dashboard_payload.get("sentiment_score") if isinstance(dashboard_payload, dict) else None, 50),
+            trend_prediction=(dashboard_payload.get("trend_prediction") if isinstance(dashboard_payload, dict) else None) or "震荡",
+            operation_advice=(dashboard_payload.get("operation_advice") if isinstance(dashboard_payload, dict) else None) or "观望",
+            decision_type=(dashboard_payload.get("decision_type") if isinstance(dashboard_payload, dict) else None) or "hold",
+            confidence_level=confidence_level or localize_confidence_level("medium", getattr(self.config, "report_language", "zh")),
+            dashboard=dashboard_value,
+            trend_analysis=(dashboard_payload.get("trend_analysis") if isinstance(dashboard_payload, dict) else None) or "",
+            short_term_outlook=(dashboard_payload.get("short_term_outlook") if isinstance(dashboard_payload, dict) else None) or "",
+            medium_term_outlook=(dashboard_payload.get("medium_term_outlook") if isinstance(dashboard_payload, dict) else None) or "",
+            technical_analysis=(dashboard_payload.get("technical_analysis") if isinstance(dashboard_payload, dict) else None) or "",
+            ma_analysis=(dashboard_payload.get("ma_analysis") if isinstance(dashboard_payload, dict) else None) or "",
+            volume_analysis=(dashboard_payload.get("volume_analysis") if isinstance(dashboard_payload, dict) else None) or "",
+            pattern_analysis=(dashboard_payload.get("pattern_analysis") if isinstance(dashboard_payload, dict) else None) or "",
+            fundamental_analysis=(dashboard_payload.get("fundamental_analysis") if isinstance(dashboard_payload, dict) else None) or "",
+            sector_position=(dashboard_payload.get("sector_position") if isinstance(dashboard_payload, dict) else None) or "",
+            company_highlights=(dashboard_payload.get("company_highlights") if isinstance(dashboard_payload, dict) else None) or "",
+            news_summary=(dashboard_payload.get("news_summary") if isinstance(dashboard_payload, dict) else None) or "",
+            market_sentiment=(dashboard_payload.get("market_sentiment") if isinstance(dashboard_payload, dict) else None) or "",
+            hot_topics=(dashboard_payload.get("hot_topics") if isinstance(dashboard_payload, dict) else None) or "",
+            analysis_summary=(dashboard_payload.get("analysis_summary") if isinstance(dashboard_payload, dict) else None) or getattr(agent_result, "content", "") or "",
+            key_points=(dashboard_payload.get("key_points") if isinstance(dashboard_payload, dict) else None) or "",
+            risk_warning=(dashboard_payload.get("risk_warning") if isinstance(dashboard_payload, dict) else None) or "",
+            buy_reason=(dashboard_payload.get("buy_reason") if isinstance(dashboard_payload, dict) else None) or "",
+            data_sources=provider_tag,
+            success=True,
+            query_id=query_id,
+            model_used=getattr(agent_result, "model", None) or getattr(agent_result, "provider", None),
+        )
+
+    def _analyze_with_agent(
+        self,
+        code: str,
+        report_type: ReportType,
+        query_id: str,
+        stock_name: Optional[str] = None,
+        realtime_quote: Any = None,
+        chip_data: Any = None,
+        fundamental_context: Optional[Dict[str, Any]] = None,
+        trend_result: Any = None,
+    ) -> Optional[AnalysisResult]:
+        from src.agent.factory import build_agent_executor
+
+        executor = build_agent_executor(self.config, skills=getattr(self.config, "agent_skills", None))
+        prompt_name = stock_name or STOCK_NAME_MAP.get(code) or code
+        agent_result = executor.run(f"Analyze stock {code} ({prompt_name})")
+        result = self._agent_result_to_analysis_result(agent_result, code, prompt_name, report_type, query_id)
+
+        if getattr(self.search_service, "is_available", False):
+            try:
+                news_response = self.search_service.search_stock_news(
+                    stock_code=code,
+                    stock_name=result.name,
+                    max_results=5,
+                )
+                news_items = getattr(news_response, "results", None) or []
+                if news_items:
+                    try:
+                        self.db.save_news_intel(
+                            news_items=news_items,
+                            code=code,
+                            name=result.name,
+                            query_id=query_id,
+                        )
+                    except TypeError:
+                        self.db.save_news_intel(news_items)
+            except Exception:
+                pass
+
+        return result
 
     async def process_single_stock(self, code, skip_analysis=False, single_stock_notify=False, report_type=ReportType.SIMPLE):
         await self.fetch_and_save_stock_data(code)

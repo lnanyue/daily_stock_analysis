@@ -12,6 +12,9 @@ from typing import Optional, List, Tuple, Dict, Any
 
 import pandas as pd
 from .utils import (
+    is_bse_code,
+    is_kc_cy_stock,
+    is_st_stock,
     normalize_stock_code,
     summarize_exception,
     STANDARD_COLUMNS,
@@ -42,9 +45,44 @@ class BaseFetcher(ABC):
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         pass
     
+    async def _fetch_raw_data_async(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """异步获取原始数据的默认实现（回退到线程池调用同步方法）"""
+        import asyncio
+        return await asyncio.to_thread(self._fetch_raw_data, stock_code, start_date, end_date)
+
     @abstractmethod
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         pass
+
+    async def get_daily_data_async(
+        self,
+        stock_code: str, 
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days: int = 30
+    ) -> pd.DataFrame:
+        """异步获取日线数据"""
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        
+        if start_date is None:
+            start_dt = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=days * 2)
+            start_date = start_dt.strftime('%Y-%m-%d')
+
+        try:
+            raw_df = await self._fetch_raw_data_async(stock_code, start_date, end_date)
+            if raw_df is None or raw_df.empty:
+                raise DataFetchError(f"[{self.name}] 未获取到 {stock_code} 的数据")
+            
+            df = self._normalize_data(raw_df, stock_code)
+            df = self._clean_data(df)
+            df = self._calculate_indicators(df)
+            return df
+            
+        except Exception as e:
+            _, error_reason = summarize_exception(e)
+            logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            raise DataFetchError(f"[{self.name}] {stock_code}: {error_reason}") from e
 
     def get_daily_data(
         self,
@@ -111,3 +149,24 @@ class BaseFetcher(ABC):
     def random_sleep(min_seconds: float = 1.0, max_seconds: float = 3.0) -> None:
         sleep_time = random.uniform(min_seconds, max_seconds)
         time.sleep(sleep_time)
+
+def __getattr__(name: str):
+    if name == "DataFetcherManager":
+        from .manager import DataFetcherManager
+
+        return DataFetcherManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+__all__ = [
+    "BaseFetcher",
+    "DataFetcherManager",
+    "DataFetchError",
+    "RateLimitError",
+    "DataSourceUnavailableError",
+    "is_bse_code",
+    "is_kc_cy_stock",
+    "is_st_stock",
+    "normalize_stock_code",
+    "summarize_exception",
+    "STANDARD_COLUMNS",
+]

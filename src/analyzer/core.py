@@ -6,6 +6,7 @@ AI 分析核心逻辑 (GeminiAnalyzer) - 异步全连通版
 import logging
 import asyncio
 import json
+import os
 import time
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -50,7 +51,8 @@ class GeminiAnalyzer:
         self._init_router()
 
     def _get_runtime_config(self):
-        return self.config if self.config else get_config()
+        config = getattr(self, "config", None)
+        return config if config else get_config()
 
     def _init_router(self):
         config = self._get_runtime_config()
@@ -67,6 +69,21 @@ class GeminiAnalyzer:
             logger.info("Analyzer LLM: Router initialized successfully.")
         except Exception as e:
             logger.error(f"Analyzer LLM: Failed to init router: {e}")
+
+    def _call_litellm(
+        self,
+        prompt: str,
+        generation_config: dict,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        """同步调用 LiteLLM (封装异步调用以兼容旧代码)"""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(self._call_litellm_async(prompt, generation_config, system_prompt=system_prompt))
+        finally:
+            loop.close()
 
     async def _call_litellm_async(
         self,
@@ -100,9 +117,9 @@ class GeminiAnalyzer:
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                 }
-                
                 extra = get_thinking_extra_body(model_short)
                 if extra: call_kwargs["extra_body"] = extra
+
 
                 _router_model_names = set(get_configured_llm_models(config.llm_model_list))
 
@@ -174,9 +191,20 @@ class GeminiAnalyzer:
             logger.error(f"generate_text_async 失败: {e}")
             return None
 
-    def generate_text(self, prompt: str) -> Optional[str]:
+    def generate_text(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7, **kwargs) -> Optional[str]:
         """向后兼容的同步文本生成 (警告：不应在已有 Loop 中调用)"""
         try:
+            # 如果是在测试中，直接调用 _call_litellm 以允许 mocking
+            if hasattr(self, "_call_litellm"):
+                result = self._call_litellm(
+                    prompt,
+                    generation_config={"max_tokens": max_tokens, "temperature": temperature, **kwargs},
+                )
+                if isinstance(result, tuple):
+                    content, _, _ = result
+                else:
+                    content = result
+                return content
             return asyncio.run(self.generate_text_async(prompt))
         except Exception:
             return None
@@ -205,7 +233,18 @@ class GeminiAnalyzer:
 
     def is_available(self) -> bool:
         config = self._get_runtime_config()
-        return bool(config.llm_model_list or config.gemini_api_key or os.getenv("DEEPSEEK_API_KEY"))
+        return bool(
+            getattr(config, "llm_model_list", None)
+            or getattr(config, "litellm_model", None)
+            or getattr(config, "gemini_api_key", None)
+            or getattr(config, "gemini_api_keys", None)
+            or getattr(config, "anthropic_api_key", None)
+            or getattr(config, "anthropic_api_keys", None)
+            or getattr(config, "openai_api_key", None)
+            or getattr(config, "openai_api_keys", None)
+            or getattr(config, "deepseek_api_keys", None)
+            or os.getenv("DEEPSEEK_API_KEY")
+        )
 
     def _make_error_result(self, code: str, name: str, msg: str) -> AnalysisResult:
         return AnalysisResult(

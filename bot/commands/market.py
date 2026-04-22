@@ -91,7 +91,13 @@ class MarketCommand(BotCommand):
 
             # 初始化 AI 分析器
             analyzer = None
-            if config.gemini_api_key or config.openai_api_key:
+            if (
+                getattr(config, "llm_model_list", None)
+                or getattr(config, "gemini_api_key", None)
+                or getattr(config, "anthropic_api_key", None)
+                or getattr(config, "openai_api_key", None)
+                or getattr(config, "deepseek_api_keys", None)
+            ):
                 analyzer = GeminiAnalyzer()
 
             # 执行复盘（调用核心模块的异步函数）

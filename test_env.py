@@ -31,6 +31,7 @@ if os.getenv("GITHUB_ACTIONS") != "true" and os.getenv("USE_PROXY", "false").low
     os.environ["https_proxy"] = proxy_url
 
 import argparse
+import asyncio
 import logging
 import sys
 from datetime import datetime, date, timedelta
@@ -78,8 +79,8 @@ def test_config():
     print(f"  Gemini API Key: {'已配置 ✓' if config.gemini_api_key else '未配置 ✗'}")
     if config.gemini_api_key:
         print(f"    Key 前8位: {config.gemini_api_key[:8]}...")
-    print(f"  Gemini 主模型: {config.gemini_model}")
-    print(f"  Gemini 备选模型: {config.gemini_model_fallback}")
+    print(f"  Gemini 主模型: {getattr(config, 'gemini_model', getattr(config, 'litellm_model', ''))}")
+    print(f"  Gemini 备选模型: {getattr(config, 'gemini_model_fallback', getattr(config, 'litellm_fallback_models', []))}")
     
     print(f"  企业微信 Webhook: {'已配置 ✓' if config.wechat_webhook_url else '未配置 ✗'}")
     
@@ -184,14 +185,17 @@ def test_data_fetch(stock_code: str = "600519"):
     manager = DataFetcherManager()
     
     print_section("数据源列表")
-    for i, name in enumerate(manager.available_fetchers, 1):
+    fetcher_names = getattr(manager, "available_fetchers", None) or [
+        getattr(fetcher, "name", type(fetcher).__name__) for fetcher in getattr(manager, "_fetchers", [])
+    ]
+    for i, name in enumerate(fetcher_names, 1):
         print(f"  {i}. {name}")
     
     print_section(f"获取 {stock_code} 数据")
     print(f"  正在获取（可能需要几秒钟）...")
     
     try:
-        df, source = manager.get_daily_data(stock_code, days=5)
+        df, source = asyncio.run(manager.get_daily_data(stock_code, days=5))
         
         print(f"  ✓ 获取成功")
         print(f"    数据源: {source}")
@@ -221,8 +225,8 @@ def test_llm():
     config = get_config()
     
     print_section("模型配置")
-    print(f"  主模型: {config.gemini_model}")
-    print(f"  备选模型: {config.gemini_model_fallback}")
+    print(f"  主模型: {getattr(config, 'gemini_model', getattr(config, 'litellm_model', ''))}")
+    print(f"  备选模型: {getattr(config, 'gemini_model_fallback', getattr(config, 'litellm_fallback_models', []))}")
     
     # 检查网络连接
     print_section("网络连接检查")
@@ -324,7 +328,7 @@ def test_notification():
     service = NotificationService()
     
     print_section("配置检查")
-    if service.is_available():
+    if config.wechat_webhook_url:
         print(f"  ✓ 企业微信 Webhook 已配置")
         webhook_preview = config.wechat_webhook_url[:50] + "..." if len(config.wechat_webhook_url) > 50 else config.wechat_webhook_url
         print(f"    URL: {webhook_preview}")
@@ -346,7 +350,7 @@ def test_notification():
     print(f"  正在发送...")
     
     try:
-        success = service.send_to_wechat(test_message)
+        success = asyncio.run(service.send_to_wechat(test_message))
         
         if success:
             print(f"  ✓ 消息发送成功，请检查企业微信")

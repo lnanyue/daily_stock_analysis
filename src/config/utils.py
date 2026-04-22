@@ -156,14 +156,22 @@ def normalize_llm_channel_model(model: str, protocol: Optional[str], base_url: O
     """Attach a provider prefix when the model omits it."""
     normalized_model = model.strip()
     if not normalized_model: return normalized_model
-    if "/" in normalized_model: return normalized_model
 
     resolved_protocol = resolve_llm_channel_protocol(protocol, base_url=base_url, models=[normalized_model])
+    if "/" in normalized_model:
+        prefix, rest = normalized_model.split("/", 1)
+        canonical_prefix = canonicalize_llm_channel_protocol(prefix)
+        if canonical_prefix in SUPPORTED_LLM_CHANNEL_PROTOCOLS and rest:
+            return f"{canonical_prefix}/{rest}"
+        if resolved_protocol == "openai":
+            return f"openai/{normalized_model}"
+        return normalized_model
+
     if resolved_protocol == "anthropic" and not normalized_model.lower().startswith("claude"):
         return f"anthropic/{normalized_model}"
     if resolved_protocol == "gemini" and not normalized_model.lower().startswith("gemini"):
         return f"gemini/{normalized_model}"
-    if resolved_protocol in ("vertex_ai", "deepseek", "openai"):
+    if resolved_protocol in ("vertex_ai", "deepseek", "openai", "ollama"):
         return f"{resolved_protocol}/{normalized_model}"
     return normalized_model
 
@@ -174,6 +182,9 @@ def get_configured_llm_models(model_list: List[Dict[str, Any]]) -> List[str]:
     seen = set()
     for entry in model_list:
         name = entry.get("model_name")
+        if not name:
+            params = entry.get("litellm_params", {}) or {}
+            name = params.get("model")
         if name and name not in seen:
             models.append(name)
             seen.add(name)
@@ -182,24 +193,99 @@ def get_configured_llm_models(model_list: List[Dict[str, Any]]) -> List[str]:
 
 def get_effective_agent_primary_model(config: Any) -> Optional[str]:
     """Resolve the effective primary model for Agent mode."""
+    configured_router_models = set(
+        get_configured_llm_models(getattr(config, "llm_model_list", []) or [])
+    )
     if hasattr(config, "agent_litellm_model") and config.agent_litellm_model:
-        return config.agent_litellm_model
-    return getattr(config, "litellm_model", None)
+        return normalize_agent_litellm_model(
+            config.agent_litellm_model,
+            configured_models=configured_router_models,
+        )
+    litellm_model = getattr(config, "litellm_model", None)
+    return normalize_agent_litellm_model(
+        litellm_model,
+        configured_models=configured_router_models,
+    ) if litellm_model else litellm_model
 
 
 def get_effective_agent_models_to_try(config: Any) -> List[str]:
     """Resolve the list of models to try in Agent mode."""
+    configured_router_models = set(
+        get_configured_llm_models(getattr(config, "llm_model_list", []) or [])
+    )
     primary = get_effective_agent_primary_model(config)
     models = [primary] if primary else []
     fallbacks = getattr(config, "litellm_fallback_models", [])
     if fallbacks:
-        models.extend([m for m in fallbacks if m not in models])
-    return [m for m in models if m]
+        models.extend(fallbacks)
+
+    seen = set()
+    ordered_models: List[str] = []
+    for model in models:
+        normalized_model = (model or "").strip()
+        if not normalized_model:
+            continue
+        dedupe_key = normalize_agent_litellm_model(
+            normalized_model,
+            configured_models=configured_router_models,
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        ordered_models.append(normalized_model)
+    return ordered_models
+
+
+def normalize_agent_litellm_model(
+    model: str,
+    configured_models: Optional[set[str]] = None,
+) -> str:
+    """Normalize AGENT_LITELLM_MODEL while preserving configured router aliases."""
+    normalized_model = (model or "").strip()
+    if not normalized_model:
+        return ""
+    if "/" not in normalized_model:
+        if configured_models and normalized_model in configured_models:
+            return normalized_model
+        return f"openai/{normalized_model}"
+    return normalized_model
 
 
 def resolve_unified_llm_temperature(model: str) -> float:
-    """Resolve default temperature based on model type."""
-    if not model: return 0.7
+    """Resolve the unified LLM temperature with backward-compatible fallbacks."""
+    llm_temperature_raw = os.getenv("LLM_TEMPERATURE")
+    if llm_temperature_raw and llm_temperature_raw.strip():
+        try:
+            return float(llm_temperature_raw)
+        except (ValueError, TypeError):
+            pass
+
+    provider_temperature_env = {
+        "gemini": "GEMINI_TEMPERATURE",
+        "vertex_ai": "GEMINI_TEMPERATURE",
+        "anthropic": "ANTHROPIC_TEMPERATURE",
+        "openai": "OPENAI_TEMPERATURE",
+        "deepseek": "OPENAI_TEMPERATURE",
+    }
+    preferred_env = provider_temperature_env.get(_get_litellm_provider(model))
+    if preferred_env:
+        preferred_value = os.getenv(preferred_env)
+        if preferred_value and preferred_value.strip():
+            try:
+                return float(preferred_value)
+            except (ValueError, TypeError):
+                pass
+
+    for env_name in ("GEMINI_TEMPERATURE", "ANTHROPIC_TEMPERATURE", "OPENAI_TEMPERATURE"):
+        env_value = os.getenv(env_name)
+        if env_value and env_value.strip():
+            try:
+                return float(env_value)
+            except (ValueError, TypeError):
+                continue
+
+    if not model:
+        return 0.7
     m_lower = model.lower()
     if "o1-" in m_lower or "o3-" in m_lower or "deepseek-reasoner" in m_lower:
         return 0.0
@@ -238,6 +324,8 @@ def parse_llm_channels(channels_str: str) -> List[Dict[str, Any]]:
         models_raw = os.getenv(f'LLM_{ch_upper}_MODELS', '')
         raw_models = [m.strip() for m in models_raw.split(',') if m.strip()]
         protocol = resolve_llm_channel_protocol(protocol_raw, base_url=base_url, models=raw_models, channel_name=ch_name)
+        if not api_keys and channel_allows_empty_api_key(protocol, base_url):
+            api_keys = [""]
         models = [normalize_llm_channel_model(m, protocol, base_url) for m in raw_models]
         extra_headers_raw = os.getenv(f'LLM_{ch_upper}_EXTRA_HEADERS', '').strip()
         extra_headers = None
@@ -357,10 +445,10 @@ def load_settings_from_yaml(file_path: str) -> Dict[str, Any]:
     except: return {}
 
 
-def setup_env():
-    """Load environment variables from .env file."""
+def setup_env(override: bool = False):
+    """Load environment variables from the active .env file."""
     from dotenv import load_dotenv
     env_file = os.getenv("ENV_FILE")
-    env_path = Path(env_file) if env_file else (Path(__file__).parent.parent / ".env")
+    env_path = Path(env_file) if env_file else (Path(__file__).resolve().parents[2] / ".env")
     if env_path.exists():
-        load_dotenv(env_path, override=True)
+        load_dotenv(env_path, override=override)

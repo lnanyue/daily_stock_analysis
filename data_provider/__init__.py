@@ -11,9 +11,9 @@ from .exceptions import (
 from .base import BaseFetcher
 from .manager import (
     DataFetcherManager,
-    canonical_stock_code,
 )
 from .utils import (
+    canonical_stock_code,
     normalize_stock_code,
     is_bse_code,
     is_st_stock,

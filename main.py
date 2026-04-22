@@ -53,6 +53,38 @@ from src.logging_config import setup_logging
 logger = logging.getLogger(__name__)
 
 
+def _parse_cli_stock_codes(args: argparse.Namespace) -> Optional[List[str]]:
+    if not getattr(args, "stocks", None):
+        return None
+    return [canonical_stock_code(c) for c in args.stocks.split(',')]
+
+
+def _resolve_schedule_run_immediately(config: Config, args: argparse.Namespace) -> bool:
+    if getattr(args, 'no_run_immediately', False):
+        return False
+    return getattr(config, 'schedule_run_immediately', True)
+
+
+def _warn_schedule_stock_override(args: argparse.Namespace) -> None:
+    if getattr(args, "stocks", None):
+        logger.warning(
+            "定时模式下检测到 --stocks 参数；计划执行将忽略启动时股票快照，并在每次运行前重新读取最新的 STOCK_LIST。"
+        )
+
+
+def _build_schedule_task(config: Config, args: argparse.Namespace):
+    def _task():
+        result = run_full_analysis(config, args, None)
+        if asyncio.iscoroutine(result):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(_run_single_shot_with_cleanup(result))
+        return result
+
+    return _task
+
+
 def parse_arguments() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='A股自选股智能分析系统')
@@ -190,7 +222,7 @@ async def main_async() -> int:
 
     logger.info("=" * 40 + " 系统启动 (Async) " + "=" * 40)
     config.validate()
-    stock_codes = [canonical_stock_code(c) for c in args.stocks.split(',')] if args.stocks else None
+    stock_codes = _parse_cli_stock_codes(args)
     
     start_bot_stream_clients(config)
 
@@ -204,11 +236,12 @@ async def main_async() -> int:
 
         # 定时模式
         if args.schedule or config.schedule_enabled:
+            _warn_schedule_stock_override(args)
             from src.scheduler import run_with_schedule_async
             await run_with_schedule_async(
-                task=lambda: run_full_analysis(config, args, None),
+                task=_build_schedule_task(config, args),
                 schedule_time=config.schedule_time,
-                run_immediately=not getattr(args, 'no_run_immediately', False)
+                run_immediately=_resolve_schedule_run_immediately(config, args)
             )
             return 0
 
@@ -218,6 +251,58 @@ async def main_async() -> int:
         
         return 0
     except KeyboardInterrupt: return 130
+    except Exception as e:
+        logger.exception(f"执行失败: {e}")
+        return 1
+
+
+async def _run_single_shot_with_cleanup(coro) -> int:
+    try:
+        await coro
+        return 0
+    finally:
+        await _cleanup()
+
+
+def main() -> int:
+    """向后兼容的同步入口。"""
+    args = parse_arguments()
+    config = get_config()
+    setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
+
+    logger.info("=" * 40 + " 系统启动 " + "=" * 40)
+    config.validate()
+    stock_codes = _parse_cli_stock_codes(args)
+
+    start_bot_stream_clients(config)
+
+    try:
+        if getattr(args, 'backtest', False):
+            from src.services.backtest_service import BacktestService
+
+            service = BacktestService()
+            service.run_backtest(getattr(args, 'backtest_code', None))
+            return 0
+
+        if args.schedule or config.schedule_enabled:
+            _warn_schedule_stock_override(args)
+            from src.scheduler import run_with_schedule
+
+            run_with_schedule(
+                task=_build_schedule_task(config, args),
+                schedule_time=config.schedule_time,
+                run_immediately=_resolve_schedule_run_immediately(config, args),
+            )
+            return 0
+
+        if config.run_immediately or args.market_review:
+            result = run_full_analysis(config, args, stock_codes)
+            if asyncio.iscoroutine(result):
+                return asyncio.run(_run_single_shot_with_cleanup(result))
+
+        return 0
+    except KeyboardInterrupt:
+        return 130
     except Exception as e:
         logger.exception(f"执行失败: {e}")
         return 1
@@ -251,4 +336,4 @@ async def _async_main_wrapper() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(_async_main_wrapper()))
+    sys.exit(main())

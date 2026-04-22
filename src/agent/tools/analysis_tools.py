@@ -18,7 +18,7 @@ def _fetch_trend_data(stock_code: str):
     """Fetch historical OHLCV (DataFrame) for trend analysis. DB first, then DataFetcher fallback."""
     from datetime import date, timedelta
     import pandas as pd
-    from data_provider.base import canonical_stock_code, DataFetchError
+    from data_provider import canonical_stock_code, DataFetchError
     from data_provider import DataFetcherManager
     from src.storage import get_db
 

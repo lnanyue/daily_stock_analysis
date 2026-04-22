@@ -113,6 +113,11 @@ def summarize_exception(exc: Exception) -> Tuple[str, str]:
     message = str(exc).strip() or str(root).strip() or error_type
     return error_type, " ".join(message.split())
 
+def canonical_stock_code(code: str) -> str:
+    """返回标准大写的股票代码"""
+    return (code or "").strip().upper()
+
+
 def normalize_stock_code(stock_code: str) -> str:
     """标准化股票代码，移除市场前缀/后缀"""
     code = (stock_code or "").strip().upper()
