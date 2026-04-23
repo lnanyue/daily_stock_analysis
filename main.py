@@ -154,6 +154,16 @@ async def run_full_analysis(config: Config, args: argparse.Namespace, stock_code
             send_notification=not args.no_notify, merge_notification=merge_notification
         )
 
+        if results and not args.dry_run:
+            date_str = datetime.now().strftime("%Y%m%d")
+            report_text = pipeline.notifier.generate_dashboard_report(results)
+            if len(results) == 1:
+                report_filename = f"stock_analysis_{results[0].code}_{date_str}.md"
+            else:
+                report_filename = f"stock_analysis_{date_str}.md"
+            filepath = pipeline.notifier.save_report_to_file(report_text, report_filename)
+            logger.info("个股分析报告已保存: %s", filepath)
+
         analysis_delay = getattr(config, 'analysis_delay', 0)
         if analysis_delay > 0 and config.market_review_enabled and not args.no_market_review:
             await asyncio.sleep(analysis_delay)
