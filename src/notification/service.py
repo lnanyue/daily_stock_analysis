@@ -249,7 +249,7 @@ class NotificationService:
         from pathlib import Path
         if filename is None:
             filename = f"report_{datetime.now().strftime('%Y%m%d')}.md"
-        reports_dir = Path(__file__).parent.parent / 'reports'
+        reports_dir = Path(__file__).parent.parent.parent / 'report'
         reports_dir.mkdir(parents=True, exist_ok=True)
         filepath = reports_dir / filename
         with open(filepath, 'w', encoding='utf-8') as f:
