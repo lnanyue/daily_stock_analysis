@@ -33,6 +33,7 @@ from tenacity import (
     before_sleep_log,
 )
 
+from ._async_client import get_async_client
 from .base import BaseFetcher, DataFetchError, RateLimitError
 from .utils import STANDARD_COLUMNS, is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
@@ -148,8 +149,6 @@ class TushareFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"Tushare API 初始化失败: {e}")
             self._api = None
-
-    from ._async_client import get_async_client
 
     async def _api_post(self, api_name: str, fields: str = '', **kwargs) -> pd.DataFrame:
         """

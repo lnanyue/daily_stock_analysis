@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """Regression tests for post-merge Tushare follow-up fixes."""
 
+import asyncio
 import importlib.util
 import sys
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 
@@ -106,3 +108,25 @@ class TestTushareFetcherFollowUps(unittest.TestCase):
         self.assertAlmostEqual(chip.concentration_90, 0.1)
         self.assertAlmostEqual(chip.concentration_70, 0.1)
         self.assertEqual(rate_limit_mock.call_count, 3)
+
+    def test_api_post_uses_shared_async_client(self) -> None:
+        fetcher = self._make_fetcher()
+        fetcher._config = SimpleNamespace(tushare_token="ts-token")
+
+        class _FakeResponse:
+            status_code = 200
+            text = '{"code":0,"data":{"fields":["ts_code","close"],"items":[["600519.SH",1460.0]]}}'
+
+        fake_client = MagicMock()
+        fake_client.post = MagicMock()
+
+        async def _fake_post(*args, **kwargs):
+            return _FakeResponse()
+
+        fake_client.post.side_effect = _fake_post
+
+        with patch("data_provider.tushare_fetcher.get_async_client", new=AsyncMock(return_value=fake_client)):
+            df = asyncio.run(fetcher._api_post("daily", ts_code="600519.SH"))
+
+        self.assertEqual(list(df.columns), ["ts_code", "close"])
+        self.assertEqual(df.iloc[0]["ts_code"], "600519.SH")

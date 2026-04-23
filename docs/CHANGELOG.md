@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] **MiniMax-M2.7 模型连接测试支持** — 修复 LLM 通道连接测试在 MiniMax-M2.7 模型下返回 "Empty response" 的问题；增加了 `max_tokens` 上限（8→256）以容纳 MiniMax 思考过程，并添加 `content_blocks` 格式解析逻辑统一处理 MiniMax 响应格式差异。
+- [修复] 个股分析链路恢复 `fundamental_context` 兼容封装与 prompt 透传；修复 `AkshareFundamentalAdapter` 缺少旧版基本面上下文入口导致个股 CLI 在基本面阶段直接中断的问题，并让个股 prompt 重新读到结构化财报/分红字段。
 - [修复] 市场复盘 Prompt 按 `cn/us/global` 分流输出模板；A 股/美股单市场复盘不再强制生成“全球视野 / 中美联动点评”段落，新闻为空时也会优先提示“消息面样本有限”而不是误导性扩写跨市场结论。
 - [修复] 移除 `HistoryItem` 与 `ReportSummary` 响应 Schema 中 `sentiment_score` 的 `ge=0/le=100` 约束（fixes #942）——历史库中存储的超范围负值或大于 100 的情绪评分不再触发 Pydantic ValidationError，历史列表与详情接口恢复正常返回。
 - [改进] Agent IntelAgent 新增公司公告搜索维度（上交所/深交所/cninfo）与主力资金流工具（get_capital_flow），修复 Agent 模式下公告和资金流数据经常缺失的问题

@@ -167,6 +167,8 @@ class GeminiAnalyzer:
         
         try:
             prompt = format_analysis_prompt(context, name, news_context, report_language=config.report_language, news_window_days_config=config.news_max_age_days)
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("分析 Prompt 生成失败")
             response_text, model_used, usage = await self._call_litellm_async(
                 prompt, {"max_tokens": 8192, "temperature": config.llm_temperature}
             )

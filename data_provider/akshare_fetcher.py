@@ -2098,6 +2098,54 @@ class AkshareFetcher(BaseFetcher):
         """异步获取研究报告摘要"""
         return await asyncio.to_thread(self.get_research_reports, stock_code)
 
+    def get_latest_telegraph(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """
+        获取财联社实时电报，并按关键词做轻量过滤。
+        """
+        from .cls_fetcher import ClsTelegramFetcher
+
+        normalized_keywords = [str(item).strip() for item in (keywords or []) if str(item).strip()]
+        try:
+            fetcher = ClsTelegramFetcher()
+            telegrams = asyncio.run(fetcher.fetch_latest_telegrams())
+        except Exception as e:
+            logger.debug(f"[Akshare] 获取财联社电报失败: {e}")
+            return []
+
+        results: List[Dict[str, Any]] = []
+        for item in telegrams or []:
+            title = str(item.get("title") or "").strip()
+            content = str(item.get("content") or "").strip()
+            stocks = item.get("stocks") or []
+            subjects = item.get("subjects") or []
+            haystack = " ".join(
+                [
+                    title,
+                    content,
+                    " ".join(str(stock) for stock in stocks),
+                    " ".join(str(subject) for subject in subjects),
+                ]
+            )
+            if normalized_keywords and not any(keyword in haystack for keyword in normalized_keywords):
+                continue
+
+            display_title = title or content[:120]
+            display_time = item.get("date") or item.get("ctime")
+            if not display_title:
+                continue
+            results.append(
+                {
+                    "time": display_time,
+                    "title": display_title,
+                    "content": content,
+                    "stocks": stocks,
+                    "subjects": subjects,
+                    "source": "cls",
+                }
+            )
+
+        return results
+
     async def get_latest_telegraph_async(self, keywords: List[str]) -> List[Dict[str, Any]]:
         """异步获取财联社电报"""
         return await asyncio.to_thread(self.get_latest_telegraph, keywords)

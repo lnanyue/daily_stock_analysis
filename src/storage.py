@@ -11,9 +11,11 @@ A股自选股智能分析系统 - 存储层 (Refactored)
 """
 
 import atexit
+import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
@@ -38,6 +40,8 @@ from sqlalchemy import (
     desc,
     event,
     func,
+    MetaData,
+    Table,
     text,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -104,7 +108,12 @@ class DatabaseManager:
         self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
         self._install_sqlite_pragma_handler()
         
-        self._SessionLocal = sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
+        self._SessionLocal = sessionmaker(
+            bind=self._engine,
+            autocommit=False,
+            autoflush=False,
+            expire_on_commit=False,
+        )
         
         # Ensure tables exist
         Base.metadata.create_all(self._engine)
@@ -164,7 +173,8 @@ class DatabaseManager:
 
     @contextmanager
     def session_scope(self):
-        return self.get_session()
+        with self.get_session() as session:
+            yield session
 
     def _run_write_transaction(self, name: str, operation: Callable[[Session], T]) -> T:
         with self.get_session() as session:
@@ -199,6 +209,90 @@ class DatabaseManager:
                 select(StockDaily).where(StockDaily.code == code).order_by(desc(StockDaily.date)).limit(days)
             ).scalars().all()
             return list(results)
+
+    def save_daily_data(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
+        """批量保存日线数据；返回本次真正新增的行数。"""
+        if df is None or df.empty:
+            return 0
+
+        normalized_rows: Dict[date, Dict[str, Any]] = {}
+        for _, row in df.iterrows():
+            row_date = self._normalize_daily_date(row.get("date"))
+            normalized_rows[row_date] = {
+                "code": code,
+                "date": row_date,
+                "open": self._normalize_sql_value(row.get("open")),
+                "high": self._normalize_sql_value(row.get("high")),
+                "low": self._normalize_sql_value(row.get("low")),
+                "close": self._normalize_sql_value(row.get("close")),
+                "volume": self._normalize_sql_value(row.get("volume")),
+                "amount": self._normalize_sql_value(row.get("amount")),
+                "pct_chg": self._normalize_sql_value(row.get("pct_chg")),
+                "ma5": self._normalize_sql_value(row.get("ma5")),
+                "ma10": self._normalize_sql_value(row.get("ma10")),
+                "ma20": self._normalize_sql_value(row.get("ma20")),
+                "volume_ratio": self._normalize_sql_value(row.get("volume_ratio")),
+                "data_source": data_source,
+                "updated_at": datetime.now(),
+            }
+
+        rows = list(normalized_rows.values())
+        target_dates = [item["date"] for item in rows]
+
+        def _write(session: Session) -> int:
+            existing_dates = set(
+                session.execute(
+                    select(StockDaily.date).where(
+                        and_(StockDaily.code == code, StockDaily.date.in_(target_dates))
+                    )
+                ).scalars().all()
+            )
+            new_count = sum(1 for item in rows if item["date"] not in existing_dates)
+
+            if self._is_sqlite_engine:
+                stmt = sqlite_insert(StockDaily).values(rows)
+                update_columns = {
+                    key: getattr(stmt.excluded, key)
+                    for key in (
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "amount",
+                        "pct_chg",
+                        "ma5",
+                        "ma10",
+                        "ma20",
+                        "volume_ratio",
+                        "data_source",
+                        "updated_at",
+                    )
+                }
+                session.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=["code", "date"],
+                        set_=update_columns,
+                    )
+                )
+            else:
+                for item in rows:
+                    existing = session.execute(
+                        select(StockDaily).where(
+                            and_(StockDaily.code == item["code"], StockDaily.date == item["date"])
+                        )
+                    ).scalar_one_or_none()
+                    if existing is None:
+                        session.add(StockDaily(**item))
+                        continue
+                    for key, value in item.items():
+                        if key in ("code", "date"):
+                            continue
+                        setattr(existing, key, value)
+
+            return new_count
+
+        return self._run_write_transaction(f"save_daily_data[{code}]", _write)
 
     def save_news_intel(self, news_items: List[Dict[str, Any]]) -> int:
         if not news_items: return 0
@@ -239,29 +333,51 @@ class DatabaseManager:
         context_snapshot: Dict = None,
         save_snapshot: bool = False
     ) -> int:
+        raw_result_json = json.dumps(result.to_dict(), ensure_ascii=False)
+        sniper_points = result.get_sniper_points() if hasattr(result, "get_sniper_points") else {}
+        now = datetime.now()
+        history_payload = {
+            "query_id": query_id,
+            "code": result.code,
+            "name": result.name,
+            "report_type": report_type,
+            "sentiment_score": result.sentiment_score,
+            "operation_advice": result.operation_advice,
+            "trend_prediction": result.trend_prediction,
+            "analysis_summary": getattr(result, "analysis_summary", None),
+            "raw_result": raw_result_json,
+            "news_content": news_content,
+            "context_snapshot": (
+                json.dumps(context_snapshot, ensure_ascii=False)
+                if save_snapshot and context_snapshot is not None
+                else None
+            ),
+            "ideal_buy": self._parse_sniper_value(sniper_points.get("ideal_buy")),
+            "secondary_buy": self._parse_sniper_value(sniper_points.get("secondary_buy")),
+            "stop_loss": self._parse_sniper_value(sniper_points.get("stop_loss")),
+            "take_profit": self._parse_sniper_value(sniper_points.get("take_profit")),
+            "created_at": now,
+            "decision_type": getattr(result, "decision_type", None) or "hold",
+            "confidence_level": getattr(result, "confidence_level", None),
+            "full_result_json": raw_result_json,
+            "model_used": getattr(result, "model_used", None),
+            "search_performed": getattr(result, "search_performed", False),
+            "report_language": getattr(result, "report_language", "zh"),
+            "current_price": getattr(result, "current_price", None),
+            "change_pct": getattr(result, "change_pct", None),
+            "analyzed_at": now,
+            "query_source": query_source,
+        }
+
         def _write(session: Session) -> int:
-            history = AnalysisHistory(
-                query_id=query_id, 
-                code=result.code, 
-                name=result.name,
-                sentiment_score=result.sentiment_score, 
-                trend_prediction=result.trend_prediction,
-                operation_advice=result.operation_advice, 
-                decision_type=result.decision_type or 'hold',
-                confidence_level=result.confidence_level, 
-                full_result_json=json.dumps(result.to_dict(), ensure_ascii=False),
-                model_used=result.model_used, 
-                search_performed=result.search_performed,
-                report_language=result.report_language, 
-                current_price=result.current_price,
-                change_pct=result.change_pct, 
-                query_source=query_source, 
-                analyzed_at=datetime.now(),
-            )
-            session.add(history)
-            
-            # Save context snapshot if requested
-            if save_snapshot and context_snapshot:
+            history_table = Table("analysis_history", MetaData(), autoload_with=session.bind)
+            supported_columns = {column.name for column in history_table.columns}
+            insert_values = {
+                key: value for key, value in history_payload.items() if key in supported_columns
+            }
+            session.execute(history_table.insert().values(**insert_values))
+
+            if save_snapshot and context_snapshot and "context_snapshot" not in supported_columns:
                 snapshot = FundamentalSnapshot(
                     query_id=query_id,
                     code=result.code,
@@ -271,6 +387,32 @@ class DatabaseManager:
             
             return 1
         return self._run_write_transaction(f"save_analysis_history[{result.code}]", _write)
+
+    def get_analysis_history(
+        self,
+        code: Optional[str] = None,
+        query_id: Optional[str] = None,
+        days: int = 30,
+        limit: int = 100,
+    ) -> List[Any]:
+        history_table = Table("analysis_history", MetaData(), autoload_with=self._engine)
+        created_at_col = history_table.c.get("created_at")
+        if created_at_col is None:
+            created_at_col = history_table.c.get("analyzed_at")
+
+        stmt = select(history_table)
+        if code:
+            stmt = stmt.where(history_table.c.code == code)
+        if query_id:
+            stmt = stmt.where(history_table.c.query_id == query_id)
+        if created_at_col is not None and days is not None:
+            stmt = stmt.where(created_at_col >= datetime.now() - timedelta(days=max(days, 0)))
+            stmt = stmt.order_by(created_at_col.desc())
+        stmt = stmt.limit(limit)
+
+        with self.get_session() as session:
+            rows = session.execute(stmt).mappings().all()
+            return [type("AnalysisHistoryRow", (), dict(row))() for row in rows]
 
     def get_data_range(self, code: str, start_date: date, end_date: date) -> List[StockDaily]:
         """获取指定日期范围内的数据"""
@@ -289,6 +431,39 @@ class DatabaseManager:
     async def save_daily_data_async(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
         """异步保存日线数据"""
         return await asyncio.to_thread(self.save_daily_data, df, code, data_source)
+
+    @staticmethod
+    def _parse_sniper_value(value: Any) -> Optional[float]:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        text_value = str(value).strip()
+        if not text_value:
+            return None
+
+        yuan_matches = re.findall(r"(?<!\d)(\d+(?:\.\d+)?)\s*元", text_value)
+        if yuan_matches:
+            try:
+                return float(yuan_matches[-1])
+            except (TypeError, ValueError):
+                return None
+
+        sanitized = re.sub(r"MA\d+(?:/M?\d+)*", " ", text_value, flags=re.IGNORECASE)
+        number_matches: List[float] = []
+        for match in re.finditer(r"(?<!\d)(\d+(?:\.\d+)?)", sanitized):
+            end = match.end()
+            if end < len(sanitized) and sanitized[end] == "%":
+                continue
+            try:
+                number_matches.append(float(match.group(1)))
+            except (TypeError, ValueError):
+                continue
+
+        if not number_matches:
+            return None
+        return number_matches[-1]
 
     async def save_analysis_history_async(
         self, 

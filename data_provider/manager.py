@@ -60,6 +60,7 @@ class DataFetcherManager:
         self._fundamental_cache: Dict[str, Dict[str, Any]] = {}
         self._fundamental_cache_lock = RLock()
         self._fundamental_timeout_slots = BoundedSemaphore(8)
+        self._stock_name_cache: Dict[str, str] = {}
         self._initialized = True
 
     def _init_default_fetchers(self) -> None:
@@ -187,13 +188,23 @@ class DataFetcherManager:
 
     async def get_stock_name(self, stock_code: str) -> Optional[str]:
         """异步获取股票名称"""
+        from src.data.stock_mapping import STOCK_NAME_MAP, is_meaningful_stock_name
+
+        normalized_code = normalize_stock_code(stock_code)
+        cached_name = self._stock_name_cache.get(normalized_code) or STOCK_NAME_MAP.get(normalized_code)
+        if is_meaningful_stock_name(cached_name, normalized_code):
+            self._stock_name_cache[normalized_code] = cached_name
+            return cached_name
+
         for fetcher in self._fetchers:
             try:
                 if hasattr(fetcher, "get_stock_name"):
-                    name = await asyncio.to_thread(fetcher.get_stock_name, stock_code)
-                    if name: return name
+                    name = await asyncio.to_thread(fetcher.get_stock_name, normalized_code)
+                    if is_meaningful_stock_name(name, normalized_code):
+                        self._stock_name_cache[normalized_code] = name
+                        return name
             except Exception: continue
-        return None
+        return cached_name if is_meaningful_stock_name(cached_name, normalized_code) else None
 
     # --- 修复故障切换逻辑：确保空数据时继续尝试其他源 ---
 

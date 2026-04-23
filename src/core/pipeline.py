@@ -358,7 +358,9 @@ class StockAnalysisPipeline:
     def _enhance_context(self, context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context):
         enhanced = context.copy()
         enhanced['stock_name'] = stock_name
-        if fundamental_context: enhanced['fundamental'] = fundamental_context
+        if fundamental_context:
+            enhanced['fundamental'] = fundamental_context
+            enhanced['fundamental_context'] = fundamental_context
         if realtime_quote:
             enhanced['realtime'] = {
                 'price': realtime_quote.price, 'change_pct': realtime_quote.change_pct,

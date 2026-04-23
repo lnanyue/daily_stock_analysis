@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import unittest
 import sys
 import os
@@ -211,6 +212,58 @@ class TestStorage(unittest.TestCase):
         finally:
             temp_dir.cleanup()
             DatabaseManager.reset_instance()
+
+    def test_get_data_range_returns_rows_after_session_closed(self):
+        DatabaseManager.reset_instance()
+        db = DatabaseManager(db_url="sqlite:///:memory:")
+
+        with db.get_session() as session:
+            session.add(
+                StockDaily(
+                    code="600519",
+                    date=date(2026, 4, 1),
+                    open=100.0,
+                    high=101.0,
+                    low=99.0,
+                    close=100.5,
+                    volume=1000.0,
+                    amount=100500.0,
+                )
+            )
+
+        rows = db.get_data_range("600519", date(2026, 4, 1), date(2026, 4, 1))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].to_dict()["code"], "600519")
+
+        DatabaseManager.reset_instance()
+
+    def test_get_data_range_async_returns_rows(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        db_path = os.path.join(temp_dir.name, "sqlite_async_range.db")
+        DatabaseManager.reset_instance()
+        db = DatabaseManager(db_url=f"sqlite:///{db_path}")
+
+        try:
+            with db.get_session() as session:
+                session.add(
+                    StockDaily(
+                        code="600519",
+                        date=date(2026, 4, 2),
+                        open=100.0,
+                        high=101.0,
+                        low=99.0,
+                        close=100.5,
+                        volume=1000.0,
+                        amount=100500.0,
+                    )
+                )
+
+            rows = asyncio.run(db.get_data_range_async("600519", date(2026, 4, 2), date(2026, 4, 2)))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].date, date(2026, 4, 2))
+        finally:
+            DatabaseManager.reset_instance()
+            temp_dir.cleanup()
 
 if __name__ == '__main__':
     unittest.main()

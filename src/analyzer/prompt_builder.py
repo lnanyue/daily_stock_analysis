@@ -326,7 +326,9 @@ def format_analysis_prompt(
 - 所有面向用户的人类可读文本值必须使用中文。
 - 当数据缺失时，请使用中文直接说明“{no_data_text}，无法判断”。
 """
-    
+
+    return prompt
+
 def build_integrity_complement_prompt(missing_fields: List[str], report_language: str = "zh") -> str:
     """构建补全建议"""
     report_language = normalize_report_language(report_language)

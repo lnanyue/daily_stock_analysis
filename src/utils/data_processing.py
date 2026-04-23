@@ -4,6 +4,7 @@ Shared data parsing and normalization helpers.
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -32,6 +33,69 @@ def parse_json_field(value: Any) -> Any:
         except (json.JSONDecodeError, TypeError, ValueError):
             return value
     return value
+
+
+def extract_json_from_text(text: Any) -> Optional[Dict[str, Any]]:
+    """Best-effort extract a JSON object from plain text / fenced blocks."""
+    if text is None:
+        return None
+
+    raw = str(text).strip()
+    if not raw:
+        return None
+
+    candidates: List[str] = [raw]
+
+    if raw.startswith("```"):
+        unfenced = re.sub(r'^```(?:json)?\s*', '', raw)
+        unfenced = re.sub(r'\s*```$', '', unfenced)
+        if unfenced:
+            candidates.append(unfenced.strip())
+
+    fenced_blocks = re.findall(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+    for block in fenced_blocks:
+        block = block.strip()
+        if block:
+            candidates.append(block)
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        snippet = raw[start:end + 1].strip()
+        if snippet:
+            candidates.append(snippet)
+
+    seen: set[str] = set()
+    unique_candidates: List[str] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+
+    for candidate in unique_candidates:
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+
+    try:
+        from json_repair import repair_json
+    except Exception:
+        repair_json = None
+
+    if repair_json is not None:
+        for candidate in unique_candidates:
+            try:
+                repaired = repair_json(candidate)
+                obj = json.loads(repaired)
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+
+    return None
 
 
 def _non_empty_dict(value: Any) -> Optional[Dict[str, Any]]:

@@ -264,6 +264,98 @@ def _extract_latest_row(df: pd.DataFrame, stock_code: str) -> Optional[pd.Series
 class AkshareFundamentalAdapter:
     """AkShare adapter for fundamentals, capital flow and dragon-tiger signals."""
 
+    @staticmethod
+    def _normalize_block(payload: Optional[Dict[str, Any]], status_hint: str = "not_supported") -> Dict[str, Any]:
+        data = payload if isinstance(payload, dict) else {}
+        if data:
+            status = "ok"
+        else:
+            status = status_hint if status_hint in {"partial", "not_supported", "failed"} else "not_supported"
+        return {
+            "status": status,
+            "data": data,
+            "source_chain": [],
+            "errors": [],
+        }
+
+    def get_fundamental_context(self, stock_code: str) -> Dict[str, Any]:
+        """
+        Build the legacy fundamental_context envelope expected by pipeline/tooling.
+        """
+        from .utils import _market_tag
+
+        market = _market_tag(stock_code)
+        empty = {
+            "market": market,
+            "status": "not_supported",
+            "coverage": {
+                "valuation": "not_supported",
+                "growth": "not_supported",
+                "earnings": "not_supported",
+                "institution": "not_supported",
+                "capital_flow": "not_supported",
+                "dragon_tiger": "not_supported",
+                "boards": "not_supported",
+            },
+            "valuation": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "growth": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "earnings": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "institution": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "capital_flow": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "dragon_tiger": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "boards": {"status": "not_supported", "data": {}, "source_chain": [], "errors": []},
+            "source_chain": [],
+            "errors": [],
+        }
+
+        if market != "cn":
+            return empty
+
+        bundle = self.get_fundamental_bundle(stock_code)
+        status_hint = bundle.get("status", "not_supported")
+
+        growth_block = self._normalize_block(bundle.get("growth"), status_hint=status_hint)
+        earnings_block = self._normalize_block(bundle.get("earnings"), status_hint=status_hint)
+        institution_block = self._normalize_block(bundle.get("institution"), status_hint=status_hint)
+
+        coverage = dict(empty["coverage"])
+        coverage["growth"] = growth_block["status"]
+        coverage["earnings"] = earnings_block["status"]
+        coverage["institution"] = institution_block["status"]
+
+        overall_status = "not_supported"
+        if any(value == "ok" for value in coverage.values()):
+            overall_status = "partial"
+
+        return {
+            **empty,
+            "status": overall_status,
+            "coverage": coverage,
+            "growth": {
+                **growth_block,
+                "source_chain": [item for item in bundle.get("source_chain", []) if item.startswith("growth:")],
+                "errors": list(bundle.get("errors", [])),
+            },
+            "earnings": {
+                **earnings_block,
+                "source_chain": [
+                    item
+                    for item in bundle.get("source_chain", [])
+                    if item.startswith(("earnings_", "dividend:"))
+                ],
+                "errors": list(bundle.get("errors", [])),
+            },
+            "institution": {
+                **institution_block,
+                "source_chain": [
+                    item for item in bundle.get("source_chain", []) if item.startswith(("institution:", "top10:"))
+                ],
+                "errors": list(bundle.get("errors", [])),
+            },
+            "source_chain": list(bundle.get("source_chain", [])),
+            "errors": list(bundle.get("errors", [])),
+        }
+
     def _call_df_candidates(
         self,
         candidates: List[Tuple[str, Dict[str, Any]]],

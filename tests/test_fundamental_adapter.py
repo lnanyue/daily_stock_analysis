@@ -170,6 +170,37 @@ class TestFundamentalAdapter(unittest.TestCase):
         self.assertEqual(payload.get("ttm_event_count"), 1)
         self.assertAlmostEqual(payload.get("ttm_cash_dividend_per_share"), 0.3, places=6)
 
+    def test_get_fundamental_context_wraps_bundle_into_legacy_blocks(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        bundle = {
+            "status": "partial",
+            "growth": {"revenue_yoy": 12.0},
+            "earnings": {"financial_report": {"report_date": "2026-03-31"}},
+            "institution": {"institution_holding_change": 1.5},
+            "source_chain": [
+                "growth:stock_financial_abstract",
+                "earnings_forecast:stock_yjyg_em",
+                "dividend:stock_fhps_detail_em",
+                "institution:stock_institute_hold",
+            ],
+            "errors": [],
+        }
+
+        with patch.object(adapter, "get_fundamental_bundle", return_value=bundle):
+            context = adapter.get_fundamental_context("600519")
+
+        self.assertEqual(context["market"], "cn")
+        self.assertEqual(context["status"], "partial")
+        self.assertEqual(context["coverage"]["growth"], "ok")
+        self.assertEqual(context["coverage"]["earnings"], "ok")
+        self.assertEqual(context["coverage"]["institution"], "ok")
+        self.assertEqual(context["growth"]["data"]["revenue_yoy"], 12.0)
+        self.assertEqual(
+            context["earnings"]["data"]["financial_report"]["report_date"],
+            "2026-03-31",
+        )
+        self.assertEqual(context["institution"]["data"]["institution_holding_change"], 1.5)
+
 
 if __name__ == "__main__":
     unittest.main()
