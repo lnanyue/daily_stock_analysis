@@ -82,8 +82,8 @@ class DebateAnalyzer:
             # 使用原生异步方法
             content = await self.analyzer.generate_text_async(
                 prompt,
-                2048,
-                0.7
+                max_tokens=2048,
+                temperature=0.7,
             )
             return content or f"{agent_name} 未能给出有效观点。"
         except Exception as e:
