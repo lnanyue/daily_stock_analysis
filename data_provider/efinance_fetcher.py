@@ -239,9 +239,8 @@ class EfinanceFetcher(BaseFetcher):
         self.sleep_min = sleep_min
         self.sleep_max = sleep_max
         self._last_request_time: Optional[float] = None
-        # 东财补丁开启才执行打补丁操作
-        if get_config().enable_eastmoney_patch:
-            eastmoney_patch()
+        # 默认启用东财补丁以解决连接重置问题
+        eastmoney_patch()
 
     @staticmethod
     def _build_history_failure_message(
