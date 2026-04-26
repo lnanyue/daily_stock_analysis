@@ -68,8 +68,8 @@ class GuruAnalyzer:
         try:
             content = await self.analyzer.generate_text_async(
                 prompt,
-                2048,
-                0.8 # 稍微高一点随机性，增加大师的“智慧感”
+                max_tokens=2048,
+                temperature=0.8, # 稍微高一点随机性，增加大师的“智慧感”
             )
             return content or "大师陷入了沉思，未给结论。"
         except Exception as e:

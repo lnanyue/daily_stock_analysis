@@ -23,6 +23,7 @@ from src.search import (  # noqa: F401 – re-export
     reset_search_service,
     fetch_url_content,
 )
+import requests  # noqa: F401 - legacy tests/callers patch src.search_service.requests
 
 # Legacy private names used by some callers
 from src.search.http_utils import (  # noqa: F401

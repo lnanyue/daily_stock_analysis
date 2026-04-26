@@ -9,6 +9,7 @@ Covers:
 - YAML strategy loading (load_builtin_strategies)
 """
 
+import asyncio
 import json
 import importlib
 import types
@@ -17,7 +18,7 @@ import sys
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
@@ -556,8 +557,14 @@ class TestPipelineRouting(unittest.TestCase):
 
             # Mock _analyze_with_agent to verify it gets called
             pipeline._analyze_with_agent = MagicMock(return_value=None)
+            pipeline.fetcher_manager.get_stock_name = AsyncMock(return_value="贵州茅台")
+            pipeline.fetcher_manager.get_realtime_quote = AsyncMock(return_value=None)
+            pipeline.fetcher_manager.get_chip_distribution = AsyncMock(return_value=None)
+            pipeline.fetcher_manager.get_fundamental_context = AsyncMock(return_value={})
+            pipeline.fetcher_manager.get_market_overview = AsyncMock(return_value={})
+            pipeline.db.get_data_range_async = AsyncMock(return_value=[])
 
-            pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1")
+            asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
 
             pipeline._analyze_with_agent.assert_called_once()
             call_args = pipeline._analyze_with_agent.call_args
@@ -603,18 +610,25 @@ class TestPipelineRouting(unittest.TestCase):
             # Mock the fetcher_manager to return None for realtime
             pipeline.fetcher_manager.get_realtime_quote.return_value = None
             pipeline.fetcher_manager.get_chip_distribution.return_value = None
+            pipeline.fetcher_manager.get_stock_name = AsyncMock(return_value="贵州茅台")
+            pipeline.fetcher_manager.get_realtime_quote = AsyncMock(return_value=None)
+            pipeline.fetcher_manager.get_chip_distribution = AsyncMock(return_value=None)
+            pipeline.fetcher_manager.get_fundamental_context = AsyncMock(return_value={})
+            pipeline.fetcher_manager.get_market_overview = AsyncMock(return_value={})
             # Mock search service
             pipeline.search_service.is_available = False
             # Mock DB context
             pipeline.db.get_analysis_context.return_value = None
+            pipeline.db.get_data_range_async = AsyncMock(return_value=[])
+            pipeline.db.save_analysis_history_async = AsyncMock()
             # Mock analyzer
-            pipeline.analyzer.analyze.return_value = None
+            pipeline.analyzer.analyze_async = AsyncMock(return_value=None)
 
-            result = pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1")
+            result = asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
 
             # _analyze_with_agent should NOT exist as a mock (it's the real method)
             # Instead, verify analyzer.analyze was called (legacy path)
-            pipeline.analyzer.analyze.assert_called_once()
+            pipeline.analyzer.analyze_async.assert_awaited_once()
 
 
 class TestAnalyzeWithAgentStockName(unittest.TestCase):
@@ -676,14 +690,14 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             pipeline.search_service.is_available = True
             pipeline.search_service.search_stock_news.return_value = news_response
 
-            result = pipeline._analyze_with_agent(
+            result = asyncio.run(pipeline._analyze_with_agent(
                 code="588200",
                 report_type=ReportType.SIMPLE,
                 query_id="q-news",
                 stock_name="股票588200",
                 realtime_quote=None,
                 chip_data=None
-            )
+            ))
 
             self.assertIsNotNone(result)
             self.assertEqual(result.name, "科创芯片ETF")
@@ -1062,6 +1076,56 @@ class TestSkillActivation(unittest.TestCase):
                 agent_result, "600519", "TestCo", ReportType.SIMPLE, "q1"
             )
             self.assertEqual(result.sentiment_score, 80)
+
+    def test_agent_score_recovers_system_score_from_summary(self):
+        """Agent conversion should recover system_score text instead of defaulting to 50."""
+        with patch('src.core.pipeline.get_config') as mock_config, \
+             patch('src.core.pipeline.get_db'), \
+             patch('src.core.pipeline.DataFetcherManager'), \
+             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.NotificationService'), \
+             patch('src.core.pipeline.SearchService'):
+
+            mock_cfg = MagicMock()
+            mock_cfg.max_workers = 2
+            mock_cfg.agent_mode = True
+            mock_cfg.agent_max_steps = 10
+            mock_cfg.agent_skills = []
+            mock_cfg.bocha_api_keys = []
+            mock_cfg.tavily_api_keys = []
+            mock_cfg.brave_api_keys = []
+            mock_cfg.serpapi_keys = []
+            mock_cfg.searxng_base_urls = []
+            mock_cfg.searxng_public_instances_enabled = False
+            mock_cfg.news_max_age_days = 7
+            mock_cfg.enable_realtime_quote = True
+            mock_cfg.enable_chip_distribution = True
+            mock_cfg.realtime_source_priority = []
+            mock_cfg.save_context_snapshot = False
+            mock_config.return_value = mock_cfg
+
+            from src.core.pipeline import StockAnalysisPipeline
+            from src.agent.executor import AgentResult
+            from src.enums import ReportType
+            pipeline = StockAnalysisPipeline(config=mock_cfg)
+
+            agent_result = AgentResult(
+                success=True,
+                content="{}",
+                dashboard={
+                    "stock_name": "阿里巴巴（BABA）",
+                    "analysis_summary": "多头排列成型，系统评分77/100，可顺势做多。",
+                    "trend_prediction": "看多",
+                    "operation_advice": "买入",
+                    "decision_type": "buy",
+                },
+                provider="gemini",
+            )
+
+            result = pipeline._agent_result_to_analysis_result(
+                agent_result, "BABA", "阿里巴巴", ReportType.SIMPLE, "q-score"
+            )
+            self.assertEqual(result.sentiment_score, 77)
 
 
 if __name__ == '__main__':

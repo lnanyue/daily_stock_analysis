@@ -333,6 +333,20 @@ async def _cleanup():
     except Exception as e:
         logger.debug(f"Database cleanup: {e}")
 
+    # 3. Cancel all pending asyncio tasks (except current) to prevent blocking
+    try:
+        current_task = asyncio.current_task()
+        tasks = [t for t in asyncio.all_tasks() if t is not current_task]
+        if tasks:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        logger.debug(f"Task cleanup: {e}")
+
+    # 4. Give LiteLLM's background workers time to shut down gracefully
+    await asyncio.sleep(0.5)
+
 
 async def _async_main_wrapper() -> int:
     """Top-level entry with guaranteed cleanup."""

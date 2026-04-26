@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,9 +56,39 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(init=False)
 class Config:
     """系统配置类 - 单例模式。"""
+
+    def __init__(self, **kwargs: Any):
+        litellm_model_explicit = "litellm_model" in kwargs
+        litellm_fallback_explicit = "litellm_fallback_models" in kwargs
+        legacy_gemini_model = kwargs.pop("gemini_model", None)
+        legacy_gemini_fallback = kwargs.pop("gemini_model_fallback", None)
+        for item in fields(self):
+            name = item.name
+            if name == "_instance":
+                continue
+            if name in kwargs:
+                value = kwargs.pop(name)
+            elif item.default_factory is not MISSING:  # type: ignore[attr-defined]
+                value = item.default_factory()  # type: ignore[misc]
+            elif item.default is not MISSING:
+                value = item.default
+            else:
+                value = None
+            object.__setattr__(self, name, value)
+
+        if legacy_gemini_model and not litellm_model_explicit and not self.litellm_model:
+            model = str(legacy_gemini_model).strip()
+            self.litellm_model = model if "/" in model else f"gemini/{model}"
+        if legacy_gemini_fallback and not litellm_fallback_explicit and not self.litellm_fallback_models:
+            fallback_model = str(legacy_gemini_fallback).strip()
+            self.litellm_fallback_models = [
+                fallback_model if "/" in fallback_model else f"gemini/{fallback_model}"
+            ]
+        for name, value in kwargs.items():
+            object.__setattr__(self, name, value)
 
     stock_list: List[str] = field(default_factory=list)
     stock_config_path: str = "stocks.yaml"
@@ -82,6 +112,7 @@ class Config:
 
     report_type: str = "simple"
     report_summary_only: bool = False
+    report_templates_dir: str = "templates"
     merge_email_notification: bool = False
     single_stock_notify: bool = False
     feishu_webhook_url: Optional[str] = None
@@ -182,9 +213,11 @@ class Config:
     feishu_folder_token: Optional[str] = None
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None
+    openai_model: str = "gpt-4o-mini"
     openai_vision_model: Optional[str] = None
     vision_model: str = ""
     vision_provider_priority: str = "gemini,anthropic,openai"
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
     social_sentiment_api_key: Optional[str] = None
     social_sentiment_api_url: str = "https://api.adanos.org"
     searxng_base_urls: List[str] = field(default_factory=list)
@@ -582,14 +615,18 @@ class Config:
             feishu_folder_token=os.getenv("FEISHU_FOLDER_TOKEN"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             openai_base_url=os.getenv("OPENAI_BASE_URL"),
+            openai_model=(os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip(),
             openai_vision_model=os.getenv("OPENAI_VISION_MODEL"),
             vision_model=(os.getenv("VISION_MODEL") or "").strip(),
             vision_provider_priority=(os.getenv("VISION_PROVIDER_PRIORITY") or "gemini,anthropic,openai").strip() or "gemini,anthropic,openai",
+            anthropic_model=(os.getenv("ANTHROPIC_MODEL") or "claude-3-5-sonnet-20241022").strip(),
+            report_templates_dir=(os.getenv("REPORT_TEMPLATES_DIR") or "templates").strip() or "templates",
             social_sentiment_api_key=os.getenv("SOCIAL_SENTIMENT_API_KEY"),
         )
 
     @classmethod
     def _parse_litellm_yaml(cls, config_path: str) -> List[Dict[str, Any]]:
+        logger.info(f"正在从加载 LiteLLM 配置: {config_path}")
         return parse_litellm_yaml(config_path)
 
     @classmethod

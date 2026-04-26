@@ -22,6 +22,8 @@ class AuthCache:
         self.expire_at = 0
         self.lock = threading.Lock()
         self.ttl = 20
+        self.failure_count = 0
+        self.max_failures = 5
 
 
 _cache = AuthCache()
@@ -56,11 +58,22 @@ def _get_nid(user_agent):
         用于后续的数据访问授权。函数实现了缓存机制来避免频繁请求。
     """
     now = time.time()
-    # 检查缓存是否有效，避免重复请求
-    if _cache.data and now < _cache.expire_at:
+    # 1. 熔断检查：如果失败次数过多，直接返回
+    if _cache.failure_count >= _cache.max_failures:
+        if now < _cache.expire_at:
+            return None
+        else:
+            # 冷却期已过，尝试重置一次计数给个机会
+            _cache.failure_count = 0
+
+    # 2. 缓存检查：检查缓存是否有效（包含成功数据或已知的失败冷却期）
+    if now < _cache.expire_at:
         return _cache.data
     # 使用线程锁确保并发安全
     with _cache.lock:
+        # 再次检查，防止多线程竞争下重复请求
+        if now < _cache.expire_at:
+            return _cache.data
         try:
             def generate_uuid_md5():
                 """
@@ -132,18 +145,22 @@ def _get_nid(user_agent):
 
             _cache.data = nid
             _cache.expire_at = now + _cache.ttl
+            _cache.failure_count = 0  # 成功，清空失败计数
             return nid
         except requests.exceptions.RequestException as e:
             logger.warning("请求东方财富授权接口失败: %s", e)
             _cache.data = None
-            # 该接口请求失败时，方案可能已失效，后续大概率会继续失败，因无法成功获取，下次会继续请求，设置较长过期时间，可避免频繁请求
-            _cache.expire_at = now + 5 * 60
+            _cache.failure_count += 1
+            # 如果达到最大失败次数，延长冷却时间到 1 小时
+            cooling_time = 3600 if _cache.failure_count >= _cache.max_failures else 300
+            _cache.expire_at = now + cooling_time
             return None
         except (KeyError, json.JSONDecodeError) as e:
             logger.warning("解析东方财富授权接口响应失败: %s", e)
             _cache.data = None
-            # 该接口请求失败时，方案可能已失效，后续大概率会继续失败，因无法成功获取，下次会继续请求，设置较长过期时间，可避免频繁请求
-            _cache.expire_at = now + 5 * 60
+            _cache.failure_count += 1
+            cooling_time = 3600 if _cache.failure_count >= _cache.max_failures else 300
+            _cache.expire_at = now + cooling_time
             return None
 
 
@@ -172,8 +189,8 @@ def eastmoney_patch():
         if nid:
             headers["Cookie"] = f"nid18={nid}"
         kwargs["headers"] = headers
-        # 随机休眠，降低被封风险
-        sleep_time = random.uniform(1, 4)
+        # 随机休眠，降低被封风险（使用短延迟避免阻塞事件循环）
+        sleep_time = random.uniform(0.1, 0.3)
         time.sleep(sleep_time)
         return original_request(self, method, url, **kwargs)
 

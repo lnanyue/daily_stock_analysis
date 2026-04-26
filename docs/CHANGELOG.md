@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] **MiniMax-M2.7 模型连接测试支持** — 修复 LLM 通道连接测试在 MiniMax-M2.7 模型下返回 "Empty response" 的问题；增加了 `max_tokens` 上限（8→256）以容纳 MiniMax 思考过程，并添加 `content_blocks` 格式解析逻辑统一处理 MiniMax 响应格式差异。
 - [修复] 个股分析链路恢复 `fundamental_context` 兼容封装与 prompt 透传；修复 `AkshareFundamentalAdapter` 缺少旧版基本面上下文入口导致个股 CLI 在基本面阶段直接中断的问题，并让个股 prompt 重新读到结构化财报/分红字段。
+- [修复] 恢复数据源、历史详情、回测与报告渲染的兼容契约：`DataFetcherManager` 重新提供同步公共入口并补充异步 wrapper，补齐历史详情/回测 ORM 字段、Vision legacy 模型配置、Jinja 报告模板默认目录与报告输出忽略规则。
+- [改进] 个股 Markdown 报告恢复完整明细输出：批量 `stocks.yaml` 报告不再只写入首只股票，单股/多股报告现在会展开持仓建议、数据透视、作战计划、检查清单与风险情报，避免结构化 dashboard 数据在最终 md 中丢失。
 - [修复] 市场复盘 Prompt 按 `cn/us/global` 分流输出模板；A 股/美股单市场复盘不再强制生成“全球视野 / 中美联动点评”段落，新闻为空时也会优先提示“消息面样本有限”而不是误导性扩写跨市场结论。
 - [修复] 移除 `HistoryItem` 与 `ReportSummary` 响应 Schema 中 `sentiment_score` 的 `ge=0/le=100` 约束（fixes #942）——历史库中存储的超范围负值或大于 100 的情绪评分不再触发 Pydantic ValidationError，历史列表与详情接口恢复正常返回。
 - [改进] Agent IntelAgent 新增公司公告搜索维度（上交所/深交所/cninfo）与主力资金流工具（get_capital_flow），修复 Agent 模式下公告和资金流数据经常缺失的问题
@@ -25,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [文档] FAQ 补充 Ollama `OllamaException / APIConnectionError` 连接失败排障条目（Q12c），覆盖服务未启动、URL 配置错误、模型前缀缺失、模型未下载、远程防火墙等 5 个检查点
 - [修复] 技能加载异常被静默吞没问题 — 在 ask.py、skills/aggregator.py、skills/router.py 的静默 except 块补充 logger.warning 日志，确保技能列表为空时有日志可查（fixes #970）
 - [修复] SQLite 主写入链路现在对 `stock_daily(code,date)` 使用批量原子 upsert，并在文件型 SQLite 连接上默认启用 `WAL`、`busy_timeout` 与有限写入重试，降低批量分析和并发回写场景下的锁竞争与吞吐抖动，返回值中的”新增数”改为按本次真正插入窗口计算（并发场景不再把并行写入行误算入当前调用）。
+- [修复] 个股分析评分解析不再大量回退到默认 50 分；常规分析会使用决策仪表盘 system prompt，解析层可从 `system_score`、`signal_score`、嵌套摘要与“系统评分 77/100”等文本中恢复真实评分。
 
 ## [3.12.0] - 2026-04-01
 

@@ -73,6 +73,32 @@ def format_analysis_prompt(
 
 ---
 
+## 🌍 大盘与行业背景
+"""
+    if 'market_overview' in context:
+        mo = context['market_overview']
+        indices = mo.get('indices', [])
+        stats = mo.get('stats', {})
+        sectors = mo.get('sector_rankings', {})
+        
+        if indices:
+            prompt += "\n### 指数表现\n| 指数 | 现价 | 涨跌幅 |\n|------|------|--------|\n"
+            for idx in indices[:4]:
+                prompt += f"| {idx.get('name')} | {idx.get('current')} | {idx.get('change_pct')}% |\n"
+        
+        if stats:
+            prompt += f"\n### 市场广度\n- 上涨家数: {stats.get('rise_count', 'N/A')} | 下跌家数: {stats.get('fall_count', 'N/A')}\n"
+            if 'limit_up_count' in stats:
+                prompt += f"- 涨停家数: {stats.get('limit_up_count', 'N/A')} | 跌停家数: {stats.get('limit_down_count', 'N/A')}\n"
+        
+        if sectors:
+            top_sectors = sectors.get('top', [])
+            if top_sectors:
+                prompt += "\n### 强势行业板块\n" + " | ".join([f"{s['name']}({s['change_pct']}%)" for s in top_sectors[:3]]) + "\n"
+
+    prompt += """
+---
+
 ## 📈 技术面数据
 
 ### 今日行情
@@ -278,21 +304,23 @@ def format_analysis_prompt(
         prompt += f"""
 
 ### 重点关注（必须明确回答）：
-1. ❓ 是否满足 MA5>MA10>MA20 多头排列？
-2. ❓ 当前乖离率是否在安全范围内（<5%）？—— 超过5%必须标注"严禁追高"
-3. ❓ 量能是否配合（缩量回调/放量突破）？
-4. ❓ 筹码结构是否健康？
-5. ❓ 消息面有无重大利空？（减持、处罚、业绩变变脸等）
+1. ❓ 大盘环境与行业板块是否支持做多？
+2. ❓ 是否满足 MA5>MA10>MA20 多头排列？
+3. ❓ 当前乖离率是否在安全范围内（<5%）？—— 超过5%必须标注"严禁追高"
+4. ❓ 量能是否配合（缩量回调/放量突破）？
+5. ❓ 筹码结构是否健康？
+6. ❓ 消息面有无重大利空？（减持、处罚、业绩变变脸等）
 """
     else:
         prompt += f"""
 
 ### 重点关注（必须明确回答）：
-1. ❓ 当前结构是否满足激活技能的关键触发条件？
-2. ❓ 当前入场位置与风险回报是否合理？若偏离过大，请明确说明等待条件
-3. ❓ 量能、波动与筹码结构是否支持当前结论？
-4. ❓ 消息面有无重大利空或与技能结论冲突的信息？
-5. ❓ 若结论成立，具体触发条件、止损位、观察点分别是什么？
+1. ❓ 当前大盘趋势与行业共振情况如何？是否属于强势赛道？
+2. ❓ 当前结构是否满足激活技能的关键触发条件？
+3. ❓ 当前入场位置与风险回报是否合理？若偏离过大，请明确说明等待条件
+4. ❓ 量能、波动与筹码结构是否支持当前结论？
+5. ❓ 消息面有无重大利空或与技能结论冲突的信息？
+6. ❓ 若结论成立，具体触发条件、止损位、观察点分别是什么？
 """
     prompt += f"""
 

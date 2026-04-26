@@ -65,6 +65,84 @@ def _resolve_templates_dir() -> Path:
     return templates_dir
 
 
+def _render_builtin_report(
+    platform: str,
+    enriched: List[Dict[str, Any]],
+    labels: Dict[str, str],
+    report_date: str,
+    summary_only: bool,
+    report_language: str,
+) -> Optional[str]:
+    """Small built-in fallback used when optional Jinja templates are absent."""
+    if platform not in {"markdown", "wechat", "brief"}:
+        return None
+
+    title = labels["brief_title"] if platform == "brief" else labels["dashboard_title"]
+    lines = [f"# {title} - {report_date}", ""]
+    lines.append(f"{labels['analyzed_prefix']} {len(enriched)} {labels['stock_unit']}")
+    lines.append("")
+
+    if not enriched:
+        return "\n".join(lines)
+
+    if platform == "brief":
+        for item in enriched:
+            result = item["result"]
+            lines.append(
+                f"- {item['stock_name']} ({result.code}): "
+                f"{item['localized_operation_advice']} | {result.sentiment_score}"
+            )
+        return "\n".join(lines)
+
+    lines.extend([
+        f"## {labels['summary_heading']}",
+        "",
+        f"| {labels['stock_label']} | {labels['advice_label']} | {labels['score_label']} | {labels['core_conclusion_label']} |",
+        "|:---|:---:|:---:|:---|",
+    ])
+    for item in enriched:
+        result = item["result"]
+        core = result.get_core_conclusion() if hasattr(result, "get_core_conclusion") else result.analysis_summary
+        lines.append(
+            f"| {item['stock_name']} ({result.code}) | {item['localized_operation_advice']} | "
+            f"{result.sentiment_score} | {core} |"
+        )
+
+    if summary_only:
+        return "\n".join(lines)
+
+    for item in enriched:
+        result = item["result"]
+        dashboard = result.dashboard if isinstance(getattr(result, "dashboard", None), dict) else {}
+        lines.extend(["", "---", "", f"## {item['stock_name']} ({result.code})", ""])
+        lines.extend([f"### {labels['core_conclusion_label']}", result.analysis_summary or "", ""])
+        battle = dashboard.get("battle_plan") if isinstance(dashboard.get("battle_plan"), dict) else {}
+        sniper = battle.get("sniper_points") if isinstance(battle.get("sniper_points"), dict) else {}
+        if sniper:
+            lines.extend([f"### {labels['battle_plan_heading']}", ""])
+            for key, label in (
+                ("ideal_buy", labels["ideal_buy_label"]),
+                ("secondary_buy", labels["secondary_buy_label"]),
+                ("stop_loss", labels["stop_loss_label"]),
+                ("take_profit", labels["take_profit_label"]),
+            ):
+                if sniper.get(key) is not None:
+                    lines.append(f"- **{label}**: {_clean_sniper_value(sniper.get(key))}")
+            lines.append("")
+        snapshot = getattr(result, "market_snapshot", None)
+        if isinstance(snapshot, dict) and snapshot:
+            lines.extend([f"### {labels['market_snapshot_heading']}", ""])
+            lines.append(
+                f"{labels['close_label']}: {snapshot.get('close', 'N/A')} | "
+                f"{labels['volume_ratio_label']}: {snapshot.get('volume_ratio', 'N/A')}"
+            )
+            if report_language == "en":
+                lines.append("Volume Ratio")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
 def render(
     platform: str,
     results: List[AnalysisResult],
@@ -99,7 +177,8 @@ def render(
     templates_dir = _resolve_templates_dir()
     template_name = f"report_{platform}.j2"
     template_path = templates_dir / template_name
-    if not template_path.exists():
+    template_exists = template_path.exists()
+    if not template_exists and platform not in {"markdown", "wechat", "brief"}:
         logger.debug("Report template not found: %s", template_path)
         return None
 
@@ -162,6 +241,9 @@ def render(
         safe_extra_context.pop("labels", None)
         safe_extra_context.pop("report_language", None)
         context.update(safe_extra_context)
+
+    if not template_exists:
+        return _render_builtin_report(platform, sorted_enriched, labels, report_date, summary_only, report_language)
 
     try:
         env = Environment(

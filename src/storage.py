@@ -164,6 +164,9 @@ class DatabaseManager:
         session = self._SessionLocal()
         try:
             yield session
+            for obj in list(session.dirty):
+                if isinstance(obj, AnalysisHistory) and isinstance(getattr(obj, "raw_result", None), dict):
+                    obj.raw_result = json.dumps(obj.raw_result, ensure_ascii=False)
             session.commit()
         except Exception:
             session.rollback()
@@ -413,6 +416,119 @@ class DatabaseManager:
         with self.get_session() as session:
             rows = session.execute(stmt).mappings().all()
             return [type("AnalysisHistoryRow", (), dict(row))() for row in rows]
+
+    def get_analysis_history_by_id(self, record_id: int) -> Optional[AnalysisHistory]:
+        """按主键读取分析历史记录。"""
+        with self.get_session() as session:
+            return session.get(AnalysisHistory, int(record_id))
+
+    def get_latest_analysis_by_query_id(self, query_id: str) -> Optional[AnalysisHistory]:
+        """按 query_id 读取最新分析历史记录。"""
+        with self.get_session() as session:
+            return session.execute(
+                select(AnalysisHistory)
+                .where(AnalysisHistory.query_id == query_id)
+                .order_by(desc(AnalysisHistory.created_at))
+                .limit(1)
+            ).scalar_one_or_none()
+
+    def delete_analysis_history_records(self, record_ids: List[int]) -> int:
+        """删除分析历史记录，并清理关联回测结果。"""
+        ids = [int(item) for item in (record_ids or [])]
+        if not ids:
+            return 0
+
+        def _write(session: Session) -> int:
+            session.query(BacktestResult).filter(BacktestResult.analysis_history_id.in_(ids)).delete(
+                synchronize_session=False
+            )
+            deleted = session.query(AnalysisHistory).filter(AnalysisHistory.id.in_(ids)).delete(
+                synchronize_session=False
+            )
+            return int(deleted or 0)
+
+        return self._run_write_transaction("delete_analysis_history_records", _write)
+
+    def get_news_intel_by_query_id(self, query_id: str, limit: int = 20) -> List[NewsIntel]:
+        with self.get_session() as session:
+            rows = session.execute(
+                select(NewsIntel)
+                .where(NewsIntel.query_id == query_id)
+                .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
+                .limit(limit)
+            ).scalars().all()
+            return list(rows)
+
+    def get_recent_news(self, code: str, days: int = 7, limit: int = 20) -> List[NewsIntel]:
+        cutoff = datetime.now() - timedelta(days=max(days, 0))
+        with self.get_session() as session:
+            rows = session.execute(
+                select(NewsIntel)
+                .where(and_(NewsIntel.code == code, NewsIntel.fetched_at >= cutoff))
+                .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
+                .limit(limit)
+            ).scalars().all()
+            return list(rows)
+
+    def save_fundamental_snapshot(
+        self,
+        *,
+        query_id: str,
+        code: str,
+        payload: Dict[str, Any],
+        source_chain: Optional[List[str]] = None,
+        coverage: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        snapshot = FundamentalSnapshot(
+            query_id=query_id,
+            code=code,
+            payload=json.dumps(payload or {}, ensure_ascii=False),
+            source_chain=json.dumps(source_chain or [], ensure_ascii=False) if source_chain is not None else None,
+            coverage=json.dumps(coverage or {}, ensure_ascii=False) if coverage is not None else None,
+        )
+
+        def _write(session: Session) -> int:
+            session.add(snapshot)
+            return 1
+
+        return self._run_write_transaction(f"save_fundamental_snapshot[{code}]", _write)
+
+    @staticmethod
+    def _find_sniper_in_dashboard(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """从 dashboard/raw_result 中查找 sniper_points 结构。"""
+        if not isinstance(payload, dict):
+            return {}
+        candidates = [
+            payload.get("sniper_points"),
+            payload.get("sniper_levels"),
+            payload.get("specific_targets"),
+        ]
+        battle_plan = payload.get("battle_plan")
+        if isinstance(battle_plan, dict):
+            candidates.extend([
+                battle_plan.get("sniper_points"),
+                battle_plan.get("sniper_levels"),
+                battle_plan.get("specific_targets"),
+            ])
+        decision_dashboard = payload.get("decision_dashboard")
+        if isinstance(decision_dashboard, dict):
+            candidates.append(DatabaseManager._find_sniper_in_dashboard(decision_dashboard))
+        dashboard = payload.get("dashboard")
+        if isinstance(dashboard, dict):
+            candidates.append(DatabaseManager._find_sniper_in_dashboard(dashboard))
+
+        for candidate in candidates:
+            if isinstance(candidate, dict) and any(
+                candidate.get(key) is not None
+                for key in ("ideal_buy", "secondary_buy", "stop_loss", "take_profit", "buy_price", "stop_loss_price", "target_price")
+            ):
+                return {
+                    "ideal_buy": candidate.get("ideal_buy", candidate.get("buy_price")),
+                    "secondary_buy": candidate.get("secondary_buy"),
+                    "stop_loss": candidate.get("stop_loss", candidate.get("stop_loss_price")),
+                    "take_profit": candidate.get("take_profit", candidate.get("target_price")),
+                }
+        return {}
 
     def get_data_range(self, code: str, start_date: date, end_date: date) -> List[StockDaily]:
         """获取指定日期范围内的数据"""

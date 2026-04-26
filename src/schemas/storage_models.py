@@ -148,32 +148,75 @@ class BacktestResult(Base):
     """回测结果"""
     __tablename__ = 'backtest_results'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    backtest_id = Column(String(64), index=True)
+    analysis_history_id = Column(Integer, index=True)
     code = Column(String(16), index=True)
-    name = Column(String(64))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    total_return = Column(Float)
-    max_drawdown = Column(Float)
-    sharpe_ratio = Column(Float)
-    win_rate = Column(Float)
-    trades_count = Column(Integer)
-    params_json = Column(Text)
-    metrics_json = Column(Text)
+    analysis_date = Column(Date, index=True)
+    eval_window_days = Column(Integer, index=True)
+    engine_version = Column(String(32), index=True)
+    eval_status = Column(String(32), index=True)
+    evaluated_at = Column(DateTime, default=datetime.now, index=True)
+    operation_advice = Column(String(50))
+    position_recommendation = Column(String(16))
+    start_price = Column(Float)
+    end_close = Column(Float)
+    max_high = Column(Float)
+    min_low = Column(Float)
+    stock_return_pct = Column(Float)
+    direction_expected = Column(String(16))
+    direction_correct = Column(Boolean)
+    outcome = Column(String(16))
+    stop_loss = Column(Float)
+    take_profit = Column(Float)
+    hit_stop_loss = Column(Boolean)
+    hit_take_profit = Column(Boolean)
+    first_hit = Column(String(32))
+    first_hit_date = Column(Date)
+    first_hit_trading_days = Column(Integer)
+    simulated_entry_price = Column(Float)
+    simulated_exit_price = Column(Float)
+    simulated_exit_reason = Column(String(32))
+    simulated_return_pct = Column(Float)
     created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('analysis_history_id', 'eval_window_days', 'engine_version', name='uq_backtest_result_analysis_window_engine'),
+        Index('ix_backtest_code_window_engine', 'code', 'eval_window_days', 'engine_version'),
+    )
 
 
 class BacktestSummary(Base):
     """回测汇总"""
     __tablename__ = 'backtest_summaries'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    summary_id = Column(String(64), index=True)
-    strategy_name = Column(String(64))
-    market_condition = Column(String(64))
-    overall_win_rate = Column(Float)
-    avg_profit_per_trade = Column(Float)
-    details_json = Column(Text)
+    scope = Column(String(32), index=True)
+    code = Column(String(16), index=True)
+    eval_window_days = Column(Integer, index=True)
+    engine_version = Column(String(32), index=True)
+    computed_at = Column(DateTime, default=datetime.now, index=True)
+    total_evaluations = Column(Integer, default=0)
+    completed_count = Column(Integer, default=0)
+    insufficient_count = Column(Integer, default=0)
+    long_count = Column(Integer, default=0)
+    cash_count = Column(Integer, default=0)
+    win_count = Column(Integer, default=0)
+    loss_count = Column(Integer, default=0)
+    neutral_count = Column(Integer, default=0)
+    direction_accuracy_pct = Column(Float)
+    win_rate_pct = Column(Float)
+    neutral_rate_pct = Column(Float)
+    avg_stock_return_pct = Column(Float)
+    avg_simulated_return_pct = Column(Float)
+    stop_loss_trigger_rate = Column(Float)
+    take_profit_trigger_rate = Column(Float)
+    ambiguous_rate = Column(Float)
+    avg_days_to_first_hit = Column(Float)
+    advice_breakdown_json = Column(Text)
+    diagnostics_json = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('scope', 'code', 'eval_window_days', 'engine_version', name='uq_backtest_summary_scope_code_window_engine'),
+    )
 
 
 class PortfolioAccount(Base):
