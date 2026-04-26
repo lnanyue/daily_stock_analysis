@@ -132,8 +132,8 @@ class MarketAnalyzer:
 
         role = "你是一位专业的A股市场分析师"
         missing_data_guidance = (
-            "若市场新闻为空，请明确说明消息面样本有限，并以 A 股盘面数据为主完成复盘；"
-            "不要臆测全球市场或跨市场联动。"
+            "若市场数据（指数、成交额等）缺失或显示为 N/A，但提供了市场新闻，请务必以新闻和历史背景为主要依据进行推断性复盘；"
+            "若当前日期为回溯的交易日，请在报告中明确说明。"
         )
         template = f"""## {context.date} A股市场复盘
 
@@ -218,24 +218,36 @@ class MarketAnalyzer:
             if not is_valid_indices:
                 from src.storage import get_db
                 db = get_db()
-                # A 股主要看上证指数，美股主要看标普500 (SPX)
+                
+                # 优先尝试获取指数的历史记录
                 base_code = '000001' if target_region == 'cn' else 'SPX'
                 last_records = db.get_latest_data(base_code, days=1)
                 
+                target_date = None
                 if last_records:
-                    last_record = last_records[0]
-                    context.date = last_record.date.isoformat()
+                    target_date = last_records[0].date
+                else:
+                    # 兜底：获取数据库中任何记录的最新日期
+                    target_date = db.get_global_latest_date()
+                
+                if target_date:
+                    context.date = target_date.isoformat()
                     logger.info(f"[大盘] 实时行情无效或为空，切换至最近交易日数据: {context.date}")
                     
-                    # 尝试构造指数列表以适配后续 Prompt 生成
-                    context.indices = [{
-                        'name': self._get_market_name(target_region) + "主要指数",
-                        'code': base_code,
-                        'current': last_record.close,
-                        'change_pct': last_record.pct_chg
-                    }]
+                    # 如果有具体记录，则加载它；否则构造一个占位符
+                    if last_records:
+                        last_record = last_records[0]
+                        context.indices = [{
+                            'name': self._get_market_name(target_region) + "主要指数",
+                            'code': base_code,
+                            'current': last_record.close,
+                            'change_pct': last_record.pct_chg
+                        }]
+                    else:
+                        # 仅同步日期，让 AI 知道我们在分析哪一天
+                        context.indices = []
                 else:
-                    logger.warning(f"[大盘] 实时行情无效且数据库无历史数据 ({base_code})")
+                    logger.warning("[大盘] 实时行情无效且数据库完全无历史数据，无法执行日期回溯")
                     context.indices = []
             else:
                 context.indices = indices
@@ -268,7 +280,9 @@ class MarketAnalyzer:
 
         # 4. 联网搜索大盘情报
         try:
-            query = f"{market_name} 大盘 复盘"
+            # 如果是回溯的日期，搜索词带上日期
+            date_hint = context.date if context.date != date.today().isoformat() else ""
+            query = f"{date_hint} {market_name} 大盘 复盘"
             news_resp = await self.search_service.search_stock_news_async(stock_code=target_region, stock_name=market_name, focus_keywords=[query])
             if news_resp and news_resp.results:
                 context.market_news = news_resp.results

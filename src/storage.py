@@ -213,6 +213,14 @@ class DatabaseManager:
             ).scalars().all()
             return list(results)
 
+    def get_global_latest_date(self) -> Optional[date]:
+        """获取数据库中存储的最新数据日期。"""
+        with self.get_session() as session:
+            result = session.execute(
+                select(StockDaily.date).order_by(desc(StockDaily.date)).limit(1)
+            ).scalar()
+            return result
+
     def save_daily_data(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
         """批量保存日线数据；返回本次真正新增的行数。"""
         if df is None or df.empty:
