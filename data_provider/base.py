@@ -19,7 +19,7 @@ from .utils import (
     summarize_exception,
     STANDARD_COLUMNS,
 )
-from .exceptions import DataFetchError, RateLimitError, DataSourceUnavailableError
+from .exceptions import DataFetchError, RateLimitError, DataSourceUnavailableError, InsufficientQuotaError
 
 logger = logging.getLogger(__name__)
 

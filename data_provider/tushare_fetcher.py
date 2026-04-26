@@ -34,7 +34,7 @@ from tenacity import (
 )
 
 from ._async_client import get_async_client
-from .base import BaseFetcher, DataFetchError, RateLimitError
+from .base import BaseFetcher, DataFetchError, RateLimitError, InsufficientQuotaError
 from .utils import STANDARD_COLUMNS, is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
 from src.config import get_config
@@ -473,9 +473,9 @@ class TushareFetcher(BaseFetcher):
             return df
         except Exception as e:
             error_msg = str(e).lower()
-            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限']):
-                logger.warning(f"Tushare 配额可能超限: {e}")
-                raise RateLimitError(f"Tushare 配额超限: {e}") from e
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                logger.warning(f"Tushare 积分配额不足: {e}")
+                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             raise DataFetchError(f"Tushare 获取数据失败: {e}") from e
 
     @retry(
@@ -544,12 +544,12 @@ class TushareFetcher(BaseFetcher):
             
         except Exception as e:
             error_msg = str(e).lower()
-            
-            # 检测配额超限
-            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限']):
-                logger.warning(f"Tushare 配额可能超限: {e}")
-                raise RateLimitError(f"Tushare 配额超限: {e}") from e
-            
+
+            # 检测积分配额
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                logger.warning(f"Tushare 积分配额不足: {e}")
+                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
+
             raise DataFetchError(f"Tushare 获取数据失败: {e}") from e
     
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
@@ -814,6 +814,10 @@ class TushareFetcher(BaseFetcher):
             )
 
         except Exception as e:
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                logger.warning(f"Tushare (旧版) 获取实时行情由于积分配额限制失败: {e}")
+                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             logger.warning(f"Tushare (旧版) 获取实时行情失败 {stock_code}: {e}")
             return None
 
@@ -884,6 +888,9 @@ class TushareFetcher(BaseFetcher):
                 logger.warning("[Tushare] 未获取到指数行情数据")
 
         except Exception as e:
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             logger.error(f"[Tushare] 获取指数行情失败: {e}")
 
         return None
@@ -965,6 +972,9 @@ class TushareFetcher(BaseFetcher):
 
             
         except Exception as e:
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             logger.error(f"[Tushare] 获取市场统计失败: {e}")
 
         return None
@@ -1228,6 +1238,10 @@ class TushareFetcher(BaseFetcher):
                 return chip
 
         except Exception as e:
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                logger.warning(f"Tushare 获取筹码分布由于积分配额限制失败: {e}")
+                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             logger.warning(f"[Tushare] 获取筹码分布失败 {stock_code}: {e}")
             return None
 

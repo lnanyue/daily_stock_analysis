@@ -11,6 +11,7 @@ from .base import (
     DataFetchError,
     normalize_stock_code
 )
+from .exceptions import InsufficientQuotaError
 from .realtime_types import RealtimeSource, UnifiedRealtimeQuote, ChipDistribution
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,9 @@ class DataFetcherManager:
             return self._stock_name_cache[normalized_code]
         
         if normalized_code in STOCK_NAME_MAP:
-            return STOCK_NAME_MAP[normalized_code]
+            name = STOCK_NAME_MAP[normalized_code]
+            self._stock_name_cache[normalized_code] = name
+            return name
 
         for fetcher in self._fetchers:
             try:
@@ -68,6 +71,9 @@ class DataFetcherManager:
                     if is_meaningful_stock_name(name, normalized_code):
                         self._stock_name_cache[normalized_code] = name
                         return name
+            except InsufficientQuotaError as e:
+                logger.warning(f"[{fetcher.name}] 积分配额不足，尝试下一个数据源: {e}")
+                continue
             except Exception:
                 continue
         return None
@@ -83,6 +89,9 @@ class DataFetcherManager:
                     )
                     if df is not None and not df.empty:
                         return df, fetcher.name
+            except InsufficientQuotaError as e:
+                logger.warning(f"[{fetcher.name}] 积分配额不足，尝试下一个数据源: {e}")
+                continue
             except Exception as e:
                 logger.warning(f"[{fetcher.name}] 获取日线数据失败 {stock_code}: {e}")
                 continue
@@ -97,6 +106,9 @@ class DataFetcherManager:
                     res = fetcher.get_realtime_quote(stock_code)
                     quote = await self._maybe_await(res)
                     if quote: return quote
+            except InsufficientQuotaError as e:
+                logger.warning(f"[{fetcher.name}] 积分配额不足，尝试下一个数据源: {e}")
+                continue
             except Exception:
                 continue
         return None
@@ -109,6 +121,9 @@ class DataFetcherManager:
                     res = fetcher.get_chip_distribution(stock_code)
                     data = await self._maybe_await(res)
                     if data: return data
+            except InsufficientQuotaError as e:
+                logger.warning(f"[{fetcher.name}] 积分配额不足，尝试下一个数据源: {e}")
+                continue
             except Exception:
                 continue
         return None
@@ -121,6 +136,9 @@ class DataFetcherManager:
                     res = fetcher.get_fundamental_context(stock_code)
                     data = await self._maybe_await(res)
                     if data: return data
+            except InsufficientQuotaError as e:
+                logger.warning(f"[{fetcher.name}] 积分配额不足，尝试下一个数据源: {e}")
+                continue
             except Exception:
                 continue
         return {}
@@ -136,6 +154,9 @@ class DataFetcherManager:
                         res = f.get_main_indices(region=region)
                         data = await self._maybe_await(res)
                         if data: return data
+                except InsufficientQuotaError as e:
+                    logger.warning(f"[{f.name}] 积分配额不足，尝试下一个数据源: {e}")
+                    continue
                 except: continue
             return []
         tasks.append(fetch_indices())
@@ -149,10 +170,13 @@ class DataFetcherManager:
                             res = f.get_market_stats()
                             data = await self._maybe_await(res)
                             if data: return data
+                    except InsufficientQuotaError as e:
+                        logger.warning(f"[{f.name}] 积分配额不足，尝试下一个数据源: {e}")
+                        continue
                     except: continue
                 return {}
             tasks.append(fetch_stats())
-            
+
             # 3. 板块任务
             async def fetch_sectors():
                 for f in self._fetchers:
@@ -161,6 +185,9 @@ class DataFetcherManager:
                             res = f.get_sector_rankings()
                             data = await self._maybe_await(res)
                             if data: return data
+                    except InsufficientQuotaError as e:
+                        logger.warning(f"[{f.name}] 积分配额不足，尝试下一个数据源: {e}")
+                        continue
                     except: continue
                 return {}
             tasks.append(fetch_sectors())
@@ -188,5 +215,8 @@ class DataFetcherManager:
                 if hasattr(fetcher, "get_belong_boards"):
                     res = fetcher.get_belong_boards(stock_code)
                     return await self._maybe_await(res)
+            except InsufficientQuotaError as e:
+                logger.warning(f"[{fetcher.name}] 积分配额不足，尝试下一个数据源: {e}")
+                continue
             except: continue
         return []

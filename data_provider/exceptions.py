@@ -13,6 +13,11 @@ class RateLimitError(DataFetchError):
     pass
 
 
+class InsufficientQuotaError(DataFetchError):
+    """积分不足或配额超限异常"""
+    pass
+
+
 class DataSourceUnavailableError(DataFetchError):
     """数据源不可用异常"""
     pass

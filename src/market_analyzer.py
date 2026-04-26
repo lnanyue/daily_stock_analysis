@@ -205,14 +205,40 @@ class MarketAnalyzer:
         # 1. 获取指数行情 (带数据库兜底)
         try:
             indices = await self._maybe_await(self.data_manager.get_main_indices(region=target_region))
-            if not indices:
+            
+            # 检查 indices 是否有效（排除全为 0 的情况）
+            is_valid_indices = False
+            if indices:
+                for idx in indices:
+                    if isinstance(idx, dict) and idx.get('current', 0) > 0:
+                        is_valid_indices = True
+                        break
+
+            # 如果实时指数无效（非交易日），尝试从数据库恢复最近一个交易日的数据
+            if not is_valid_indices:
                 from src.storage import get_db
                 db = get_db()
-                last_record = db.get_latest_data('000001', days=1)
-                if last_record:
-                    logger.info(f"[大盘] 实时指数为空，尝试加载 {last_record[0].date} 的历史数据")
-            
-            if indices: context.indices = indices
+                # A 股主要看上证指数，美股主要看标普500 (SPX)
+                base_code = '000001' if target_region == 'cn' else 'SPX'
+                last_records = db.get_latest_data(base_code, days=1)
+                
+                if last_records:
+                    last_record = last_records[0]
+                    context.date = last_record.date.isoformat()
+                    logger.info(f"[大盘] 实时行情无效或为空，切换至最近交易日数据: {context.date}")
+                    
+                    # 尝试构造指数列表以适配后续 Prompt 生成
+                    context.indices = [{
+                        'name': self._get_market_name(target_region) + "主要指数",
+                        'code': base_code,
+                        'current': last_record.close,
+                        'change_pct': last_record.pct_chg
+                    }]
+                else:
+                    logger.warning(f"[大盘] 实时行情无效且数据库无历史数据 ({base_code})")
+                    context.indices = []
+            else:
+                context.indices = indices
         except Exception as e:
             logger.error(f"[大盘] 获取指数行情失败: {e}")
 
@@ -220,7 +246,11 @@ class MarketAnalyzer:
         if target_region == "cn":
             try:
                 stats = await self._maybe_await(self.data_manager.get_market_stats())
-                if stats: context.stats = stats
+                # 只有在 stats 有实际意义（如成交额 > 0）时才采信
+                if stats and stats.get('volume_total', 0) > 0:
+                    context.stats = stats
+                else:
+                    logger.debug("[大盘] 实时市场统计无效（成交额为0），可能是非交易日")
             except Exception as e:
                 logger.error(f"[大盘] 获取市场统计失败: {e}")
 
@@ -274,29 +304,38 @@ class MarketAnalyzer:
     def _build_prompt(self, context: MarketAnalysisContext) -> str:
         market_name = self._get_market_name(context.region)
         role, missing_data_guidance, output_template = self._get_prompt_scaffold(context)
-        indices_text = ""
-
-        # 支持 dict 格式（旧格式）
-        if isinstance(context.indices, dict):
-            for idx_name, idx_data in context.indices.items():
-                if isinstance(idx_data, dict):
-                    price = idx_data.get('price', 'N/A')
-                    change = idx_data.get('change_pct', 'N/A')
-                    indices_text += f"- {idx_name}: {price} ({change}%)\n"
-        # 支持 list 格式（各 fetcher 实际返回的格式）
-        elif isinstance(context.indices, list):
-            for idx in context.indices:
-                if isinstance(idx, dict):
-                    name = idx.get('name', idx.get('code', 'N/A'))
-                    price = idx.get('current', idx.get('price', 'N/A'))
-                    change = idx.get('change_pct', 'N/A')
-                    indices_text += f"- {name}: {price} ({change}%)\n"
         
-        up = context.stats.get('up', 0) if isinstance(context.stats, dict) else 0
-        down = context.stats.get('down', 0) if isinstance(context.stats, dict) else 0
-        l_up = context.stats.get('limit_up', 0) if isinstance(context.stats, dict) else 0
-        vol = context.stats.get('volume_total', 0) if isinstance(context.stats, dict) else 0
-        stats_text = f"- 上涨: {up} | 下跌: {down} | 涨停: {l_up}\n- 成交额: {vol} 亿元\n"
+        # 检查是否为历史数据
+        is_historical = context.date != date.today().isoformat()
+        historical_hint = f"注意：当前数据日期为 {context.date}，是最近一个交易日的收盘数据，请基于此进行分析。" if is_historical else ""
+
+        indices_text = "暂无指数数据\n"
+        if context.indices:
+            indices_text = ""
+            # 支持 dict 格式（旧格式）
+            if isinstance(context.indices, dict):
+                for idx_name, idx_data in context.indices.items():
+                    if isinstance(idx_data, dict):
+                        price = idx_data.get('price', 'N/A')
+                        change = idx_data.get('change_pct', 'N/A')
+                        indices_text += f"- {idx_name}: {price} ({change}%)\n"
+            # 支持 list 格式（各 fetcher 实际返回的格式）
+            elif isinstance(context.indices, list):
+                for idx in context.indices:
+                    if isinstance(idx, dict):
+                        name = idx.get('name', idx.get('code', 'N/A'))
+                        price = idx.get('current', idx.get('price', 'N/A'))
+                        change = idx.get('change_pct', 'N/A')
+                        indices_text += f"- {name}: {price} ({change}%)\n"
+        
+        if context.stats:
+            up = context.stats.get('up', 'N/A')
+            down = context.stats.get('down', 'N/A')
+            l_up = context.stats.get('limit_up', 'N/A')
+            vol = context.stats.get('volume_total', 'N/A')
+            stats_text = f"- 上涨: {up} | 下跌: {down} | 涨停: {l_up}\n- 成交额: {vol} 亿元\n"
+        else:
+            stats_text = "暂无统计数据\n"
         
         sectors_text = "- 领涨: 暂无\n- 领跌: 暂无\n"
         if isinstance(context.sector_rankings, dict):
@@ -326,6 +365,7 @@ class MarketAnalyzer:
             strategy_text = f"{strategy_section_title}\n## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
         
         return f"""{role}，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
+{historical_hint}
 
 【输出要求】：
 - 必须使用纯 Markdown 格式
