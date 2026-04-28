@@ -115,11 +115,11 @@ def _compute_trading_day_filter(config: Config, args: argparse.Namespace, stock_
     from src.core.trading_calendar import get_market_for_stock, get_open_markets_today, compute_effective_region
     open_markets = get_open_markets_today()
     filtered_codes = [c for c in stock_codes if get_market_for_stock(c) in open_markets or get_market_for_stock(c) is None]
-    
+
     effective_region = None
     if config.market_review_enabled and not getattr(args, 'no_market_review', False):
         effective_region = compute_effective_region(getattr(config, 'market_review_region', 'cn') or 'cn', open_markets)
-    
+
     should_skip_all = (not filtered_codes) and (effective_region or '') == ''
     return (filtered_codes, effective_region, should_skip_all)
 
@@ -130,16 +130,22 @@ async def run_full_analysis(config: Config, args: argparse.Namespace, stock_code
         if stock_codes is None: config.refresh_stock_list()
         effective_codes = stock_codes if stock_codes is not None else config.stock_list
         filtered_codes, effective_region, should_skip = _compute_trading_day_filter(config, args, effective_codes)
-        
-        if should_skip:
+
+        # 允许非交易日手动运行大盘复盘
+        is_manual_market_review = getattr(args, 'market_review', False)
+        if should_skip and not is_manual_market_review:
             logger.info("今日非交易日，跳过执行。")
             return
-        
+
+        # 如果是手动运行大盘复盘且处于非交易日，强制指定有效区域
+        if is_manual_market_review and (effective_region or '') == '':
+            effective_region = getattr(config, 'market_review_region', 'cn') or 'cn'
+
         stock_codes = filtered_codes
         if getattr(args, 'single_notify', False): config.single_stock_notify = True
 
-        merge_notification = (getattr(config, 'merge_email_notification', False) 
-                            and config.market_review_enabled 
+        merge_notification = (getattr(config, 'merge_email_notification', False)
+                            and config.market_review_enabled
                             and not getattr(args, 'no_market_review', False)
                             and not config.single_stock_notify)
 
@@ -230,7 +236,7 @@ async def main_async() -> int:
     logger.info("=" * 40 + " 系统启动 (Async) " + "=" * 40)
     config.validate()
     stock_codes = _parse_cli_stock_codes(args)
-    
+
     start_bot_stream_clients(config)
 
     try:
@@ -255,7 +261,7 @@ async def main_async() -> int:
         # 单次运行
         if config.run_immediately or args.market_review:
             await run_full_analysis(config, args, stock_codes)
-        
+
         return 0
     except KeyboardInterrupt: return 130
     except Exception as e:

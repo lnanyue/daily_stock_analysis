@@ -139,6 +139,11 @@ _etf_realtime_cache: Dict[str, Any] = {
     'ttl': 600  # 10分钟缓存有效期
 }
 
+_market_stats_failure_until = 0.0
+_MARKET_STATS_FAILURE_COOLDOWN = int(os.getenv("EFINANCE_MARKET_STATS_FAILURE_COOLDOWN", "300"))
+_index_quotes_failure_until = 0.0
+_INDEX_QUOTES_FAILURE_COOLDOWN = _MARKET_STATS_FAILURE_COOLDOWN
+
 
 def _is_etf_code(stock_code: str) -> bool:
     """
@@ -239,8 +244,12 @@ class EfinanceFetcher(BaseFetcher):
         self.sleep_min = sleep_min
         self.sleep_max = sleep_max
         self._last_request_time: Optional[float] = None
-        # 默认启用东财补丁以解决连接重置问题
-        eastmoney_patch()
+        try:
+            enable_patch = bool(getattr(get_config(), "enable_eastmoney_patch", False))
+        except Exception:
+            enable_patch = os.getenv("ENABLE_EASTMONEY_PATCH", "").strip().lower() in {"1", "true", "yes", "on"}
+        if enable_patch:
+            eastmoney_patch()
 
     @staticmethod
     def _build_history_failure_message(
@@ -777,6 +786,7 @@ class EfinanceFetcher(BaseFetcher):
         if region != "cn":
             return None
         import efinance as ef
+        global _index_quotes_failure_until
 
         indices_map = {
             '000001': ('上证指数', 'sh000001'),
@@ -788,6 +798,14 @@ class EfinanceFetcher(BaseFetcher):
         }
 
         try:
+            current_time = time.time()
+            if current_time < _index_quotes_failure_until:
+                logger.debug(
+                    "[efinance] 指数行情处于失败冷却期，跳过本次调用，剩余 %.0f 秒",
+                    _index_quotes_failure_until - current_time,
+                )
+                return None
+
             self._set_random_user_agent()
             self._enforce_rate_limit()
 
@@ -798,6 +816,7 @@ class EfinanceFetcher(BaseFetcher):
             api_elapsed = _time.time() - api_start
 
             if df is None or df.empty:
+                _index_quotes_failure_until = time.time() + _INDEX_QUOTES_FAILURE_COOLDOWN
                 logger.warning(f"[API返回] 指数行情为空, 耗时 {api_elapsed:.2f}s")
                 return None
 
@@ -844,7 +863,12 @@ class EfinanceFetcher(BaseFetcher):
                 logger.info(f"[efinance] 获取到 {len(results)} 个指数行情")
             return results if results else None
         except Exception as e:
-            logger.error(f"[efinance] 获取指数行情失败: {e}")
+            _index_quotes_failure_until = time.time() + _INDEX_QUOTES_FAILURE_COOLDOWN
+            logger.warning(
+                "[efinance] 获取指数行情失败，进入 %s 秒冷却并交给后续数据源兜底: %s",
+                _INDEX_QUOTES_FAILURE_COOLDOWN,
+                e,
+            )
             return None
 
     def get_market_stats(self) -> Optional[Dict[str, Any]]:
@@ -852,12 +876,20 @@ class EfinanceFetcher(BaseFetcher):
         获取市场涨跌统计 (efinance)
         """
         import efinance as ef
+        global _market_stats_failure_until
 
         try:
+            current_time = time.time()
+            if current_time < _market_stats_failure_until:
+                logger.debug(
+                    "[efinance] 市场统计处于失败冷却期，跳过本次调用，剩余 %.0f 秒",
+                    _market_stats_failure_until - current_time,
+                )
+                return None
+
             self._set_random_user_agent()
             self._enforce_rate_limit()
 
-            current_time = time.time()
             if (
                 _realtime_cache['data'] is not None and
                 current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']
@@ -875,7 +907,12 @@ class EfinanceFetcher(BaseFetcher):
 
             return self._calc_market_stats(df)
         except Exception as e:
-            logger.error(f"[efinance] 获取市场统计失败: {e}")
+            _market_stats_failure_until = time.time() + _MARKET_STATS_FAILURE_COOLDOWN
+            logger.warning(
+                "[efinance] 获取市场统计失败，进入 %s 秒冷却并交给后续数据源兜底: %s",
+                _MARKET_STATS_FAILURE_COOLDOWN,
+                e,
+            )
             return None
         
     def _calc_market_stats(

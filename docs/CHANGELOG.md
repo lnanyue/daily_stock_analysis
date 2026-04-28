@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 技能加载异常被静默吞没问题 — 在 ask.py、skills/aggregator.py、skills/router.py 的静默 except 块补充 logger.warning 日志，确保技能列表为空时有日志可查（fixes #970）
 - [修复] SQLite 主写入链路现在对 `stock_daily(code,date)` 使用批量原子 upsert，并在文件型 SQLite 连接上默认启用 `WAL`、`busy_timeout` 与有限写入重试，降低批量分析和并发回写场景下的锁竞争与吞吐抖动，返回值中的”新增数”改为按本次真正插入窗口计算（并发场景不再把并行写入行误算入当前调用）。
 - [修复] 个股分析评分解析不再大量回退到默认 50 分；常规分析会使用决策仪表盘 system prompt，解析层可从 `system_score`、`signal_score`、嵌套摘要与“系统评分 77/100”等文本中恢复真实评分。
+- [修复] 大盘复盘成交额字段统一为 `volume_total/total_amount` 双字段（单位：亿元），并恢复 `DataFetcherManager()` 默认内置数据源加载，避免真实全市场统计未执行或被误判为空后降级为自选股样本成交额；`EfinanceFetcher` 遵守 `ENABLE_EASTMONEY_PATCH` 开关，并在市场统计/指数行情接口失败后进入短期冷却后交给后续数据源兜底。
 
 ## [3.12.0] - 2026-04-01
 
