@@ -426,7 +426,9 @@ class StockAnalysisPipeline:
             try:
                 number = float(value)
                 return None if pd.isna(number) else number
-            except: return None
+            except Exception:
+                logger.debug("_as_float failed for value=%r", value)
+                return None
 
         def _get_quote_value(obj: Any, key: str) -> Any:
             if obj is None: return None
@@ -831,7 +833,9 @@ class StockAnalysisPipeline:
             if isinstance(value, (int, float)): return int(value)
             match = re.search(r"-?\d+", str(value))
             return int(match.group(0)) if match else default
-        except: return default
+        except Exception:
+            logger.debug("_safe_int failed for value=%r", value)
+            return default
 
     @staticmethod
     def _is_placeholder_stock_name(name: Optional[str], code: str) -> bool:

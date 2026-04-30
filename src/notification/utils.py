@@ -3,8 +3,11 @@
 通知层辅助工具与常量
 """
 
+import logging
 from typing import Any, Optional, Dict
 from src.report_language import normalize_report_language
+
+logger = logging.getLogger(__name__)
 
 # Display name mapping for realtime data sources
 SOURCE_DISPLAY_NAMES = {
@@ -30,10 +33,14 @@ def format_price(value: Any) -> str:
     """格式化价格"""
     if value is None: return "N/A"
     try: return f"{float(value):.2f}"
-    except: return str(value)
+    except Exception:
+        logger.debug("format_price failed for value=%r", value)
+        return str(value)
 
 def format_pct(value: Any) -> str:
     """格式化百分比"""
     if value is None: return "N/A"
     try: return f"{float(value):+.2f}%"
-    except: return str(value)
+    except Exception:
+        logger.debug("format_pct failed for value=%r", value)
+        return str(value)

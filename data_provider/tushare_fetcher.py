@@ -208,10 +208,10 @@ class TushareFetcher(BaseFetcher):
             with httpx.Client() as client:
                 res = client.post(TUSHARE_API_URL, json=req_params, timeout=_timeout)
             if res.status_code != 200:
-                raise Exception(f"Tushare API HTTP {res.status_code}")
+                raise DataFetchError(f"Tushare API HTTP {res.status_code}")
             result = _json.loads(res.text)
             if result['code'] != 0:
-                raise Exception(result['msg'])
+                raise DataFetchError(result['msg'])
             data = result['data']
             columns = data['fields']
             items = data['items']
@@ -259,11 +259,11 @@ class TushareFetcher(BaseFetcher):
             response = client.post(TUSHARE_API_URL, json=req_params, timeout=request_timeout)
 
         if response.status_code != 200:
-            raise Exception(f"Tushare API HTTP {response.status_code}")
+            raise DataFetchError(f"Tushare API HTTP {response.status_code}")
 
         result = _json.loads(response.text)
         if result.get("code") != 0:
-            raise Exception(result.get("msg") or f"Tushare API code={result.get('code')}")
+            raise DataFetchError(result.get("msg") or f"Tushare API code={result.get('code')}")
 
         data = result.get("data") or {}
         columns = data.get("fields") or []

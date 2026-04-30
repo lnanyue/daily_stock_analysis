@@ -626,12 +626,16 @@ class DatabaseManager:
 
     def _normalize_sql_value(self, val: Any) -> Optional[float]:
         try: return float(val) if val is not None else None
-        except: return None
+        except Exception:
+            logger.debug("_normalize_sql_value failed for val=%r", val)
+            return None
 
     def _parse_published_date(self, value: Optional[str]) -> Optional[datetime]:
         if not value: return None
         try: return datetime.fromisoformat(str(value))
-        except: return None
+        except Exception:
+            logger.debug("_parse_published_date failed for value=%r", value)
+            return None
 
     def _build_fallback_url_key(self, code: str, title: str, source: str, pub_date: Optional[datetime]) -> str:
         raw = f"{code}|{title}|{source}|{pub_date}"

@@ -42,6 +42,7 @@ class DataFetcherManager:
 
                 config = get_config()
             except Exception:
+                logger.warning("[DataFetcherManager] 初始化配置加载失败，使用默认配置", exc_info=True)
                 config = None
 
         if fetchers is None:
@@ -197,6 +198,7 @@ class DataFetcherManager:
 
             self._config = get_config()
         except Exception:
+            logger.warning("[DataFetcherManager] 运行时配置加载失败", exc_info=True)
             self._config = None
         return self._config
 

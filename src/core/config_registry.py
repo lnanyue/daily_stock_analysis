@@ -283,6 +283,20 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {},
         "display_order": 18,
     },
+    "ENABLE_EASTMONEY_PATCH": {
+        "title": "Enable EastMoney Patch",
+        "description": "启用东方财富连接重置补丁，修复 'Connection reset' 报错。",
+        "category": "data_source",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": False,
+        "options": [],
+        "validation": {},
+        "display_order": 19,
+    },
     "REALTIME_SOURCE_PRIORITY": {
         "title": "Realtime Source Priority",
         "description": "Comma-separated priority for realtime quote providers.",
@@ -1334,20 +1348,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {"enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]},
         "display_order": 30,
     },
-    "WEBUI_PORT": {
-        "title": "Web UI Port",
-        "description": "Port for Web UI service.",
-        "category": "system",
-        "data_type": "integer",
-        "ui_control": "number",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "8000",
-        "options": [],
-        "validation": {"min": 1, "max": 65535},
-        "display_order": 40,
-    },
     "RUN_IMMEDIATELY": {
         "title": "Run Immediately",
         "description": "Whether to run analysis immediately on startup (non-schedule mode).",
@@ -1937,7 +1937,7 @@ def _infer_category(key: str) -> str:
         "ASTRBOT",
     )) or "WEBHOOK" in key:
         return "notification"
-    if key.startswith(("LOG_", "SCHEDULE_", "WEBUI_", "HTTP_", "HTTPS_", "MAX_", "DEBUG", "MARKET_REVIEW_", "TRADING_DAY_", "ANALYSIS_DELAY")):
+    if key.startswith(("LOG_", "SCHEDULE_", "HTTP_", "HTTPS_", "MAX_", "DEBUG", "MARKET_REVIEW_", "TRADING_DAY_", "ANALYSIS_DELAY")):
         return "system"
     return "uncategorized"
 

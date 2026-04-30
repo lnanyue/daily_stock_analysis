@@ -105,8 +105,6 @@ class Config:
     max_workers: int = 3
     log_level: str = "INFO"
     log_dir: str = "./logs"
-    webui_enabled: bool = False
-    webui_port: int = 8000
     debug: bool = False
     config_validate_mode: str = "warn"
 
@@ -448,17 +446,6 @@ class Config:
             ),
             log_level=(os.getenv("LOG_LEVEL") or sys_s.get("log_level", "INFO")).strip() or "INFO",
             log_dir=(os.getenv("LOG_DIR") or sys_s.get("log_dir", "./logs")).strip() or "./logs",
-            webui_enabled=parse_env_bool(
-                os.getenv("WEBUI_ENABLED"),
-                default=bool(sys_s.get("webui_enabled", False)),
-            ),
-            webui_port=parse_env_int(
-                os.getenv("WEBUI_PORT"),
-                8000,
-                field_name="WEBUI_PORT",
-                minimum=1,
-                maximum=65535,
-            ),
             debug=parse_env_bool(os.getenv("DEBUG"), default=bool(sys_s.get("debug", False))),
             config_validate_mode=(os.getenv("CONFIG_VALIDATE_MODE") or "warn").strip().lower() or "warn",
             report_type=((os.getenv("REPORT_TYPE") or not_s.get("report_type", "simple")).strip().lower() or "simple"),

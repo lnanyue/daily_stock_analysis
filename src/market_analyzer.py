@@ -268,7 +268,9 @@ class MarketAnalyzer:
                                     context.stats = stats
                                     logger.info(f"[大盘] 从 {f.name} 获取到真实的非零统计: 成交额={stats.get('volume_total')}亿")
                                     break
-                        except: continue
+                        except Exception:
+                            logger.warning("[大盘] get_market_stats failed for %s", getattr(f, "name", "unknown"), exc_info=True)
+                            continue
             else:
                 context.indices = indices
         except Exception as e:

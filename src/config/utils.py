@@ -331,7 +331,8 @@ def parse_llm_channels(channels_str: str) -> List[Dict[str, Any]]:
         extra_headers = None
         if extra_headers_raw:
             try: extra_headers = json.loads(extra_headers_raw)
-            except: pass
+            except Exception:
+                logger.warning("Failed to parse LLM_%s_EXTRA_HEADERS: %s", ch_upper, extra_headers_raw)
         if not enabled or not api_keys or not models: continue
         channels.append({
             'name': ch_name.lower(), 'protocol': protocol, 'enabled': enabled,
@@ -396,7 +397,9 @@ def parse_litellm_yaml(config_path: str) -> List[Dict[str, Any]]:
     try:
         with open(path, encoding='utf-8') as f:
             yaml_config = yaml.safe_load(f) or {}
-    except: return []
+    except Exception:
+        logger.warning("Failed to load litellm config from %s", config_path)
+        return []
     model_list = yaml_config.get('model_list', [])
     if not isinstance(model_list, list): return []
     for entry in model_list:
@@ -428,7 +431,9 @@ def load_stocks_from_yaml(file_path: str) -> List[str]:
                 for gs in data['groups'].values():
                     if isinstance(gs, list): stocks.extend(gs)
         return list(dict.fromkeys([str(s).strip().upper() for s in stocks if s]))
-    except: return []
+    except Exception:
+        logger.warning("Failed to load stocks from %s", file_path)
+        return []
 
 
 def load_settings_from_yaml(file_path: str) -> Dict[str, Any]:
@@ -442,7 +447,9 @@ def load_settings_from_yaml(file_path: str) -> Dict[str, Any]:
         with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
         return data if isinstance(data, dict) else {}
-    except: return {}
+    except Exception:
+        logger.warning("Failed to load settings from %s", file_path)
+        return {}
 
 
 def setup_env(override: bool = False):

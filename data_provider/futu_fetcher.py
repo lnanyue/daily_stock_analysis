@@ -348,7 +348,7 @@ class FutuRealtimeProvider:
     def start(self):
         """启动实时行情接收"""
         if not FUTU_AVAILABLE:
-            raise RuntimeError("futu-api not installed")
+            raise DataFetchError("futu-api not installed")
 
         from futu import OpenQuoteContext
 
@@ -383,7 +383,7 @@ class FutuRealtimeProvider:
     def subscribe(self, codes: List[str]):
         """订阅股票列表"""
         if not self._ctx:
-            raise RuntimeError("Provider not started")
+            raise DataFetchError("Provider not started")
 
         futu_codes = []
         for code in codes:
