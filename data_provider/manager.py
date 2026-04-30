@@ -136,6 +136,13 @@ class DataFetcherManager:
                 ).OpenBBFetcher(config=config),
             )
         add(
+            "FutuFetcher",
+            lambda: __import__(
+                "data_provider.futu_fetcher",
+                fromlist=["FutuFetcher"],
+            ).FutuFetcher(config=config),
+        )
+        add(
             "YfinanceFetcher",
             lambda: __import__(
                 "data_provider.yfinance_fetcher",

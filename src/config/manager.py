@@ -166,6 +166,9 @@ class Config:
     save_context_snapshot: bool = True
     tushare_token: Optional[str] = None
     tickflow_api_key: Optional[str] = None
+    futu_api_host: str = "127.0.0.1"
+    futu_api_port: int = 11111
+    futu_unlock_password: Optional[str] = None
     enable_realtime_quote: bool = True
     enable_realtime_technical_indicators: bool = True
     enable_chip_distribution: bool = True
@@ -544,6 +547,15 @@ class Config:
             save_context_snapshot=parse_env_bool(os.getenv("SAVE_CONTEXT_SNAPSHOT"), default=True),
             tushare_token=os.getenv("TUSHARE_TOKEN"),
             tickflow_api_key=os.getenv("TICKFLOW_API_KEY"),
+            futu_api_host=os.getenv("FUTU_API_HOST", "127.0.0.1"),
+            futu_api_port=parse_env_int(
+                os.getenv("FUTU_API_PORT"),
+                11111,
+                field_name="FUTU_API_PORT",
+                minimum=1,
+                maximum=65535,
+            ),
+            futu_unlock_password=os.getenv("FUTU_UNLOCK_PASSWORD"),
             enable_realtime_quote=parse_env_bool(os.getenv("ENABLE_REALTIME_QUOTE"), default=True),
             enable_realtime_technical_indicators=parse_env_bool(
                 os.getenv("ENABLE_REALTIME_TECHNICAL_INDICATORS"),

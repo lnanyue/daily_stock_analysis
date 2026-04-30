@@ -12,6 +12,7 @@ from .base import BaseFetcher
 from .manager import (
     DataFetcherManager,
 )
+from .futu_fetcher import FutuFetcher
 from .utils import (
     canonical_stock_code,
     normalize_stock_code,
@@ -45,6 +46,7 @@ __all__ = [
     "RateLimitError",
     "DataSourceUnavailableError",
     "DataFetcherManager",
+    "FutuFetcher",
     "canonical_stock_code",
     "normalize_stock_code",
     "is_bse_code",
