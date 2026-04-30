@@ -47,7 +47,7 @@ class TestFundamentalContext(unittest.TestCase):
             fundamental_retry_max=1,
         )
         with patch("src.config.get_config", return_value=cfg):
-            ctx = manager.get_fundamental_context("AAPL")
+            ctx = manager.get_fundamental_context_sync("AAPL")
         self.assertEqual(ctx["market"], "us")
         self.assertEqual(ctx["status"], "not_supported")
         self.assertEqual(ctx["coverage"].get("valuation"), "not_supported")
@@ -89,7 +89,7 @@ class TestFundamentalContext(unittest.TestCase):
                     "data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
                     return_value=bundle,
                 ):
-            ctx = manager.get_fundamental_context("159915")
+            ctx = manager.get_fundamental_context_sync("159915")
         self.assertEqual(ctx["market"], "cn")
         self.assertIn(ctx["status"], ("partial", "not_supported"))
         self.assertEqual(ctx["coverage"].get("valuation"), "ok")
@@ -113,7 +113,7 @@ class TestFundamentalContext(unittest.TestCase):
             rankings=([{"name": "地产", "change_pct": 2.0}], [{"name": "煤炭", "change_pct": -2.0}]),
         )
         manager = DataFetcherManager(fetchers=[efinance, tushare, akshare])
-        top, bottom = manager.get_sector_rankings(1)
+        top, bottom = manager.get_sector_rankings_sync(1)
         self.assertEqual(top[0]["name"], "地产")
         self.assertEqual(bottom[0]["name"], "煤炭")
 
@@ -145,7 +145,7 @@ class TestFundamentalContext(unittest.TestCase):
                 patch.object(manager, "get_capital_flow_context", return_value={"status": "partial", "source_chain": []}), \
                 patch.object(manager, "get_dragon_tiger_context", return_value={"status": "partial", "source_chain": []}), \
                 patch.object(manager, "get_board_context", return_value={"status": "partial", "source_chain": []}):
-            ctx = manager.get_fundamental_context("600519", budget_seconds=1.5)
+            ctx = manager.get_fundamental_context_sync("600519", budget_seconds=1.5)
         self.assertEqual(ctx["market"], "cn")
         self.assertIn("valuation", ctx)
         self.assertIn("growth", ctx)
@@ -188,7 +188,7 @@ class TestFundamentalContext(unittest.TestCase):
                 patch.object(manager, "get_capital_flow_context", return_value={"status": "not_supported", "source_chain": []}), \
                 patch.object(manager, "get_dragon_tiger_context", return_value={"status": "not_supported", "source_chain": []}), \
                 patch.object(manager, "get_board_context", return_value={"status": "not_supported", "source_chain": []}):
-            ctx = manager.get_fundamental_context("600519", budget_seconds=1.5)
+            ctx = manager.get_fundamental_context_sync("600519", budget_seconds=1.5)
 
         dividend_payload = ctx["earnings"]["data"]["dividend"]
         self.assertAlmostEqual(dividend_payload["ttm_dividend_yield_pct"], 5.0, places=6)
@@ -229,7 +229,7 @@ class TestFundamentalContext(unittest.TestCase):
                 patch.object(manager, "get_capital_flow_context", return_value={"status": "not_supported", "source_chain": []}), \
                 patch.object(manager, "get_dragon_tiger_context", return_value={"status": "not_supported", "source_chain": []}), \
                 patch.object(manager, "get_board_context", return_value={"status": "not_supported", "source_chain": []}):
-            ctx = manager.get_fundamental_context("600519", budget_seconds=1.5)
+            ctx = manager.get_fundamental_context_sync("600519", budget_seconds=1.5)
 
         dividend_payload = ctx["earnings"]["data"]["dividend"]
         self.assertIsNone(dividend_payload.get("ttm_dividend_yield_pct"))
@@ -282,7 +282,7 @@ class TestFundamentalContext(unittest.TestCase):
                 patch.object(manager, "get_capital_flow_context", side_effect=_capital_flow_side_effect), \
                 patch.object(manager, "get_dragon_tiger_context", side_effect=_dragon_tiger_side_effect), \
                 patch.object(manager, "get_board_context", side_effect=_boards_side_effect):
-            manager.get_fundamental_context("600519")
+            manager.get_fundamental_context_sync("600519")
 
         self.assertGreater(budgets.get("capital_flow", 0.0), 0.0)
         self.assertGreater(budgets.get("dragon_tiger", 0.0), 0.0)
@@ -363,7 +363,7 @@ class TestFundamentalContext(unittest.TestCase):
                     "data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
                     return_value=bundle,
                 ):
-            ctx = manager.get_fundamental_context("600519")
+            ctx = manager.get_fundamental_context_sync("600519")
 
         self.assertEqual(ctx["coverage"].get("valuation"), "partial")
 
@@ -422,7 +422,7 @@ class TestFundamentalContext(unittest.TestCase):
             boards=[{"name": "白酒"}, {"board_name": "消费"}],
         )
         manager = DataFetcherManager(fetchers=[fetcher])
-        boards = manager.get_belong_boards("600519")
+        boards = manager.get_belong_boards_sync("600519")
         self.assertEqual(len(boards), 2)
         self.assertEqual(boards[0]["name"], "白酒")
         self.assertEqual(boards[1]["name"], "消费")
@@ -437,7 +437,7 @@ class TestFundamentalContext(unittest.TestCase):
             ],
         )
         manager = DataFetcherManager(fetchers=[fetcher])
-        boards = manager.get_belong_boards("600519")
+        boards = manager.get_belong_boards_sync("600519")
         self.assertEqual(len(boards), 2)
         self.assertEqual(
             boards[0],
@@ -460,7 +460,7 @@ class TestFundamentalContext(unittest.TestCase):
             ],
         )
         manager = DataFetcherManager(fetchers=[fetcher])
-        boards = manager.get_belong_boards("600519")
+        boards = manager.get_belong_boards_sync("600519")
         self.assertEqual(
             boards,
             [

@@ -184,6 +184,7 @@ class Config:
     agent_litellm_model: str = ""
 
     agent_mode: bool = False
+    agent_auto_route_analysis: bool = False
     _agent_mode_explicit: bool = False
     agent_max_steps: int = 10
     agent_skills: List[str] = field(default_factory=list)
@@ -207,6 +208,10 @@ class Config:
     exa_api_keys: List[str] = field(default_factory=list)
     serpapi_keys: List[str] = field(default_factory=list)
     brave_api_keys: List[str] = field(default_factory=list)
+    openbb_news_enabled: bool = False
+    openbb_news_provider: str = "yfinance"
+    openbb_fetcher_enabled: bool = False
+    openbb_fetcher_provider: str = "yfinance"
 
     feishu_app_id: Optional[str] = None
     feishu_app_secret: Optional[str] = None
@@ -578,6 +583,10 @@ class Config:
             llm_models_source=llm_models_source,
             agent_litellm_model=agent_litellm_model,
             agent_mode=parse_env_bool(agent_mode_env, default=False),
+            agent_auto_route_analysis=parse_env_bool(
+                os.getenv("AGENT_AUTO_ROUTE_ANALYSIS"),
+                default=False,
+            ),
             _agent_mode_explicit=agent_mode_env is not None,
             agent_max_steps=parse_env_int(
                 os.getenv("AGENT_MAX_STEPS"),
@@ -610,6 +619,16 @@ class Config:
             exa_api_keys=_get_keys("EXA_API_KEYS", "EXA_API_KEY"),
             serpapi_keys=_get_keys("SERPAPI_API_KEYS", "SERPAPI_API_KEY"),
             brave_api_keys=_get_keys("BRAVE_API_KEYS", "BRAVE_API_KEY"),
+            openbb_news_enabled=parse_env_bool(
+                os.getenv("OPENBB_NEWS_ENABLED"),
+                default=False,
+            ),
+            openbb_news_provider=(os.getenv("OPENBB_NEWS_PROVIDER") or "yfinance").strip() or "yfinance",
+            openbb_fetcher_enabled=parse_env_bool(
+                os.getenv("OPENBB_FETCHER_ENABLED"),
+                default=False,
+            ),
+            openbb_fetcher_provider=(os.getenv("OPENBB_FETCHER_PROVIDER") or "yfinance").strip() or "yfinance",
             feishu_app_id=os.getenv("FEISHU_APP_ID"),
             feishu_app_secret=os.getenv("FEISHU_APP_SECRET"),
             feishu_folder_token=os.getenv("FEISHU_FOLDER_TOKEN"),
@@ -912,6 +931,7 @@ class Config:
             or self.exa_api_keys
             or self.brave_api_keys
             or self.serpapi_keys
+            or self.openbb_news_enabled
             or self.has_searxng_enabled()
         )
         if not has_search:
@@ -937,6 +957,7 @@ class Config:
             or self.exa_api_keys
             or self.brave_api_keys
             or self.serpapi_keys
+            or self.openbb_news_enabled
             or self.has_searxng_enabled()
         )
 

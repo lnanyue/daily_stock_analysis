@@ -16,7 +16,7 @@
 - 插件在同一个 Python 进程中运行，直接 import，共享内存
 - 使用独立的 `plugins.yaml` 配置文件管理启用/禁用/优先级/参数
 - 采用轻量注册表模式，不引入复杂 hook 框架
-- 现有六大 Fetcher（Akshare/Efinance/Tushare/Pytdx/Baostock/Yfinance）作为内置数据源保留
+- 现有内置 Fetcher（Akshare/Efinance/Tushare/Baostock/Yfinance，以及按配置启用的 OpenBB/TickFlow）作为内置数据源保留
 
 ## 2. 目录结构
 

@@ -148,7 +148,6 @@ Based on grep analysis, ~20 files with ~80 parameter renames:
 | `data_provider/efinance_fetcher.py` | 6 |
 | `data_provider/tushare_fetcher.py` | 5 |
 | `data_provider/yfinance_fetcher.py` | 5 |
-| `data_provider/pytdx_fetcher.py` | 4 |
 | `src/stock_analyzer.py` | 5 |
 | `src/analyzer.py` | 8 |
 | `src/core/pipeline.py` | 6 |

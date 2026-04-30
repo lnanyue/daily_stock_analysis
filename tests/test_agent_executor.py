@@ -31,6 +31,11 @@ from src.agent.executor import AgentExecutor, AgentResult
 from src.agent.llm_adapter import LLMResponse, ToolCall
 from src.agent.runner import parse_dashboard_json, run_agent_loop, serialize_tool_result
 from src.agent.tools.registry import ToolRegistry, ToolDefinition, ToolParameter
+from src.prompts import (
+    load_trading_dashboard,
+    load_trading_dashboard_legacy,
+    load_trading_dashboard_schema,
+)
 
 
 # ============================================================
@@ -86,6 +91,26 @@ SAMPLE_DASHBOARD = {
 
 class TestAgentExecutor(unittest.TestCase):
     """Test the ReAct loop logic."""
+
+    def test_runtime_and_template_prompts_share_dashboard_schema_source(self):
+        from src.agent.executor import (
+            AGENT_SYSTEM_PROMPT,
+            LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT,
+        )
+
+        runtime_schema = load_trading_dashboard_schema("操作理由，引用激活技能或风险框架").strip()
+        legacy_schema = load_trading_dashboard_schema("操作理由，引用交易理念").strip()
+        template_prompt = load_trading_dashboard()
+        legacy_template_prompt = load_trading_dashboard_legacy("## 默认技能基线")
+
+        self.assertIn(runtime_schema, AGENT_SYSTEM_PROMPT)
+        self.assertIn(legacy_schema, LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT)
+        self.assertIn(runtime_schema, template_prompt)
+        self.assertIn(legacy_schema, legacy_template_prompt)
+        self.assertNotIn("{dashboard_schema_block}", template_prompt)
+        self.assertNotIn("{dashboard_schema_block}", legacy_template_prompt)
+        self.assertNotIn("search_performed", runtime_schema)
+        self.assertNotIn("data_sources", runtime_schema)
 
     def test_prompt_omits_hardcoded_trend_baseline_when_default_policy_is_empty(self):
         """Explicit skill runs should not silently keep the legacy trend baseline."""

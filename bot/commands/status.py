@@ -77,6 +77,8 @@ class StatusCommand(BotCommand):
         status["search_serpapi"] = len(config.serpapi_keys) > 0
         status["search_minimax"] = len(config.minimax_api_keys) > 0
         status["search_searxng"] = config.has_searxng_enabled()
+        status["search_openbb"] = bool(getattr(config, "openbb_news_enabled", False))
+        status["data_openbb_fetcher"] = bool(getattr(config, "openbb_fetcher_enabled", False))
         
         # 通知渠道状态
         status["notify_wechat"] = bool(config.wechat_webhook_url)
@@ -124,6 +126,8 @@ class StatusCommand(BotCommand):
             f"• SerpAPI: {icon(status['search_serpapi'])}",
             f"• MiniMax: {icon(status['search_minimax'])}",
             f"• SearXNG: {icon(status['search_searxng'])}",
+            f"• OpenBB News: {icon(status['search_openbb'])}",
+            f"• OpenBB Fetcher: {icon(status['data_openbb_fetcher'])}",
             "",
             "**📢 通知渠道**",
             f"• 企业微信: {icon(status['notify_wechat'])}",

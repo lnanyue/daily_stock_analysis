@@ -12,8 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] **MiniMax-M2.7 模型连接测试支持** — 修复 LLM 通道连接测试在 MiniMax-M2.7 模型下返回 "Empty response" 的问题；增加了 `max_tokens` 上限（8→256）以容纳 MiniMax 思考过程，并添加 `content_blocks` 格式解析逻辑统一处理 MiniMax 响应格式差异。
+- [修复] 经典个股分析 prompt 恢复技术面数据插值，并补齐稳定规则层；`format_analysis_prompt()` 的技术面表格改回真正的 f-string，收盘价、成交量、成交额、均线形态等字段不再把占位表达式原样透传给模型，同时新增独立分析规则块并为新闻窗口缺省值兜底，避免 prompt 出现 `近None日`。
+- [改进] 决策仪表盘 JSON schema 收口为共享 prompt 资产；Agent 运行时 prompt 与 `src/prompts/trading_dashboard*.md` 模板改为注入同一份 `trading_dashboard_schema.md`，移除多处重复内联 schema，避免字段示例在运行时与模板文档之间继续漂移。
+- [修复] 大盘复盘通知失败日志补齐渠道级摘要，并增强退出清理；通知服务现在会记录最近一次发送的成功/失败渠道、重试次数与异常摘要，市场复盘推送失败日志会直接带出该摘要；同时邮件发送改为限时 daemon 线程执行，`main._cleanup()` 会在退出前 best-effort flush/stop LiteLLM 的后台 logging worker，降低 `Task was destroyed but it is pending` 和默认线程池长时间 join 警告。
 - [修复] 个股分析链路恢复 `fundamental_context` 兼容封装与 prompt 透传；修复 `AkshareFundamentalAdapter` 缺少旧版基本面上下文入口导致个股 CLI 在基本面阶段直接中断的问题，并让个股 prompt 重新读到结构化财报/分红字段。
 - [修复] 恢复数据源、历史详情、回测与报告渲染的兼容契约：`DataFetcherManager` 重新提供同步公共入口并补充异步 wrapper，补齐历史详情/回测 ORM 字段、Vision legacy 模型配置、Jinja 报告模板默认目录与报告输出忽略规则。
+- [修复] 股票名称 fallback 遇到 Tushare `stock_basic` 超时或“频率超限”时会更快切换后续数据源；名称查询改用独立超时线程与短超时 HTTP 调用，避免阻塞默认 asyncio 执行器导致分析尾延迟过长。
+- [新功能] 新增 `AGENT_AUTO_ROUTE_ANALYSIS` 条件式 Agent 分流：经典单股分析仍为默认，但在数据缺口、密集/高风险情报或较丰富的 A 股情报场景会自动升级到 Agent；同时把已预取的行情、筹码、趋势与新闻上下文注入 Agent，减少重复取数。
+- [新功能] 新增可选 `OpenBBFetcher` 数据源；配置 `OPENBB_FETCHER_ENABLED=true` 后可通过 OpenBB provider 获取历史价格、实时行情与股票名称 fallback，未安装 OpenBB 时保持静默降级。
+- [改进] 下线 `PytdxFetcher`：移除 pytdx 依赖与默认数据源注册，避免通达信服务器频繁超时/握手失败拖慢股票名称与行情 fallback 链路。
 - [改进] 个股 Markdown 报告恢复完整明细输出：批量 `stocks.yaml` 报告不再只写入首只股票，单股/多股报告现在会展开持仓建议、数据透视、作战计划、检查清单与风险情报，避免结构化 dashboard 数据在最终 md 中丢失。
 - [修复] 市场复盘 Prompt 按 `cn/us/global` 分流输出模板；A 股/美股单市场复盘不再强制生成“全球视野 / 中美联动点评”段落，新闻为空时也会优先提示“消息面样本有限”而不是误导性扩写跨市场结论。
 - [修复] 移除 `HistoryItem` 与 `ReportSummary` 响应 Schema 中 `sentiment_score` 的 `ge=0/le=100` 约束（fixes #942）——历史库中存储的超范围负值或大于 100 的情绪评分不再触发 Pydantic ValidationError，历史列表与详情接口恢复正常返回。
@@ -29,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] SQLite 主写入链路现在对 `stock_daily(code,date)` 使用批量原子 upsert，并在文件型 SQLite 连接上默认启用 `WAL`、`busy_timeout` 与有限写入重试，降低批量分析和并发回写场景下的锁竞争与吞吐抖动，返回值中的”新增数”改为按本次真正插入窗口计算（并发场景不再把并行写入行误算入当前调用）。
 - [修复] 个股分析评分解析不再大量回退到默认 50 分；常规分析会使用决策仪表盘 system prompt，解析层可从 `system_score`、`signal_score`、嵌套摘要与“系统评分 77/100”等文本中恢复真实评分。
 - [修复] 大盘复盘成交额字段统一为 `volume_total/total_amount` 双字段（单位：亿元），并恢复 `DataFetcherManager()` 默认内置数据源加载，避免真实全市场统计未执行或被误判为空后降级为自选股样本成交额；`EfinanceFetcher` 遵守 `ENABLE_EASTMONEY_PATCH` 开关，并在市场统计/指数行情接口失败后进入短期冷却后交给后续数据源兜底。
+- [新增] 搜索服务可选接入 OpenBB 公司新闻源；配置 `OPENBB_NEWS_ENABLED=true` 后通过 `obb.news.company` 拉取结构化公司新闻，并在失败或未安装 OpenBB 时继续使用其它搜索源兜底。
 
 ## [3.12.0] - 2026-04-01
 

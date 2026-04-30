@@ -19,10 +19,12 @@ from src.search import (  # noqa: F401 – re-export
     ExaSearchProvider,
     BraveSearchProvider,
     SearXNGSearchProvider,
+    OpenBBNewsProvider,
     get_search_service,
     reset_search_service,
     fetch_url_content,
 )
+import time  # noqa: F401 - legacy tests/callers patch src.search_service.time.sleep
 import requests  # noqa: F401 - legacy tests/callers patch src.search_service.requests
 
 # Legacy private names used by some callers
@@ -44,6 +46,7 @@ __all__ = [
     "ExaSearchProvider",
     "BraveSearchProvider",
     "SearXNGSearchProvider",
+    "OpenBBNewsProvider",
     "get_search_service",
     "reset_search_service",
     "fetch_url_content",

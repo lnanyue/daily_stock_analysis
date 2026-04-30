@@ -7,6 +7,7 @@ Email 发送提醒服务
 """
 import logging
 import asyncio
+import threading
 from typing import Optional, List
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -113,6 +114,52 @@ class EmailSender:
         sender_name = self._email_config.get('sender_name') or '股票分析助手'
         return formataddr((str(Header(str(sender_name), 'utf-8')), sender))
 
+    async def _run_sync_detached(self, fn, *args):
+        """Run a blocking SMTP call in a daemon thread so shutdown is not tied to the default executor."""
+        loop = asyncio.get_running_loop()
+        result_future = loop.create_future()
+        timeout = max(float(self._timeout) + 0.05, 0.05)
+
+        def _publish_result(result=None, error: Optional[BaseException] = None) -> None:
+            if loop.is_closed():
+                return
+
+            def _apply() -> None:
+                if result_future.done():
+                    return
+                if error is not None:
+                    result_future.set_exception(error)
+                else:
+                    result_future.set_result(result)
+
+            try:
+                loop.call_soon_threadsafe(_apply)
+            except RuntimeError:
+                # Event loop may already be tearing down.
+                return
+
+        def _worker() -> None:
+            try:
+                _publish_result(result=fn(*args))
+            except BaseException as exc:  # pragma: no cover - defensive, covered via await path
+                _publish_result(error=exc)
+
+        worker = threading.Thread(
+            target=_worker,
+            name="notification-email-sender",
+            daemon=True,
+        )
+        worker.start()
+
+        try:
+            return await asyncio.wait_for(result_future, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error("邮件发送超时（>%.1fs），后台线程已分离，不再阻塞主流程退出", timeout)
+            return False
+        except Exception:
+            logger.exception("邮件发送线程执行失败")
+            return False
+
     @staticmethod
     def _close_server(server: Optional[smtplib.SMTP]) -> None:
         """Best-effort SMTP cleanup to avoid leaving sockets open on header/build errors.
@@ -148,8 +195,7 @@ class EmailSender:
             logger.warning("邮件配置不完整，跳过推送")
             return False
         
-        # 使用 asyncio.to_thread 运行阻塞操作
-        return await asyncio.to_thread(
+        return await self._run_sync_detached(
             self._send_to_email_sync, content, subject, receivers
         )
 
@@ -232,7 +278,7 @@ class EmailSender:
         if not self._is_email_configured():
             return False
         
-        return await asyncio.to_thread(
+        return await self._run_sync_detached(
             self._send_email_with_inline_image_sync, image_bytes, receivers
         )
 

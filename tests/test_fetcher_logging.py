@@ -59,7 +59,7 @@ class TestFetcherLogging(unittest.TestCase):
     def test_base_fetcher_logs_start_and_success(self):
         fetcher = _SuccessFetcher()
 
-        with self.assertLogs("data_provider.base", level="INFO") as captured:
+        with self.assertLogs("data_provider", level="INFO") as captured:
             df = fetcher.get_daily_data("600519", start_date="2026-03-01", end_date="2026-03-08")
 
         log_text = "\n".join(captured.output)
@@ -71,8 +71,8 @@ class TestFetcherLogging(unittest.TestCase):
     def test_manager_logs_fallback_and_final_success(self):
         manager = DataFetcherManager(fetchers=[_FailureFetcher(), _SuccessFetcher()])
 
-        with self.assertLogs("data_provider.base", level="INFO") as captured:
-            df, source = manager.get_daily_data("601006", start_date="2026-01-07", end_date="2026-03-08")
+        with self.assertLogs("data_provider", level="INFO") as captured:
+            df, source = manager.get_daily_data_sync("601006", start_date="2026-01-07", end_date="2026-03-08")
 
         log_text = "\n".join(captured.output)
         self.assertFalse(df.empty)

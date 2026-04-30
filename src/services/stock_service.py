@@ -44,7 +44,7 @@ class StockService:
             from data_provider.base import DataFetcherManager
             
             manager = DataFetcherManager()
-            quote = manager.get_realtime_quote(stock_code)
+            quote = manager.get_realtime_quote_sync(stock_code)
             
             if quote is None:
                 logger.warning("获取 %s 实时行情失败", stock_code)
@@ -117,14 +117,14 @@ class StockService:
             from data_provider.base import DataFetcherManager
             
             manager = DataFetcherManager()
-            df, source = manager.get_daily_data(stock_code, days=days)
+            df, source = manager.get_daily_data_sync(stock_code, days=days)
             
             if df is None or df.empty:
                 logger.warning("获取 %s 历史数据失败", stock_code)
                 return {"stock_code": stock_code, "period": period, "data": []}
             
             # 获取股票名称
-            stock_name = manager.get_stock_name(stock_code)
+            stock_name = manager.get_stock_name_sync(stock_code)
             
             # 转换为响应格式
             data = []

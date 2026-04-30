@@ -305,6 +305,7 @@ class GeminiAnalyzer:
             AGENT_SYSTEM_PROMPT,
             LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT,
             _build_language_section,
+            _render_prompt_template,
         )
 
         prompt_state = self._resolve_prompt_state()
@@ -322,7 +323,8 @@ class GeminiAnalyzer:
             if prompt_state["use_legacy_default_prompt"]
             else AGENT_SYSTEM_PROMPT
         )
-        return prompt_template.format(
+        return _render_prompt_template(
+            prompt_template,
             market_role=market_role,
             market_guidelines=market_guidelines,
             default_skill_policy_section=default_skill_policy_section,

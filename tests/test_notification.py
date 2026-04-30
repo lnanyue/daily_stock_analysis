@@ -49,6 +49,35 @@ class TestNotificationServiceSendToMethods(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(service.is_available())
         result = await service.send("test content")
         self.assertFalse(result)
+        self.assertEqual(service.get_last_delivery_summary(), "未配置任何通知渠道")
+
+    @mock.patch("src.notification.service.get_config")
+    async def test_send_records_delivery_summary_on_failure(self, mock_get_config):
+        cfg = _make_config(feishu_webhook_url="https://feishu.ex")
+        mock_get_config.return_value = cfg
+        service = NotificationService()
+
+        with mock.patch.object(
+            service,
+            "_send_channel_with_retry",
+            new=mock.AsyncMock(
+                return_value={
+                    "channel": "feishu",
+                    "channel_name": "飞书",
+                    "success": False,
+                    "attempts": 2,
+                    "error": "HTTP 403",
+                }
+            ),
+        ):
+            ok = await service.send("feishu content")
+
+        self.assertFalse(ok)
+        self.assertEqual(
+            service.get_last_delivery_summary(),
+            "失败[飞书(2次): HTTP 403]",
+        )
+        self.assertEqual(service.get_last_delivery_results()[0]["channel"], "feishu")
 
     @mock.patch("src.notification.service.get_config")
     @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)

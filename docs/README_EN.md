@@ -54,7 +54,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 | Type | Supported |
 |------|----------|
 | LLMs | Gemini (free), OpenAI-compatible, DeepSeek, Qwen, Claude, Ollama |
-| Market Data | AkShare, Tushare, Pytdx, Baostock, YFinance |
+| Market Data | AkShare, Tushare, Baostock, YFinance, optional OpenBB |
 | News Search | Tavily, SerpAPI, Bocha, Brave, MiniMax |
 
 ### Built-in Trading Rules
@@ -142,6 +142,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `TICKFLOW_API_KEY` | [TickFlow](https://tickflow.org) API key (CN market review index enhancement; breadth also uses TickFlow when the plan supports universe queries) | Optional |
 | `WECHAT_MSG_TYPE` | WeChat Work message type, default `markdown`, set to `text` for plain markdown text | Optional |
 | `AGENT_MODE` | Enable Agent strategy chat mode (internally normalized as `skill`, `true`/`false`, default `false`) | Optional |
+| `AGENT_AUTO_ROUTE_ANALYSIS` | Keep classic single-stock analysis as the default, but automatically escalate complex runs (data gaps, dense/risk-sensitive news, richer A-share intel) to the Agent pipeline | Optional |
 | `AGENT_LITELLM_MODEL` | Optional Agent-only primary model; when empty it inherits `LITELLM_MODEL`, and bare names are normalized to `openai/<model>` | Optional |
 | `AGENT_MAX_STEPS` | Max reasoning steps for Agent mode (default `10`) | Optional |
 | `AGENT_SKILLS` | Comma-separated active strategy-skill ids. Leave empty to use the primary default strategy skill declared in metadata (built-in default: `bull_trend`); use `all` to activate every loaded strategy skill. | Optional |

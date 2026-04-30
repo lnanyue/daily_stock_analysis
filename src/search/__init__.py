@@ -23,6 +23,7 @@ from .providers import (
     ExaSearchProvider,
     BraveSearchProvider,
     SearXNGSearchProvider,
+    OpenBBNewsProvider,
 )
 from .service import SearchService, get_search_service, reset_search_service
 
@@ -46,6 +47,7 @@ __all__ = [
     "ExaSearchProvider",
     "BraveSearchProvider",
     "SearXNGSearchProvider",
+    "OpenBBNewsProvider",
     # Service
     "SearchService",
     "get_search_service",

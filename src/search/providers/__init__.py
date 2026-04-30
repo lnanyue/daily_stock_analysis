@@ -8,6 +8,7 @@ from .minimax import MiniMaxSearchProvider
 from .exa import ExaSearchProvider
 from .brave import BraveSearchProvider
 from .searxng import SearXNGSearchProvider
+from .openbb import OpenBBNewsProvider
 
 __all__ = [
     "TavilySearchProvider",
@@ -17,4 +18,5 @@ __all__ = [
     "ExaSearchProvider",
     "BraveSearchProvider",
     "SearXNGSearchProvider",
+    "OpenBBNewsProvider",
 ]

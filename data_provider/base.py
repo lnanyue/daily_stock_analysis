@@ -70,6 +70,7 @@ class BaseFetcher(ABC):
             start_date = start_dt.strftime('%Y-%m-%d')
 
         try:
+            logger.info(f"[{self.name}] 开始获取 {stock_code} 日线数据: {start_date} -> {end_date}")
             raw_df = await self._fetch_raw_data_async(stock_code, start_date, end_date)
             if raw_df is None or raw_df.empty:
                 raise DataFetchError(f"[{self.name}] 未获取到 {stock_code} 的数据")
@@ -77,6 +78,7 @@ class BaseFetcher(ABC):
             df = self._normalize_data(raw_df, stock_code)
             df = self._clean_data(df)
             df = self._calculate_indicators(df)
+            logger.info(f"[{self.name}] {stock_code} 获取成功: rows={len(df)}")
             return df
             
         except Exception as e:
@@ -100,6 +102,7 @@ class BaseFetcher(ABC):
             start_date = start_dt.strftime('%Y-%m-%d')
 
         try:
+            logger.info(f"[{self.name}] 开始获取 {stock_code} 日线数据: {start_date} -> {end_date}")
             raw_df = self._fetch_raw_data(stock_code, start_date, end_date)
             if raw_df is None or raw_df.empty:
                 raise DataFetchError(f"[{self.name}] 未获取到 {stock_code} 的数据")
@@ -107,6 +110,7 @@ class BaseFetcher(ABC):
             df = self._normalize_data(raw_df, stock_code)
             df = self._clean_data(df)
             df = self._calculate_indicators(df)
+            logger.info(f"[{self.name}] {stock_code} 获取成功: rows={len(df)}")
             return df
             
         except Exception as e:

@@ -5,8 +5,10 @@ Unit tests for src.notification_sender module.
 Tests sender classes in isolation (config, request shape, error handling).
 Does not duplicate test_notification.py which tests NotificationService.send() flow.
 """
+import asyncio
 import os
 import sys
+import time
 import unittest
 from email.header import decode_header, make_header
 from email.utils import parseaddr
@@ -178,7 +180,7 @@ class TestEmailSender(unittest.TestCase):
     def test_send_returns_false_when_not_configured(self):
         cfg = _config()
         sender = EmailSender(cfg)
-        result = sender.send_to_email("body")
+        result = asyncio.run(sender.send_to_email("body"))
         self.assertFalse(result)
 
     def test_get_receivers_for_stocks_no_groups_returns_default(self):
@@ -245,7 +247,7 @@ class TestEmailSender(unittest.TestCase):
         )
         sender = EmailSender(cfg)
 
-        result = sender.send_to_email("body", subject="测试主题")
+        result = asyncio.run(sender.send_to_email("body", subject="测试主题"))
 
         self.assertTrue(result)
         server = mock_smtp_ssl.return_value
@@ -259,6 +261,29 @@ class TestEmailSender(unittest.TestCase):
         )
         server.quit.assert_called_once()
 
+
+class TestEmailSenderAsync(unittest.IsolatedAsyncioTestCase):
+    async def test_send_to_email_times_out_without_using_default_executor(self):
+        cfg = _config(
+            email_sender="a@qq.com",
+            email_password="p",
+            email_receivers=["b@qq.com"],
+        )
+        sender = EmailSender(cfg)
+        sender._timeout = 0.05
+
+        def _slow_send(*args, **kwargs):
+            time.sleep(0.2)
+            return True
+
+        start = time.perf_counter()
+        with mock.patch.object(sender, "_send_to_email_sync", side_effect=_slow_send):
+            result = await sender.send_to_email("body")
+        elapsed = time.perf_counter() - start
+
+        self.assertFalse(result)
+        self.assertLess(elapsed, 0.4)
+
     @mock.patch("smtplib.SMTP_SSL")
     def test_send_image_email_encodes_non_ascii_sender_name(self, mock_smtp_ssl):
         cfg = _config(
@@ -269,7 +294,9 @@ class TestEmailSender(unittest.TestCase):
         )
         sender = EmailSender(cfg)
 
-        result = sender._send_email_with_inline_image(b"PNG_BYTES", receivers=["b@qq.com"])
+        result = asyncio.run(
+            sender._send_email_with_inline_image(b"PNG_BYTES", receivers=["b@qq.com"])
+        )
 
         self.assertTrue(result)
         server = mock_smtp_ssl.return_value

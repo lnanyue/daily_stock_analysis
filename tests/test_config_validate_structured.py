@@ -38,6 +38,7 @@ def _make_config(**kwargs) -> Config:
         tavily_api_keys=[],
         brave_api_keys=[],
         serpapi_keys=[],
+        openbb_news_enabled=False,
         searxng_base_urls=[],
         searxng_public_instances_enabled=True,
         wechat_webhook_url="https://example.com/webhook",
@@ -298,6 +299,16 @@ class TestValidateStructuredNotification:
     def test_public_searxng_enabled_no_search_info(self):
         """Public SearXNG mode also counts as search capability."""
         cfg = _make_config(searxng_public_instances_enabled=True)
+        issues = cfg.validate_structured()
+        info = [i for i in issues if i.severity == "info"]
+        assert not any("搜索引擎" in i.message and "未配置" in i.message for i in info)
+
+    def test_openbb_news_enabled_counts_as_search_capability(self):
+        """OpenBB news provider should satisfy search capability validation."""
+        cfg = _make_config(
+            openbb_news_enabled=True,
+            searxng_public_instances_enabled=False,
+        )
         issues = cfg.validate_structured()
         info = [i for i in issues if i.severity == "info"]
         assert not any("搜索引擎" in i.message and "未配置" in i.message for i in info)

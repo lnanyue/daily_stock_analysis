@@ -10,10 +10,11 @@ schedule>=1.2.0             # 定时任务调度
 exchange-calendars>=4.5.0   # 交易日历（A股/港股/美股，Issue #373）
 
 # 数据源依赖（多源策略，按优先级排序）
+# Optional OpenBB integration is intentionally not installed by default.
+# Enable it with local OpenBB + provider extensions when using OPENBB_FETCHER_* / OPENBB_NEWS_*.
 efinance>=0.5.5             # Priority 0: 东方财富数据源（最高优先级）https://github.com/Micro-sheep/efinance
 akshare>=1.12.0             # Priority 1: 东方财富爬虫数据源
 tushare>=1.4.0              # Priority 2: 挖地兔 Pro API
-pytdx>=1.72                 # Priority 2: 通达信行情服务器
 baostock>=0.8.0             # Priority 3: 证券宝数据
 yfinance>=0.2.0             # Priority 4: Yahoo Finance (Fallback)
 tickflow>=0.1.0            # TickFlow official SDK (Issue #632, market review enhancement)

@@ -27,7 +27,7 @@ def _get_fetcher_manager():
 def _handle_get_market_indices(region: str = "cn") -> dict:
     """Get major market indices."""
     manager = _get_fetcher_manager()
-    indices = manager.get_main_indices(region=region)
+    indices = manager.get_main_indices_sync(region=region)
 
     if not indices:
         return {"error": f"No market index data available for region '{region}'"}
@@ -65,7 +65,7 @@ get_market_indices_tool = ToolDefinition(
 def _handle_get_sector_rankings(top_n: int = 10) -> dict:
     """Get sector performance rankings."""
     manager = _get_fetcher_manager()
-    result = manager.get_sector_rankings(n=top_n)
+    result = manager.get_sector_rankings_sync(n=top_n)
 
     if result is None:
         return {"error": "No sector ranking data available"}

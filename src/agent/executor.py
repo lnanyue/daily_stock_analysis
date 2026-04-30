@@ -22,10 +22,14 @@ from typing import Any, Callable, Dict, List, Optional
 from src.agent.llm_adapter import LLMToolAdapter
 from src.agent.runner import run_agent_loop, parse_dashboard_json
 from src.agent.tools.registry import ToolRegistry
+from src.prompts import load_trading_dashboard_schema
 from src.report_language import normalize_report_language
 from src.market_context import get_market_role, get_market_guidelines
 
 logger = logging.getLogger(__name__)
+
+TRADING_DASHBOARD_SCHEMA_BLOCK = load_trading_dashboard_schema("操作理由，引用激活技能或风险框架")
+LEGACY_TRADING_DASHBOARD_SCHEMA_BLOCK = load_trading_dashboard_schema("操作理由，引用交易理念")
 
 
 # ============================================================
@@ -87,62 +91,7 @@ LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT = """你是一位专注于趋势交易的{mar
 
 你的最终响应必须是以下结构的有效 JSON 对象：
 
-```json
-{{
-    "stock_name": "股票中文名称",
-    "sentiment_score": 0-100整数,
-    "trend_prediction": "强烈看多/看多/震荡/看空/强烈看空",
-    "operation_advice": "买入/加仓/持有/减仓/卖出/观望",
-    "decision_type": "buy/hold/sell",
-    "confidence_level": "高/中/低",
-    "dashboard": {{
-        "core_conclusion": {{
-            "one_sentence": "一句话核心结论（30字以内）",
-            "signal_type": "🟢买入信号/🟡持有观望/🔴卖出信号/⚠️风险警告",
-            "time_sensitivity": "立即行动/今日内/本周内/不急",
-            "position_advice": {{
-                "no_position": "空仓者建议",
-                "has_position": "持仓者建议"
-            }}
-        }},
-        "data_perspective": {{
-            "trend_status": {{"ma_alignment": "", "is_bullish": true, "trend_score": 0}},
-            "price_position": {{"current_price": 0, "ma5": 0, "ma10": 0, "ma20": 0, "bias_ma5": 0, "bias_status": "", "support_level": 0, "resistance_level": 0}},
-            "volume_analysis": {{"volume_ratio": 0, "volume_status": "", "turnover_rate": 0, "volume_meaning": ""}},
-            "chip_structure": {{"profit_ratio": 0, "avg_cost": 0, "concentration": 0, "chip_health": ""}}
-        }},
-        "intelligence": {{
-            "latest_news": "",
-            "risk_alerts": [],
-            "positive_catalysts": [],
-            "earnings_outlook": "",
-            "sentiment_summary": ""
-        }},
-        "battle_plan": {{
-            "sniper_points": {{"ideal_buy": "", "secondary_buy": "", "stop_loss": "", "take_profit": ""}},
-            "position_strategy": {{"suggested_position": "", "entry_plan": "", "risk_control": ""}},
-            "action_checklist": []
-        }}
-    }},
-    "analysis_summary": "100字综合分析摘要",
-    "key_points": "3-5个核心看点，逗号分隔",
-    "risk_warning": "风险提示",
-    "buy_reason": "操作理由，引用交易理念",
-    "trend_analysis": "走势形态分析",
-    "short_term_outlook": "短期1-3日展望",
-    "medium_term_outlook": "中期1-2周展望",
-    "technical_analysis": "技术面综合分析",
-    "ma_analysis": "均线系统分析",
-    "volume_analysis": "量能分析",
-    "pattern_analysis": "K线形态分析",
-    "fundamental_analysis": "基本面分析",
-    "sector_position": "板块行业分析",
-    "company_highlights": "公司亮点/风险",
-    "news_summary": "新闻摘要",
-    "market_sentiment": "市场情绪",
-    "hot_topics": "相关热点"
-}}
-```
+{dashboard_schema_block}
 
 ## 评分标准
 
@@ -179,7 +128,7 @@ LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT = """你是一位专注于趋势交易的{mar
 5. **风险优先级**：舆情中的风险点要醒目标出
 
 {language_section}
-"""
+""".replace("{dashboard_schema_block}", LEGACY_TRADING_DASHBOARD_SCHEMA_BLOCK)
 
 AGENT_SYSTEM_PROMPT = """你是一位{market_role}投资分析 Agent，拥有数据工具和可切换交易技能，负责生成专业的【决策仪表盘】分析报告。
 
@@ -218,62 +167,7 @@ AGENT_SYSTEM_PROMPT = """你是一位{market_role}投资分析 Agent，拥有数
 
 你的最终响应必须是以下结构的有效 JSON 对象：
 
-```json
-{{
-    "stock_name": "股票中文名称",
-    "sentiment_score": 0-100整数,
-    "trend_prediction": "强烈看多/看多/震荡/看空/强烈看空",
-    "operation_advice": "买入/加仓/持有/减仓/卖出/观望",
-    "decision_type": "buy/hold/sell",
-    "confidence_level": "高/中/低",
-    "dashboard": {{
-        "core_conclusion": {{
-            "one_sentence": "一句话核心结论（30字以内）",
-            "signal_type": "🟢买入信号/🟡持有观望/🔴卖出信号/⚠️风险警告",
-            "time_sensitivity": "立即行动/今日内/本周内/不急",
-            "position_advice": {{
-                "no_position": "空仓者建议",
-                "has_position": "持仓者建议"
-            }}
-        }},
-        "data_perspective": {{
-            "trend_status": {{"ma_alignment": "", "is_bullish": true, "trend_score": 0}},
-            "price_position": {{"current_price": 0, "ma5": 0, "ma10": 0, "ma20": 0, "bias_ma5": 0, "bias_status": "", "support_level": 0, "resistance_level": 0}},
-            "volume_analysis": {{"volume_ratio": 0, "volume_status": "", "turnover_rate": 0, "volume_meaning": ""}},
-            "chip_structure": {{"profit_ratio": 0, "avg_cost": 0, "concentration": 0, "chip_health": ""}}
-        }},
-        "intelligence": {{
-            "latest_news": "",
-            "risk_alerts": [],
-            "positive_catalysts": [],
-            "earnings_outlook": "",
-            "sentiment_summary": ""
-        }},
-        "battle_plan": {{
-            "sniper_points": {{"ideal_buy": "", "secondary_buy": "", "stop_loss": "", "take_profit": ""}},
-            "position_strategy": {{"suggested_position": "", "entry_plan": "", "risk_control": ""}},
-            "action_checklist": []
-        }}
-    }},
-    "analysis_summary": "100字综合分析摘要",
-    "key_points": "3-5个核心看点，逗号分隔",
-    "risk_warning": "风险提示",
-    "buy_reason": "操作理由，引用激活技能或风险框架",
-    "trend_analysis": "走势形态分析",
-    "short_term_outlook": "短期1-3日展望",
-    "medium_term_outlook": "中期1-2周展望",
-    "technical_analysis": "技术面综合分析",
-    "ma_analysis": "均线系统分析",
-    "volume_analysis": "量能分析",
-    "pattern_analysis": "K线形态分析",
-    "fundamental_analysis": "基本面分析",
-    "sector_position": "板块行业分析",
-    "company_highlights": "公司亮点/风险",
-    "news_summary": "新闻摘要",
-    "market_sentiment": "市场情绪",
-    "hot_topics": "相关热点"
-}}
-```
+{dashboard_schema_block}
 
 ## 评分标准
 
@@ -307,7 +201,7 @@ AGENT_SYSTEM_PROMPT = """你是一位{market_role}投资分析 Agent，拥有数
 5. **风险优先级**：舆情中的风险点要醒目标出
 
 {language_section}
-"""
+""".replace("{dashboard_schema_block}", TRADING_DASHBOARD_SCHEMA_BLOCK)
 
 LEGACY_DEFAULT_CHAT_SYSTEM_PROMPT = """你是一位专注于趋势交易的{market_role}投资分析 Agent，拥有数据工具和交易技能，负责解答用户的股票投资问题。
 
@@ -421,6 +315,14 @@ def _build_language_section(report_language: str, *, chat_mode: bool = False) ->
 """
 
 
+def _render_prompt_template(template: str, **values: str) -> str:
+    """Render prompt placeholders without interpreting JSON braces as format tokens."""
+    rendered = template
+    for key, value in values.items():
+        rendered = rendered.replace(f"{{{key}}}", value)
+    return rendered
+
+
 # ============================================================
 # Agent Executor
 # ============================================================
@@ -478,7 +380,8 @@ class AgentExecutor:
             if self.use_legacy_default_prompt
             else AGENT_SYSTEM_PROMPT
         )
-        system_prompt = prompt_template.format(
+        system_prompt = _render_prompt_template(
+            prompt_template,
             market_role=market_role,
             market_guidelines=market_guidelines,
             default_skill_policy_section=default_skill_policy_section,
@@ -527,7 +430,8 @@ class AgentExecutor:
             if self.use_legacy_default_prompt
             else CHAT_SYSTEM_PROMPT
         )
-        system_prompt = prompt_template.format(
+        system_prompt = _render_prompt_template(
+            prompt_template,
             market_role=market_role,
             market_guidelines=market_guidelines,
             default_skill_policy_section=default_skill_policy_section,
@@ -651,6 +555,8 @@ class AgentExecutor:
                 parts.append(f"\n[系统已获取的实时行情]\n{json.dumps(context['realtime_quote'], ensure_ascii=False)}")
             if context.get("chip_distribution"):
                 parts.append(f"\n[系统已获取的筹码分布]\n{json.dumps(context['chip_distribution'], ensure_ascii=False)}")
+            if context.get("trend_result"):
+                parts.append(f"\n[系统已获取的技术趋势分析]\n{json.dumps(context['trend_result'], ensure_ascii=False)}")
             if context.get("news_context"):
                 parts.append(f"\n[系统已获取的新闻与舆情情报]\n{context['news_context']}")
 

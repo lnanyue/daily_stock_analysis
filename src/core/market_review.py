@@ -95,7 +95,7 @@ async def run_market_review(
                 if success:
                     logger.info("大盘复盘推送成功")
                 else:
-                    logger.warning("大盘复盘推送失败")
+                    logger.warning("大盘复盘推送失败: %s", notifier.get_last_delivery_summary())
             elif not send_notification:
                 logger.info("已跳过推送通知 (--no-notify)")
             

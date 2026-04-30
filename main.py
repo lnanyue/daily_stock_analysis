@@ -323,6 +323,23 @@ def main() -> int:
 
 async def _cleanup():
     """Shutdown hook: close all shared resources to avoid ResourceWarning."""
+    # 0. Flush/stop LiteLLM background logging worker before tearing down the loop.
+    try:
+        from litellm.litellm_core_utils.logging_worker import GLOBAL_LOGGING_WORKER
+
+        if GLOBAL_LOGGING_WORKER is not None:
+            try:
+                await asyncio.wait_for(GLOBAL_LOGGING_WORKER.flush(), timeout=1.0)
+            except Exception as e:
+                logger.debug(f"LiteLLM logging flush cleanup: {e}")
+
+            try:
+                await asyncio.wait_for(GLOBAL_LOGGING_WORKER.stop(), timeout=1.0)
+            except Exception as e:
+                logger.debug(f"LiteLLM logging stop cleanup: {e}")
+    except Exception as e:
+        logger.debug(f"LiteLLM worker cleanup: {e}")
+
     # 1. Close shared async HTTP client
     try:
         from src.utils.async_http import AsyncHttpClientManager

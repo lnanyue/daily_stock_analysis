@@ -60,7 +60,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
             indices=[{"code": "000001"}]
         )
 
-        data = DataFetcherManager.get_main_indices(manager, region="cn")
+        data = DataFetcherManager.get_main_indices_sync(manager, region="cn")
 
         self.assertEqual(data, [{"code": "000001"}])
         self.assertEqual(fallback.index_calls, 0)
@@ -73,7 +73,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
             error=RuntimeError("tickflow down")
         )
 
-        data = DataFetcherManager.get_main_indices(manager, region="cn")
+        data = DataFetcherManager.get_main_indices_sync(manager, region="cn")
 
         self.assertEqual(data, [{"code": "fallback"}])
         self.assertEqual(fallback.index_calls, 1)
@@ -86,7 +86,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
             indices=None
         )
 
-        data = DataFetcherManager.get_main_indices(manager, region="cn")
+        data = DataFetcherManager.get_main_indices_sync(manager, region="cn")
 
         self.assertEqual(data, [{"code": "fallback"}])
         self.assertEqual(fallback.index_calls, 1)
@@ -99,7 +99,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
             "TickFlow should not be called for non-CN indices"
         )
 
-        data = DataFetcherManager.get_main_indices(manager, region="us")
+        data = DataFetcherManager.get_main_indices_sync(manager, region="us")
 
         self.assertEqual(data, [{"code": "^GSPC"}])
         self.assertEqual(fallback.index_calls, 1)
@@ -115,7 +115,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
             error=RuntimeError("tickflow down")
         )
 
-        data = DataFetcherManager.get_market_stats(manager)
+        data = DataFetcherManager.get_market_stats_sync(manager)
 
         self.assertEqual(data["up_count"], 1)
         self.assertEqual(fallback.stats_calls, 1)
@@ -131,7 +131,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
         )
         manager._fetchers = [fallback]
 
-        data = DataFetcherManager.get_market_stats(manager)
+        data = DataFetcherManager.get_market_stats_sync(manager)
 
         self.assertEqual(data["up_count"], 2)
         self.assertEqual(fallback.stats_calls, 1)

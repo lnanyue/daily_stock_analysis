@@ -50,6 +50,27 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
             config.realtime_source_priority,
             "tencent,akshare_sina,efinance,akshare_em",
         )
+        self.assertFalse(config.openbb_news_enabled)
+        self.assertEqual(config.openbb_news_provider, "yfinance")
+
+    @patch("src.config.setup_env")
+    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
+    def test_load_from_env_reads_openbb_news_config(
+        self, _mock_parse_litellm_yaml, _mock_setup_env
+    ):
+        with patch.dict(
+            os.environ,
+            {
+                "STOCK_LIST": "BABA",
+                "OPENBB_NEWS_ENABLED": "true",
+                "OPENBB_NEWS_PROVIDER": "benzinga",
+            },
+            clear=True,
+        ):
+            config = Config._load_from_env()
+
+        self.assertTrue(config.openbb_news_enabled)
+        self.assertEqual(config.openbb_news_provider, "benzinga")
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])

@@ -88,7 +88,11 @@ class StockAnalysisPipeline:
         self.plugins.load(plugin_ctx)
 
         plugin_fetchers = self.plugins.get_enabled_fetchers()
-        self.fetcher_manager = DataFetcherManager(fetchers=plugin_fetchers, config=self.config)
+        self.fetcher_manager = DataFetcherManager(
+            fetchers=plugin_fetchers,
+            config=self.config,
+            include_default_fetchers=True,
+        )
         plugin_ctx.fetcher_manager = self.fetcher_manager
         
         self.trend_analyzer = StockTrendAnalyzer()
@@ -104,6 +108,63 @@ class StockAnalysisPipeline:
         if inspect.isawaitable(value):
             return await value
         return value
+
+    @staticmethod
+    def _coerce_bool_setting(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off", ""}:
+                return False
+        return default
+
+    def _is_agent_runtime_available(self) -> bool:
+        checker = getattr(self.config, "is_agent_available", None)
+        if callable(checker):
+            try:
+                available = checker()
+            except Exception:
+                available = None
+            if isinstance(available, bool):
+                return available
+
+        for field_name in ("agent_litellm_model", "litellm_model"):
+            value = getattr(self.config, field_name, None)
+            if isinstance(value, str) and value.strip():
+                return True
+
+        return self._coerce_bool_setting(getattr(self.config, "agent_mode", False), default=False)
+
+    @staticmethod
+    def _estimate_intel_bullet_count(text: str) -> int:
+        return len(re.findall(r"(?m)^\s*-\s+", text or ""))
+
+    @staticmethod
+    def _extract_risk_keywords(text: str) -> List[str]:
+        patterns = [
+            ("减持", r"减持"),
+            ("处罚", r"处罚|罚款|罚单"),
+            ("调查", r"调查|立案"),
+            ("预亏", r"预亏|亏损|下修"),
+            ("解禁", r"解禁"),
+            ("诉讼", r"诉讼"),
+            ("违规", r"违规"),
+            ("流出", r"净流出|持续流出"),
+            ("风险", r"风险提示|重大风险"),
+        ]
+        hits: List[str] = []
+        haystack = text or ""
+        for label, pattern in patterns:
+            if re.search(pattern, haystack, flags=re.IGNORECASE) and label not in hits:
+                hits.append(label)
+        return hits
 
     async def fetch_and_save_stock_data(self, code: str, force_refresh: bool = False) -> Tuple[bool, Optional[str]]:
         try:
@@ -150,6 +211,12 @@ class StockAnalysisPipeline:
             if isinstance(chip_data, Exception): chip_data = None
             if isinstance(fundamental_context, Exception): fundamental_context = {}
             if isinstance(market_overview, Exception): market_overview = {}
+            if isinstance(fundamental_context, dict):
+                fundamental_context = await asyncio.to_thread(
+                    self._attach_belong_boards_to_fundamental_context,
+                    code,
+                    fundamental_context,
+                )
 
             if realtime_quote and getattr(realtime_quote, 'name', None):
                 stock_name = realtime_quote.name
@@ -217,18 +284,6 @@ class StockAnalysisPipeline:
                     if isinstance(yesterday_k.get('date'), (datetime, date)):
                         yesterday_k['date'] = yesterday_k['date'].isoformat()
 
-            if getattr(self.config, "agent_mode", False):
-                return await self._maybe_await(self._analyze_with_agent(
-                    code,
-                    report_type,
-                    query_id,
-                    stock_name,
-                    realtime_quote,
-                    chip_data,
-                    fundamental_context,
-                    trend_result,
-                ))
-
             # 4. 舆情
             news_context = ""
             if self.search_service.is_available:
@@ -264,6 +319,41 @@ class StockAnalysisPipeline:
             if guru_insight: final_news += "\n\n### 🎓 大师灵魂审视\n" + guru_insight
             if visual_description: final_news += "\n\n" + visual_description
 
+            route_reasons: List[str] = []
+            should_use_agent = self._coerce_bool_setting(
+                getattr(self.config, "agent_mode", False),
+                default=False,
+            )
+            if should_use_agent:
+                route_reasons = ["config:AGENT_MODE=true"]
+            else:
+                should_use_agent, route_reasons = self._should_auto_route_to_agent(
+                    code=code,
+                    report_type=report_type,
+                    enhanced_context=enhanced_context,
+                    final_news=final_news,
+                    fundamental_context=fundamental_context,
+                    trend_result=trend_result,
+                    a_stock_intelligence=a_stock_intelligence,
+                    money_flow_intelligence=money_flow_intelligence,
+                    guru_insight=guru_insight,
+                )
+
+            if should_use_agent:
+                logger.info("[%s] 切换到 Agent 分析: %s", code, ", ".join(route_reasons))
+                return await self._maybe_await(self._analyze_with_agent(
+                    code,
+                    report_type,
+                    query_id,
+                    stock_name,
+                    realtime_quote,
+                    chip_data,
+                    fundamental_context,
+                    trend_result,
+                    news_context=final_news,
+                    route_reasons=route_reasons,
+                ))
+
             # 执行 AI 分析
             analysis_mode = getattr(self.config, 'analysis_mode', 'simple').lower()
             if analysis_mode == 'debate':
@@ -298,6 +388,16 @@ class StockAnalysisPipeline:
     async def run(self, stock_codes=None, dry_run=False, send_notification=True, merge_notification=False):
         if stock_codes is None: stock_codes = self.config.stock_list
         if not stock_codes: return []
+
+        if not dry_run and hasattr(self.fetcher_manager, "prefetch_stock_names"):
+            try:
+                await asyncio.to_thread(
+                    self.fetcher_manager.prefetch_stock_names,
+                    list(stock_codes),
+                    use_bulk=False,
+                )
+            except Exception as exc:
+                logger.warning("股票名称预取失败，继续主流程: %s", exc)
         
         concurrency_limit = max(1, min(self.max_workers, 2))
         semaphore = asyncio.Semaphore(concurrency_limit)
@@ -402,8 +502,203 @@ class StockAnalysisPipeline:
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         return df
 
+    def _should_auto_route_to_agent(
+        self,
+        *,
+        code: str,
+        report_type: ReportType,
+        enhanced_context: Dict[str, Any],
+        final_news: str,
+        fundamental_context: Optional[Dict[str, Any]],
+        trend_result: Any,
+        a_stock_intelligence: str,
+        money_flow_intelligence: str,
+        guru_insight: str,
+    ) -> Tuple[bool, List[str]]:
+        if not self._coerce_bool_setting(
+            getattr(self.config, "agent_auto_route_analysis", False),
+            default=False,
+        ):
+            return False, []
+
+        if not self._is_agent_runtime_available():
+            logger.info("[%s] 自动 Agent 分流已启用，但当前 Agent 运行时不可用，继续使用经典分析链路", code)
+            return False, []
+
+        major_reasons: List[str] = []
+        minor_reasons: List[str] = []
+
+        today = dict(enhanced_context.get("today") or {})
+        if trend_result is None or not today or today.get("close") in (None, "", 0):
+            major_reasons.append("core_data_gap")
+
+        coverage = (fundamental_context or {}).get("coverage") or {}
+        failing_blocks = sorted(
+            key
+            for key, status in coverage.items()
+            if str(status).strip().lower() in {"failed", "partial"}
+        )
+        if failing_blocks:
+            minor_reasons.append(f"fundamental_coverage:{','.join(failing_blocks[:2])}")
+
+        bullet_count = self._estimate_intel_bullet_count(final_news)
+        if bullet_count >= 6 or len(final_news or "") >= 1600:
+            major_reasons.append(f"dense_news_flow:{bullet_count}")
+
+        risk_hits = self._extract_risk_keywords(final_news)
+        if risk_hits:
+            major_reasons.append(f"risk_sensitive_intel:{','.join(risk_hits[:2])}")
+
+        a_share_layers = sum(
+            1 for section in (a_stock_intelligence, money_flow_intelligence, guru_insight)
+            if isinstance(section, str) and section.strip()
+        )
+        if a_share_layers >= 2:
+            minor_reasons.append("multi_layer_a_share_intel")
+
+        report_type_value = getattr(report_type, "value", str(report_type))
+        if report_type_value != getattr(ReportType.SIMPLE, "value", "simple") and (major_reasons or minor_reasons):
+            minor_reasons.append(f"report_type:{report_type_value}")
+
+        reasons = major_reasons + minor_reasons
+        should_route = bool(major_reasons) or len(minor_reasons) >= 2
+        return should_route, reasons
+
+    @staticmethod
+    def _extract_quote_payload(realtime_quote: Any) -> Optional[Dict[str, Any]]:
+        if realtime_quote is None:
+            return None
+
+        def _get_value(key: str, fallback: Optional[str] = None) -> Any:
+            if isinstance(realtime_quote, dict):
+                if key in realtime_quote:
+                    return realtime_quote.get(key)
+                return realtime_quote.get(fallback) if fallback else None
+            value = getattr(realtime_quote, key, None)
+            if value is not None:
+                return value
+            return getattr(realtime_quote, fallback, None) if fallback else None
+
+        payload = {
+            "name": _get_value("name"),
+            "price": _get_value("price"),
+            "change_pct": _get_value("change_pct"),
+            "volume": _get_value("volume"),
+            "amount": _get_value("amount"),
+            "open": _get_value("open_price", "open"),
+            "high": _get_value("high"),
+            "low": _get_value("low"),
+            "turnover_rate": _get_value("turnover_rate"),
+            "pe_ratio": _get_value("pe_ratio"),
+            "pb_ratio": _get_value("pb_ratio"),
+            "total_mv": _get_value("total_mv"),
+            "circ_mv": _get_value("circ_mv"),
+        }
+        payload = {key: value for key, value in payload.items() if value is not None}
+        return payload or None
+
+    @staticmethod
+    def _extract_chip_payload(chip_data: Any) -> Optional[Dict[str, Any]]:
+        if chip_data is None:
+            return None
+        if isinstance(chip_data, dict):
+            payload = dict(chip_data)
+        elif hasattr(chip_data, "__dict__"):
+            payload = {
+                "profit_ratio": getattr(chip_data, "profit_ratio", None),
+                "avg_cost": getattr(chip_data, "avg_cost", None),
+                "concentration_90": getattr(chip_data, "concentration_90", None),
+                "concentration_70": getattr(chip_data, "concentration_70", None),
+                "date": getattr(chip_data, "date", None),
+            }
+        else:
+            return None
+        payload = {key: value for key, value in payload.items() if value is not None}
+        return payload or None
+
+    @staticmethod
+    def _extract_trend_payload(trend_result: Any) -> Optional[Dict[str, Any]]:
+        if trend_result is None:
+            return None
+        if hasattr(trend_result, "to_dict"):
+            payload = trend_result.to_dict()
+        elif isinstance(trend_result, dict):
+            payload = dict(trend_result)
+        elif hasattr(trend_result, "__dict__"):
+            payload = dict(trend_result.__dict__)
+        else:
+            return None
+        return payload or None
+
     def _resolve_query_source(self, query_source: Optional[str]) -> str:
         return query_source or ("bot" if self.source_message else "system")
+
+    def _call_fetcher_manager_sync(self, sync_name: str, legacy_name: str, *args, **kwargs):
+        manager = getattr(self, "fetcher_manager", None)
+        if manager is None:
+            return None
+
+        method = None
+        if hasattr(type(manager), sync_name) or sync_name in getattr(manager, "__dict__", {}):
+            method = getattr(manager, sync_name, None)
+        if callable(method):
+            return method(*args, **kwargs)
+
+        legacy_method = getattr(manager, legacy_name, None)
+        if not callable(legacy_method):
+            return None
+
+        result = legacy_method(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return asyncio.run(result)
+        return result
+
+    def _attach_belong_boards_to_fundamental_context(
+        self,
+        stock_code: str,
+        fundamental_context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        context = dict(fundamental_context or {})
+
+        existing_boards = context.get("belong_boards")
+        if isinstance(existing_boards, list):
+            context["belong_boards"] = [
+                dict(item) if isinstance(item, dict) else item
+                for item in existing_boards
+            ]
+            return context
+
+        market = context.get("market")
+        if not market:
+            normalized_code = normalize_stock_code(stock_code)
+            if normalized_code.isdigit() and len(normalized_code) == 6:
+                market = "cn"
+            else:
+                market = get_market_for_stock(stock_code)
+        board_block = context.get("boards") or {}
+        coverage = context.get("coverage") or {}
+        board_status = str(
+            board_block.get("status") or coverage.get("boards") or ""
+        ).strip().lower()
+
+        if market != "cn" or board_status == "not_supported":
+            context["belong_boards"] = []
+            return context
+
+        try:
+            belong_boards = self._call_fetcher_manager_sync(
+                "get_belong_boards_sync",
+                "get_belong_boards",
+                stock_code,
+            ) or []
+        except Exception:
+            belong_boards = []
+
+        context["belong_boards"] = [
+            dict(item) if isinstance(item, dict) else item
+            for item in belong_boards
+        ]
+        return context
 
     async def _analyze_with_agent(
         self,
@@ -415,13 +710,38 @@ class StockAnalysisPipeline:
         chip_data: Any = None,
         fundamental_context: Optional[Dict[str, Any]] = None,
         trend_result: Any = None,
+        *,
+        news_context: str = "",
+        route_reasons: Optional[List[str]] = None,
     ) -> Optional[AnalysisResult]:
         from src.agent.factory import build_agent_executor
-        logger.info(f"[{code}] 正在启动智能 Agent 深度分析...")
+        route_suffix = f" ({', '.join(route_reasons)})" if route_reasons else ""
+        logger.info(f"[{code}] 正在启动智能 Agent 深度分析{route_suffix}...")
         
         executor = build_agent_executor(self.config, skills=getattr(self.config, "agent_skills", None))
         prompt_name = stock_name or code
-        agent_result = executor.run(f"深度分析 A 股股票 {code} ({prompt_name})，请结合最新技术面、筹码面和基本面给出评分。")
+        agent_context: Dict[str, Any] = {
+            "stock_code": code,
+            "stock_name": prompt_name,
+            "report_type": getattr(report_type, "value", str(report_type)),
+            "report_language": normalize_report_language(getattr(self.config, "report_language", "zh")),
+        }
+        quote_payload = self._extract_quote_payload(realtime_quote)
+        if quote_payload:
+            agent_context["realtime_quote"] = quote_payload
+        chip_payload = self._extract_chip_payload(chip_data)
+        if chip_payload:
+            agent_context["chip_distribution"] = chip_payload
+        trend_payload = self._extract_trend_payload(trend_result)
+        if trend_payload:
+            agent_context["trend_result"] = trend_payload
+        if news_context:
+            agent_context["news_context"] = news_context
+
+        agent_result = executor.run(
+            f"深度分析股票 {code} ({prompt_name})，请结合最新技术面、筹码面、新闻情报和基本面给出决策仪表盘。",
+            context=agent_context,
+        )
         
         result = self._agent_result_to_analysis_result(agent_result, code, prompt_name, report_type, query_id)
         logger.info(f"[{code}] Agent 分析完成，评分: {result.sentiment_score}")

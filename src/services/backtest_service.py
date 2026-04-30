@@ -278,7 +278,7 @@ class BacktestService:
             # fetch a window that covers start + forward bars
             end_date = analysis_date + timedelta(days=max(eval_window_days * 2, 30))
             manager = DataFetcherManager()
-            df, source = manager.get_daily_data(
+            df, source = manager.get_daily_data_sync(
                 stock_code=code,
                 start_date=analysis_date.strftime("%Y-%m-%d"),
                 end_date=end_date.strftime("%Y-%m-%d"),

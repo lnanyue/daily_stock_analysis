@@ -164,3 +164,29 @@ class TestMarketAnalyzerBypassFix:
         assert violations == [], (
             f"market_analyzer.py still accesses private Analyzer attributes: {violations}"
         )
+
+    def test_prompt_uses_total_amount_as_market_turnover(self):
+        """Provider total_amount is already in 亿元 and should not fall back to N/A."""
+        from src.market_analyzer import MarketAnalyzer, MarketAnalysisContext
+        from src.core.market_strategy import get_market_strategy_blueprint
+
+        ma = MarketAnalyzer.__new__(MarketAnalyzer)
+        ma.region = "cn"
+        context = MarketAnalysisContext(
+            region="cn",
+            date="2026-04-24",
+            stats={
+                "up_count": 2800,
+                "down_count": 1900,
+                "limit_up_count": 72,
+                "total_amount": 11234.56,
+            },
+            strategy_blueprint=get_market_strategy_blueprint("cn"),
+        )
+
+        prompt = ma._build_prompt(context)
+
+        assert "上涨: 2800" in prompt
+        assert "下跌: 1900" in prompt
+        assert "涨停: 72" in prompt
+        assert "成交额: 11234.56 亿元" in prompt

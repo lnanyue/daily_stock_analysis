@@ -109,6 +109,8 @@ class NotificationService:
         self._astrbot = AstrbotSender(config)
 
         self._available_channels = self._detect_all_channels()
+        self._last_delivery_results: List[Dict[str, Any]] = []
+        self._last_delivery_summary: str = "尚未执行通知发送"
 
     def _detect_all_channels(self) -> List[NotificationChannel]:
         """检测已配置的渠道"""
@@ -137,6 +139,14 @@ class NotificationService:
     def get_available_channels(self) -> List[NotificationChannel]:
         """获取当前已配置的可用渠道"""
         return self._available_channels
+
+    def get_last_delivery_results(self) -> List[Dict[str, Any]]:
+        """Return the latest channel delivery results for diagnostics."""
+        return [dict(item) for item in self._last_delivery_results]
+
+    def get_last_delivery_summary(self) -> str:
+        """Return a human-readable summary of the latest delivery attempt."""
+        return self._last_delivery_summary
 
     # ------------------------------------------------------------------
     # Content Generation (Delegated to Renderer)
@@ -176,7 +186,10 @@ class NotificationService:
     async def send_to_astrbot(self, content: str) -> bool: return await self._astrbot.send_to_astrbot(content)
 
     async def send(self, content: str, email_stock_codes: Optional[List[str]] = None, email_send_to_all: bool = False) -> bool:
-        if not self._available_channels: return False
+        if not self._available_channels:
+            self._last_delivery_results = []
+            self._last_delivery_summary = "未配置任何通知渠道"
+            return False
         
         image_bytes = None
         # Simplification: only convert if at least one channel needs it
@@ -188,11 +201,65 @@ class NotificationService:
         for channel in self._available_channels:
             coros.append(self._send_channel_with_retry(channel, content, image_bytes, email_stock_codes, email_send_to_all))
         
-        results = await asyncio.gather(*coros, return_exceptions=True)
-        return any(res is True for res in results)
+        raw_results = await asyncio.gather(*coros, return_exceptions=True)
+        normalized_results: List[Dict[str, Any]] = []
+        for channel, result in zip(self._available_channels, raw_results):
+            if isinstance(result, Exception):
+                error_message = f"{type(result).__name__}: {result}"
+                normalized_results.append({
+                    "channel": channel.value,
+                    "channel_name": ChannelDetector.get_channel_name(channel),
+                    "success": False,
+                    "attempts": self._notification_max_retries + 1,
+                    "error": error_message,
+                })
+                logger.error("渠道 %s 推送任务异常结束: %s", channel.value, error_message)
+                continue
 
-    async def _send_channel_with_retry(self, channel, content, image_bytes, email_stock_codes, email_send_to_all) -> bool:
+            if isinstance(result, dict):
+                normalized_results.append(result)
+                continue
+
+            normalized_results.append({
+                "channel": channel.value,
+                "channel_name": ChannelDetector.get_channel_name(channel),
+                "success": bool(result),
+                "attempts": 1,
+                "error": "" if result else "sender returned False",
+            })
+
+        self._last_delivery_results = normalized_results
+        self._last_delivery_summary = self._summarize_delivery_results(normalized_results)
+        return any(item.get("success") for item in normalized_results)
+
+    def _summarize_delivery_results(self, results: List[Dict[str, Any]]) -> str:
+        if not results:
+            return "没有可汇总的通知结果"
+
+        succeeded: List[str] = []
+        failed: List[str] = []
+        for item in results:
+            channel_name = item.get("channel_name") or item.get("channel") or "unknown"
+            attempts = item.get("attempts", 0)
+            if item.get("success"):
+                succeeded.append(f"{channel_name}({attempts}次)")
+                continue
+
+            error = (item.get("error") or "未知原因").strip()
+            failed.append(f"{channel_name}({attempts}次): {error}")
+
+        parts: List[str] = []
+        if succeeded:
+            parts.append("成功[" + "；".join(succeeded) + "]")
+        if failed:
+            parts.append("失败[" + "；".join(failed) + "]")
+        return "，".join(parts) if parts else "所有渠道均未返回有效结果"
+
+    async def _send_channel_with_retry(self, channel, content, image_bytes, email_stock_codes, email_send_to_all) -> Dict[str, Any]:
+        attempts = 0
+        last_error = ""
         for attempt in range(self._notification_max_retries + 1):
+            attempts = attempt + 1
             try:
                 success = False
                 if channel == NotificationChannel.WECHAT:
@@ -222,17 +289,31 @@ class NotificationService:
                     success = await self._send_single_channel(channel, content)
                 
                 if success:
-                    return True
+                    return {
+                        "channel": channel.value,
+                        "channel_name": ChannelDetector.get_channel_name(channel),
+                        "success": True,
+                        "attempts": attempts,
+                        "error": "",
+                    }
                 
+                last_error = "sender returned False"
                 if attempt < self._notification_max_retries:
                     logger.warning(f"渠道 {channel.value} 推送失败，准备重试 ({attempt + 1}/{self._notification_max_retries})")
                     await asyncio.sleep(0.5 * (2**attempt))
             except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
                 logger.error(f"渠道 {channel.value} 推送异常: {e}")
                 if attempt >= self._notification_max_retries:
-                    return False
+                    break
                 await asyncio.sleep(0.5 * (2**attempt))
-        return False
+        return {
+            "channel": channel.value,
+            "channel_name": ChannelDetector.get_channel_name(channel),
+            "success": False,
+            "attempts": attempts,
+            "error": last_error or "unknown failure",
+        }
 
     async def _send_single_channel(self, channel, content) -> bool:
         # Implementation moved to specialized senders

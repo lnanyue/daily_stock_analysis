@@ -306,7 +306,7 @@ class PortfolioRiskService:
         manager = self._get_data_manager()
         if manager is None:
             return []
-        result = manager.get_belong_boards(symbol)
+        result = manager.get_belong_boards_sync(symbol)
         if isinstance(result, list):
             return result
         return []

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Regression tests for pipeline data-fetch error handling."""
 
+import asyncio
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from src.core.pipeline import StockAnalysisPipeline
 
@@ -14,9 +15,9 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.fetcher_manager = MagicMock()
         pipeline.db = MagicMock()
-        pipeline.fetcher_manager.get_stock_name.side_effect = RuntimeError("name lookup failed")
+        pipeline.fetcher_manager.get_stock_name = AsyncMock(side_effect=RuntimeError("name lookup failed"))
 
-        success, error = StockAnalysisPipeline.fetch_and_save_stock_data(pipeline, "600519")
+        success, error = asyncio.run(StockAnalysisPipeline.fetch_and_save_stock_data(pipeline, "600519"))
 
         self.assertFalse(success)
         self.assertIn("name lookup failed", error or "")

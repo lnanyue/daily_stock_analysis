@@ -42,6 +42,7 @@ import os
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+TUSHARE_API_URL = "http://api.tushare.pro"
 
 
 # ETF code prefixes by exchange
@@ -95,6 +96,7 @@ class TushareFetcher(BaseFetcher):
     
     name = "TushareFetcher"
     priority = int(os.getenv("TUSHARE_PRIORITY", "2"))  # 默认优先级，会在 __init__ 中根据配置动态调整
+    _STOCK_NAME_TIMEOUT_SECONDS = 3.0
 
     def __init__(self, rate_limit_per_minute: int = 80, config: Optional[Any] = None):
         """
@@ -154,7 +156,6 @@ class TushareFetcher(BaseFetcher):
         """
         Async version of Tushare API call using shared httpx client.
         """
-        TUSHARE_API_URL = "http://api.tushare.pro"
         _timeout = getattr(self._api, '_DataApi__timeout', 30)
         
         req_params = {
@@ -194,7 +195,6 @@ class TushareFetcher(BaseFetcher):
         """
         import types
 
-        TUSHARE_API_URL = "http://api.tushare.pro"
         _token = token
         _timeout = getattr(self._api, '_DataApi__timeout', 30)
 
@@ -219,6 +219,56 @@ class TushareFetcher(BaseFetcher):
 
         self._api.query = types.MethodType(patched_query, self._api)
         logger.debug(f"Tushare API endpoint patched to {TUSHARE_API_URL}")
+
+    @staticmethod
+    def _is_quota_error_message(error: Any) -> bool:
+        text = str(error or "").lower()
+        quota_keywords = ("quota", "配额", "权限", "积分", "频率超限", "rate limit")
+        return any(keyword in text for keyword in quota_keywords)
+
+    def _query_api_with_timeout(
+        self,
+        api_name: str,
+        *,
+        fields: str = "",
+        timeout_seconds: Optional[float] = None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Direct HTTP query with per-call timeout override."""
+        if self._api is None:
+            raise DataFetchError("Tushare API 未初始化，请检查 Token 配置")
+
+        config = self._get_config()
+        token = getattr(config, "tushare_token", None)
+        if not token:
+            raise DataFetchError("Tushare Token 未配置")
+
+        self._check_rate_limit()
+        request_timeout = timeout_seconds
+        if request_timeout is None:
+            request_timeout = getattr(self._api, "_DataApi__timeout", 30)
+
+        req_params = {
+            "api_name": api_name,
+            "token": token,
+            "params": kwargs,
+            "fields": fields,
+        }
+
+        with httpx.Client() as client:
+            response = client.post(TUSHARE_API_URL, json=req_params, timeout=request_timeout)
+
+        if response.status_code != 200:
+            raise Exception(f"Tushare API HTTP {response.status_code}")
+
+        result = _json.loads(response.text)
+        if result.get("code") != 0:
+            raise Exception(result.get("msg") or f"Tushare API code={result.get('code')}")
+
+        data = result.get("data") or {}
+        columns = data.get("fields") or []
+        items = data.get("items") or []
+        return pd.DataFrame(items, columns=columns)
 
     def _determine_priority(self) -> int:
         """
@@ -624,23 +674,16 @@ class TushareFetcher(BaseFetcher):
             self._stock_name_cache = {}
         
         try:
-            # 速率限制检查
-            self._check_rate_limit()
-            
             # 转换代码格式
             ts_code = self._convert_stock_code(stock_code)
-            
-            # ETF uses fund_basic, regular stocks use stock_basic
-            if _is_etf_code(stock_code):
-                df = self._api.fund_basic(
-                    ts_code=ts_code,
-                    fields='ts_code,name'
-                )
-            else:
-                df = self._api.stock_basic(
-                    ts_code=ts_code,
-                    fields='ts_code,name'
-                )
+
+            api_name = "fund_basic" if _is_etf_code(stock_code) else "stock_basic"
+            df = self._query_api_with_timeout(
+                api_name,
+                ts_code=ts_code,
+                fields="ts_code,name",
+                timeout_seconds=self._STOCK_NAME_TIMEOUT_SECONDS,
+            )
             
             if df is not None and not df.empty:
                 name = df.iloc[0]['name']
@@ -648,9 +691,13 @@ class TushareFetcher(BaseFetcher):
                 logger.debug(f"Tushare 获取股票名称成功: {stock_code} -> {name}")
                 return name
             
+        except httpx.TimeoutException as e:
+            logger.warning(f"Tushare 获取股票名称超时，跳过 {stock_code}: {e}")
         except Exception as e:
-            logger.warning(f"Tushare 获取股票名称失败 {stock_code}: {e}")
-        
+            if self._is_quota_error_message(e):
+                logger.warning(f"Tushare 股票名称接口受限，跳过 {stock_code}: {e}")
+            else:
+                logger.warning(f"Tushare 获取股票名称失败 {stock_code}: {e}")
         return None
     
     def get_stock_list(self) -> Optional[pd.DataFrame]:

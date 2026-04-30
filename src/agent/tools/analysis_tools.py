@@ -45,7 +45,7 @@ def _fetch_trend_data(stock_code: str):
     # 2. Fallback to DataFetcherManager
     try:
         manager = DataFetcherManager()
-        df, _ = manager.get_daily_data(code, days=90)
+        df, _ = manager.get_daily_data_sync(code, days=90)
         if df is not None and not df.empty:
             logger.info(
                 "analyze_trend(%s): DB empty, loaded %d rows from DataFetcherManager",
@@ -147,7 +147,7 @@ def _handle_calculate_ma(stock_code: str, periods: Optional[str] = None, days: i
     import pandas as pd
 
     manager = DataFetcherManager()
-    df, source = manager.get_daily_data(stock_code, days=days)
+    df, source = manager.get_daily_data_sync(stock_code, days=days)
 
     if df is None or df.empty:
         return {"error": f"No historical data for {stock_code}"}
@@ -240,7 +240,7 @@ def _handle_get_volume_analysis(stock_code: str, days: int = 30) -> dict:
     import pandas as pd
 
     manager = DataFetcherManager()
-    df, source = manager.get_daily_data(stock_code, days=max(days + 20, 60))
+    df, source = manager.get_daily_data_sync(stock_code, days=max(days + 20, 60))
 
     if df is None or df.empty:
         return {"error": f"No historical data for {stock_code}"}
@@ -357,7 +357,7 @@ def _handle_analyze_pattern(stock_code: str, days: int = 60) -> dict:
     import pandas as pd
 
     manager = DataFetcherManager()
-    df, source = manager.get_daily_data(stock_code, days=max(days, 120))
+    df, source = manager.get_daily_data_sync(stock_code, days=max(days, 120))
 
     if df is None or df.empty:
         return {"error": f"No historical data for {stock_code}"}

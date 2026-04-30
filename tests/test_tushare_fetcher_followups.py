@@ -130,3 +130,29 @@ class TestTushareFetcherFollowUps(unittest.TestCase):
 
         self.assertEqual(list(df.columns), ["ts_code", "close"])
         self.assertEqual(df.iloc[0]["ts_code"], "600519.SH")
+
+    def test_get_stock_name_uses_short_timeout_and_skips_quota_limited_response(self) -> None:
+        fetcher = self._make_fetcher()
+        fetcher._config = SimpleNamespace(tushare_token="ts-token")
+
+        fake_response = SimpleNamespace(
+            status_code=200,
+            text='{"code":-2001,"msg":"抱歉，您访问接口(stock_basic)频率超限(1次/小时)。","data":{"fields":[],"items":[]}}',
+        )
+        fake_client = MagicMock()
+        fake_client.__enter__.return_value = fake_client
+        fake_client.__exit__.return_value = False
+        fake_client.post.return_value = fake_response
+
+        with patch.object(fetcher, "_check_rate_limit") as rate_limit_mock, patch(
+            "data_provider.tushare_fetcher.httpx.Client",
+            return_value=fake_client,
+        ):
+            name = fetcher.get_stock_name("000333")
+
+        self.assertIsNone(name)
+        self.assertEqual(rate_limit_mock.call_count, 1)
+        self.assertEqual(
+            fake_client.post.call_args.kwargs["timeout"],
+            fetcher._STOCK_NAME_TIMEOUT_SECONDS,
+        )

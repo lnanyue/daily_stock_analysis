@@ -115,6 +115,10 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
 | `SEARXNG_BASE_URLS` | SearXNG self-hosted instances (quota-free fallback, enable format: json in settings.yml); when empty the app auto-discovers public instances | Optional |
 | `SEARXNG_PUBLIC_INSTANCES_ENABLED` | Auto-discover public SearXNG instances from `searx.space` when `SEARXNG_BASE_URLS` is empty (default `true`) | Optional |
+| `OPENBB_NEWS_ENABLED` | Enable [OpenBB](https://docs.openbb.co/) as an optional company-news source; requires local `openbb` plus the selected provider extension, default `false` | Optional |
+| `OPENBB_NEWS_PROVIDER` | OpenBB company-news provider, for example `yfinance`, `benzinga`, or `fmp` depending on installed OpenBB extensions and credentials; default `yfinance` | Optional |
+| `OPENBB_FETCHER_ENABLED` | Enable OpenBB as an optional price-data fetcher for historical prices, realtime quote, and stock-name fallback; default `false` | Optional |
+| `OPENBB_FETCHER_PROVIDER` | OpenBB price-data provider, for example `yfinance`, `fmp`, or `intrinio` depending on installed OpenBB extensions and credentials; default `yfinance` | Optional |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638) Token | Optional |
 | `TICKFLOW_API_KEY` | [TickFlow](https://tickflow.org) API key for CN market review index enhancement; market breadth also uses TickFlow when the plan supports universe queries | Optional |
 
@@ -158,6 +162,8 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 | Variable | Description | Default | Required |
 |--------|------|--------|:----:|
 | `LITELLM_MODEL` | Primary model, format `provider/model` (e.g. `gemini/gemini-2.5-flash`), recommended | - | No |
+| `AGENT_MODE` | Force single-stock reports and strategy-chat flows through the Agent pipeline | `false` | No |
+| `AGENT_AUTO_ROUTE_ANALYSIS` | Conditional Agent escalation: keep classic single-stock analysis as the default, but automatically upgrade complex runs (data gaps, dense/risk-sensitive news, richer A-share intel) to Agent mode | `false` | No |
 | `AGENT_LITELLM_MODEL` | Optional Agent-only primary model; when empty it inherits `LITELLM_MODEL`, and bare names are normalized to `openai/<model>` | - | No |
 | `LITELLM_FALLBACK_MODELS` | Fallback models, comma-separated | - | No |
 | `LLM_CHANNELS` | Channel names (comma-separated), use with `LLM_{NAME}_*`, see [LLM Config Guide](LLM_CONFIG_GUIDE_EN.md) | - | No |

@@ -38,6 +38,88 @@ def _format_amount(amount: Optional[float]) -> str:
     else:
         return f"{amount:.0f} 元"
 
+
+def _resolve_prompt_news_window_days(news_window_days_config: Optional[int]) -> int:
+    """为 prompt 解析最终使用的新闻窗口天数。"""
+    if news_window_days_config is not None:
+        try:
+            return max(1, int(news_window_days_config))
+        except (TypeError, ValueError):
+            logger.warning("Prompt news_window_days_config 非法，回退到默认窗口: %r", news_window_days_config)
+    return resolve_news_window_days(3, "short")
+
+
+def _build_analysis_guardrails(report_language: str, no_data_text: str) -> str:
+    """构建与具体数据载荷分离的稳定分析规则。"""
+    if report_language == "en":
+        return f"""
+---
+
+## 🧭 Analysis Rules
+- Start from the structured market, technical, chip, and fundamental data above. Use news to validate or challenge that base case, not replace it.
+- If technical, fundamental, and news signals conflict, call out the source of the conflict explicitly instead of forcing a single neat story.
+- Only conclude from the data provided in this prompt. When a field is missing, state "{no_data_text}, unable to judge" instead of inventing details.
+- Keep the final dashboard decision-oriented. Do not simply restate the tables without turning them into a trading conclusion.
+"""
+
+    return f"""
+---
+
+## 🧭 分析规则
+- 优先使用上方结构化的行情、趋势、筹码、财报数据做判断；新闻主要用于验证、补充催化与风险。
+- 如果技术面、基本面、消息面出现冲突，必须明确指出冲突来源，不要强行拼成单一结论。
+- 只能根据当前 prompt 中提供的数据下结论；字段缺失时直接写“{no_data_text}，无法判断”，禁止编造。
+- 最终输出要服务于交易决策，不要只是机械复述上面的表格。
+"""
+
+
+def _build_focus_questions(use_legacy_default_prompt: bool) -> str:
+    """构建稳定的关注问题块。"""
+    if use_legacy_default_prompt:
+        return """
+### 重点关注（必须明确回答）：
+1. ❓ 大盘环境与行业板块是否支持做多？
+2. ❓ 是否满足 MA5>MA10>MA20 多头排列？
+3. ❓ 当前乖离率是否在安全范围内（<5%）？—— 超过5%必须标注"严禁追高"
+4. ❓ 量能是否配合（缩量回调/放量突破）？
+5. ❓ 筹码结构是否健康？
+6. ❓ 消息面有无重大利空？（减持、处罚、业绩变变脸等）
+"""
+
+    return """
+### 重点关注（必须明确回答）：
+1. ❓ 当前大盘趋势与行业共振情况如何？是否属于强势赛道？
+2. ❓ 当前结构是否满足激活技能的关键触发条件？
+3. ❓ 当前入场位置与风险回报是否合理？若偏离过大，请明确说明等待条件
+4. ❓ 量能、波动与筹码结构是否支持当前结论？
+5. ❓ 消息面有无重大利空或与技能结论冲突的信息？
+6. ❓ 若结论成立，具体触发条件、止损位、观察点分别是什么？
+"""
+
+
+def _build_output_language_requirements(report_language: str, no_data_text: str) -> str:
+    """构建输出语言要求。"""
+    if report_language == "en":
+        return """
+
+### Output language requirements (highest priority)
+- Keep every JSON key exactly as defined above; do not translate keys.
+- `decision_type` must remain `buy`, `hold`, or `sell`.
+- All human-readable JSON values must be in English.
+- This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, all nested dashboard text, checklist items, and every summary field.
+- Use the common English company name when you are confident. If not, keep the listed company name rather than inventing one.
+- When data is missing, explain it in English instead of Chinese.
+"""
+
+    return f"""
+
+### 输出语言要求（最高优先级）
+- 所有 JSON 键名必须保持不变，不要翻译键名。
+- `decision_type` 必须保持为 `buy`、`hold`、`sell`。
+- 所有面向用户的人类可读文本值必须使用中文。
+- 当数据缺失时，请使用中文直接说明“{no_data_text}，无法判断”。
+"""
+
 def format_analysis_prompt(
     context: Dict[str, Any], 
     name: str,
@@ -60,6 +142,7 @@ def format_analysis_prompt(
     today = context.get('today', {})
     unknown_text = get_unknown_text(report_language)
     no_data_text = get_no_data_text(report_language)
+    news_window_days = _resolve_prompt_news_window_days(news_window_days_config)
     
     # ========== 构建决策仪表盘格式的输入 ==========
     prompt = f"""# 决策仪表盘分析请求
@@ -96,7 +179,7 @@ def format_analysis_prompt(
             if top_sectors:
                 prompt += "\n### 强势行业板块\n" + " | ".join([f"{s['name']}({s['change_pct']}%)" for s in top_sectors[:3]]) + "\n"
 
-    prompt += """
+    prompt += f"""
 ---
 
 ## 📈 技术面数据
@@ -243,7 +326,6 @@ def format_analysis_prompt(
 """
     
     # 添加新闻搜索结果
-    news_window_days = news_window_days_config
     prompt += """
 ---
 
@@ -278,6 +360,8 @@ def format_analysis_prompt(
 在回答技术面问题（如均线、乖离率）时，请直接说明“数据缺失，无法判断”，**严禁编造数据**。
 """
 
+    prompt += _build_analysis_guardrails(report_language, no_data_text)
+
     # 明确的输出要求
     prompt += f"""
 ---
@@ -300,28 +384,7 @@ def format_analysis_prompt(
 正确的股票名称格式为“股票名称（股票代码）”，例如“贵州茅台（600519）”。
 如果上方显示的股票名称为"股票{code}"或不正确，请在分析开头**明确输出该股票的正确中文全称**。
 """
-    if use_legacy_default_prompt:
-        prompt += f"""
-
-### 重点关注（必须明确回答）：
-1. ❓ 大盘环境与行业板块是否支持做多？
-2. ❓ 是否满足 MA5>MA10>MA20 多头排列？
-3. ❓ 当前乖离率是否在安全范围内（<5%）？—— 超过5%必须标注"严禁追高"
-4. ❓ 量能是否配合（缩量回调/放量突破）？
-5. ❓ 筹码结构是否健康？
-6. ❓ 消息面有无重大利空？（减持、处罚、业绩变变脸等）
-"""
-    else:
-        prompt += f"""
-
-### 重点关注（必须明确回答）：
-1. ❓ 当前大盘趋势与行业共振情况如何？是否属于强势赛道？
-2. ❓ 当前结构是否满足激活技能的关键触发条件？
-3. ❓ 当前入场位置与风险回报是否合理？若偏离过大，请明确说明等待条件
-4. ❓ 量能、波动与筹码结构是否支持当前结论？
-5. ❓ 消息面有无重大利空或与技能结论冲突的信息？
-6. ❓ 若结论成立，具体触发条件、止损位、观察点分别是什么？
-"""
+    prompt += _build_focus_questions(use_legacy_default_prompt)
     prompt += f"""
 
 ### 决策仪表盘要求：
@@ -333,27 +396,7 @@ def format_analysis_prompt(
 - **消息面时间合规**：`latest_news`、`risk_alerts`、`positive_catalysts` 不得包含超出近{news_window_days}日或时间未知的信息
 
 请输出完整的 JSON 格式决策仪表盘。"""
-
-    if report_language == "en":
-        prompt += """
-
-### Output language requirements (highest priority)
-- Keep every JSON key exactly as defined above; do not translate keys.
-- `decision_type` must remain `buy`, `hold`, or `sell`.
-- All human-readable JSON values must be in English.
-- This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, all nested dashboard text, checklist items, and every summary field.
-- Use the common English company name when you are confident. If not, keep the listed company name rather than inventing one.
-- When data is missing, explain it in English instead of Chinese.
-"""
-    else:
-        prompt += f"""
-
-### 输出语言要求（最高优先级）
-- 所有 JSON 键名必须保持不变，不要翻译键名。
-- `decision_type` 必须保持为 `buy`、`hold`、`sell`。
-- 所有面向用户的人类可读文本值必须使用中文。
-- 当数据缺失时，请使用中文直接说明“{no_data_text}，无法判断”。
-"""
+    prompt += _build_output_language_requirements(report_language, no_data_text)
 
     return prompt
 

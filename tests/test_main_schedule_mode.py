@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Regression tests for scheduled mode stock selection behavior."""
 
+import asyncio
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from unittest import mock
 from unittest.mock import patch
 
 from tests.litellm_stub import ensure_litellm_stub
@@ -111,6 +114,46 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         run_full_analysis.assert_called_once_with(config, args, ["600519", "000001"])
+
+
+class MainCleanupTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_cleanup_flushes_litellm_worker_and_closes_resources(self) -> None:
+        fake_worker = SimpleNamespace(
+            flush=mock.AsyncMock(),
+            stop=mock.AsyncMock(),
+        )
+        fake_litellm = ModuleType("litellm")
+        fake_litellm_core = ModuleType("litellm.litellm_core_utils")
+        fake_logging_worker = ModuleType("litellm.litellm_core_utils.logging_worker")
+        fake_logging_worker.GLOBAL_LOGGING_WORKER = fake_worker
+
+        pending = asyncio.create_task(asyncio.sleep(10))
+        try:
+            with patch.dict(
+                sys.modules,
+                {
+                    "litellm": fake_litellm,
+                    "litellm.litellm_core_utils": fake_litellm_core,
+                    "litellm.litellm_core_utils.logging_worker": fake_logging_worker,
+                },
+            ), patch("src.utils.async_http.AsyncHttpClientManager") as manager_cls, patch(
+                "src.storage.StorageManager.get_instance"
+            ) as get_instance:
+                manager_cls.return_value.close = mock.AsyncMock()
+                engine = SimpleNamespace(dispose=mock.Mock())
+                get_instance.return_value = SimpleNamespace(_engine=engine)
+
+                await main._cleanup()
+
+            fake_worker.flush.assert_awaited_once()
+            fake_worker.stop.assert_awaited_once()
+            manager_cls.return_value.close.assert_awaited_once()
+            engine.dispose.assert_called_once_with(close=True)
+            self.assertTrue(pending.cancelled())
+        finally:
+            if not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
 
 if __name__ == "__main__":

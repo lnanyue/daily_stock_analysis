@@ -337,7 +337,7 @@ def get_stock_name_multi_source(
 
     if data_manager:
         try:
-            name = data_manager.get_stock_name(stock_code)
+            name = data_manager.get_stock_name_sync(stock_code)
             if name:
                 # 更新缓存
                 STOCK_NAME_MAP[stock_code] = name

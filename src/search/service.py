@@ -27,6 +27,7 @@ from .providers import (
     SerpAPISearchProvider,
     MiniMaxSearchProvider,
     SearXNGSearchProvider,
+    OpenBBNewsProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,10 @@ class SearchService:
         brave_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
         minimax_keys: Optional[List[str]] = None,
+        searxng_base_urls: Optional[List[str]] = None,
+        searxng_public_instances_enabled: bool = False,
+        openbb_news_enabled: bool = False,
+        openbb_news_provider: str = "yfinance",
         news_max_age_days: int = 3,
         news_strategy_profile: str = "short",
     ):
@@ -112,6 +117,21 @@ class SearchService:
         if minimax_keys:
             self._providers.append(MiniMaxSearchProvider(minimax_keys))
             logger.info(f"已配置 MiniMax 搜索，共 {len(minimax_keys)} 个 API Key")
+        if openbb_news_enabled:
+            self._providers.append(OpenBBNewsProvider(provider=openbb_news_provider))
+            logger.info("已启用 OpenBB 公司新闻源，provider=%s", openbb_news_provider or "yfinance")
+        if searxng_base_urls or searxng_public_instances_enabled:
+            self._providers.append(
+                SearXNGSearchProvider(
+                    base_urls=searxng_base_urls or [],
+                    use_public_instances=searxng_public_instances_enabled,
+                )
+            )
+            logger.info(
+                "已配置 SearXNG 搜索，自建实例=%s，公共实例=%s",
+                len(searxng_base_urls or []),
+                searxng_public_instances_enabled,
+            )
 
         if not self._providers:
             logger.warning("未配置任何搜索能力，新闻搜索功能将不可用")
@@ -1003,6 +1023,10 @@ def get_search_service() -> SearchService:
             brave_keys=config.brave_api_keys,
             serpapi_keys=config.serpapi_keys,
             minimax_keys=config.minimax_api_keys,
+            searxng_base_urls=getattr(config, "searxng_base_urls", []),
+            searxng_public_instances_enabled=getattr(config, "searxng_public_instances_enabled", False),
+            openbb_news_enabled=getattr(config, "openbb_news_enabled", False),
+            openbb_news_provider=getattr(config, "openbb_news_provider", "yfinance"),
             news_max_age_days=config.news_max_age_days,
             news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
         )

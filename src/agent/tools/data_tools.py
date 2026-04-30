@@ -9,6 +9,8 @@ Tools:
 - get_analysis_context: historical analysis context from DB
 """
 
+import asyncio
+import inspect
 import logging
 from datetime import date
 from threading import Lock
@@ -49,6 +51,25 @@ def _get_db():
     """Lazy import for DatabaseManager."""
     from src.storage import get_db
     return get_db()
+
+
+def _resolve_sync_value(value):
+    if inspect.isawaitable(value):
+        return asyncio.run(value)
+    return value
+
+
+def _call_fetcher_manager(manager, sync_name: str, legacy_name: str, *args, **kwargs):
+    method = None
+    if hasattr(type(manager), sync_name) or sync_name in getattr(manager, "__dict__", {}):
+        method = getattr(manager, sync_name, None)
+    if callable(method):
+        return method(*args, **kwargs)
+
+    legacy_method = getattr(manager, legacy_name, None)
+    if not callable(legacy_method):
+        raise AttributeError(f"Fetcher manager missing {sync_name} / {legacy_name}")
+    return _resolve_sync_value(legacy_method(*args, **kwargs))
 
 
 def _compact_fundamental_context(fundamental_context: dict) -> dict:
@@ -180,7 +201,12 @@ def _compact_portfolio_risk(risk: dict, top_n: int = 10) -> dict:
 def _handle_get_realtime_quote(stock_code: str) -> dict:
     """Get real-time stock quote."""
     manager = _get_fetcher_manager()
-    quote = manager.get_realtime_quote(stock_code)
+    quote = _call_fetcher_manager(
+        manager,
+        "get_realtime_quote_sync",
+        "get_realtime_quote",
+        stock_code,
+    )
     if quote is None:
         return {
             "error": f"No realtime quote available for {stock_code}",
@@ -235,7 +261,13 @@ get_realtime_quote_tool = ToolDefinition(
 def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
     """Get daily OHLCV history data."""
     manager = _get_fetcher_manager()
-    df, source = manager.get_daily_data(stock_code, days=days)
+    df, source = _call_fetcher_manager(
+        manager,
+        "get_daily_data_sync",
+        "get_daily_data",
+        stock_code,
+        days=days,
+    )
 
     if df is None or df.empty:
         return {"error": f"No historical data available for {stock_code}"}
@@ -285,7 +317,12 @@ get_daily_history_tool = ToolDefinition(
 def _handle_get_chip_distribution(stock_code: str) -> dict:
     """Get chip distribution data."""
     manager = _get_fetcher_manager()
-    chip = manager.get_chip_distribution(stock_code)
+    chip = _call_fetcher_manager(
+        manager,
+        "get_chip_distribution_sync",
+        "get_chip_distribution",
+        stock_code,
+    )
 
     if chip is None:
         return {"error": f"No chip distribution data available for {stock_code}"}
@@ -371,7 +408,12 @@ def _handle_get_stock_info(stock_code: str) -> dict:
     """Get stock fundamental information through unified fundamental context."""
     manager = _get_fetcher_manager()
     try:
-        fundamental_context = manager.get_fundamental_context(stock_code)
+        fundamental_context = _call_fetcher_manager(
+            manager,
+            "get_fundamental_context_sync",
+            "get_fundamental_context",
+            stock_code,
+        )
     except Exception as e:
         logger.warning("get_stock_info via fundamental pipeline failed for %s: %s", stock_code, e)
         fundamental_context = manager.build_failed_fundamental_context(stock_code, str(e))
@@ -379,11 +421,21 @@ def _handle_get_stock_info(stock_code: str) -> dict:
     compact_context = _compact_fundamental_context(fundamental_context)
     valuation = compact_context.get("valuation", {}).get("data", {})
     sector_rankings = compact_context.get("boards", {}).get("data", {})
-    belong_boards = manager.get_belong_boards(stock_code)
+    belong_boards = _call_fetcher_manager(
+        manager,
+        "get_belong_boards_sync",
+        "get_belong_boards",
+        stock_code,
+    )
 
     stock_name = stock_code.upper()
     try:
-        stock_name = manager.get_stock_name(stock_code) or stock_name
+        stock_name = _call_fetcher_manager(
+            manager,
+            "get_stock_name_sync",
+            "get_stock_name",
+            stock_code,
+        ) or stock_name
     except Exception:
         pass
 

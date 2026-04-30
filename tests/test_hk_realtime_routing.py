@@ -43,7 +43,7 @@ class TestHKRealtimeRouting(unittest.TestCase):
         tushare = _DummyFetcher("TushareFetcher", 2, result={"should": "not be called"})
 
         manager = DataFetcherManager(fetchers=[efinance, akshare, tushare])
-        quote = manager.get_realtime_quote("1810.HK")
+        quote = manager.get_realtime_quote_sync("1810.HK")
 
         self.assertIsNone(quote)
         self.assertEqual(akshare.calls, [(("HK01810",), {"source": "hk"})])

@@ -61,7 +61,7 @@ class MarketAnalyzer:
     """
     大盘分析核心类
     """
-    
+
     def __init__(self, data_manager: Optional[DataFetcherManager] = None, analyzer = None, search_service: Optional[SearchService] = None, region: str = "cn"):
         self.config = get_config()
         self.data_manager = data_manager or DataFetcherManager(config=self.config)
@@ -133,7 +133,7 @@ class MarketAnalyzer:
         role = "你是一位专业的A股市场分析师"
         missing_data_guidance = (
             "若市场数据（指数、成交额等）缺失或显示为 N/A，但提供了市场新闻，请务必以新闻和历史背景为主要依据进行推断性复盘；"
-            "若当前日期为回溯的交易日，请在报告中明确说明。"
+            "若当前日期为回溯的交易日，请在报告中明确说明；不要臆测全球市场或跨市场联动。"
         )
         template = f"""## {context.date} A股市场复盘
 
@@ -199,13 +199,13 @@ class MarketAnalyzer:
         target_region = region or self.region
         market_name = self._get_market_name(target_region)
         logger.info(f"========== 开始 [{target_region}] {market_name} 复盘分析 ==========")
-        
+
         context = MarketAnalysisContext(region=target_region)
-        
+
         # 1. 获取指数行情 (带数据库兜底)
         try:
             indices = await self._maybe_await(self.data_manager.get_main_indices(region=target_region))
-            
+
             # 检查 indices 是否有效（排除全为 0 的情况）
             is_valid_indices = False
             if indices:
@@ -214,69 +214,109 @@ class MarketAnalyzer:
                         is_valid_indices = True
                         break
 
-            # 如果实时指数无效（非交易日），尝试从数据库恢复最近一个交易日的数据
+            # 如果实时指数无效（非交易日），尝试从远程历史接口恢复
             if not is_valid_indices:
                 from src.storage import get_db
                 db = get_db()
-                
-                # 优先尝试获取指数的历史记录
-                base_code = '000001' if target_region == 'cn' else 'SPX'
-                last_records = db.get_latest_data(base_code, days=1)
-                
-                target_date = None
-                if last_records:
-                    target_date = last_records[0].date
-                else:
-                    # 兜底：获取数据库中任何记录的最新日期
-                    target_date = db.get_global_latest_date()
-                
-                if target_date:
-                    context.date = target_date.isoformat()
-                    logger.info(f"[大盘] 实时行情无效或为空，切换至最近交易日数据: {context.date}")
-                    
-                    # 如果有具体记录，则加载它；否则构造一个占位符
-                    if last_records:
-                        last_record = last_records[0]
-                        context.indices = [{
-                            'name': self._get_market_name(target_region) + "主要指数",
-                            'code': base_code,
-                            'current': last_record.close,
-                            'change_pct': last_record.pct_chg
-                        }]
-                    else:
-                        # 仅同步日期，让 AI 知道我们在分析哪一天
-                        context.indices = []
-                else:
-                    logger.warning("[大盘] 实时行情无效且数据库完全无历史数据，无法执行日期回溯")
-                    context.indices = []
+
+                # 1. 尝试从数据库获取最近一个交易日的日期
+                target_date_obj = db.get_global_latest_date()
+                if not target_date_obj:
+                    target_date_obj = date.today()
+
+                context.date = target_date_obj.isoformat()
+                logger.info(f"[大盘] 实时行情不可用，尝试获取远程历史数据 (日期: {context.date})")
+
+                # 2. 尝试从远程接口获取真实的指数历史 (000001, 399001, 399006)
+                major_indices = [
+                    ('上证指数', '000001'),
+                    ('深证成指', '399001'),
+                    ('创业板指', '399006'),
+                    ('沪深300', '000300')
+                ]
+
+                fetched_indices = []
+                for name, code in major_indices:
+                    try:
+                        # 强制通过历史日线接口获取
+                        df, _ = await self.data_manager.get_daily_data(code, days=1)
+                        if df is not None and not df.empty:
+                            last_row = df.iloc[-1]
+                            fetched_indices.append({
+                                'name': name,
+                                'code': code,
+                                'current': last_row.get('close', 0),
+                                'change_pct': last_row.get('pct_chg', 0)
+                            })
+                    except Exception as e:
+                        logger.debug(f"[大盘] 补偿获取指数 {code} 失败: {e}")
+
+                if fetched_indices:
+                    context.indices = fetched_indices
+                    is_valid_indices = True
+
+                # 3. 尝试获取真实的全市场统计
+                if target_region == "cn":
+                    # 遍历所有 fetcher 寻找有非零成交额的源（如 efinance）
+                    for f in self.data_manager.fetchers:
+                        try:
+                            if hasattr(f, 'get_market_stats'):
+                                stats = f.get_market_stats()
+                                if stats and hasattr(self.data_manager, "_normalize_market_stats"):
+                                    stats = self.data_manager._normalize_market_stats(stats, getattr(f, "name", "unknown"))
+                                if stats and stats.get('volume_total', 0) > 100: # 成交额通常 > 100亿才可信
+                                    context.stats = stats
+                                    logger.info(f"[大盘] 从 {f.name} 获取到真实的非零统计: 成交额={stats.get('volume_total')}亿")
+                                    break
+                        except: continue
             else:
                 context.indices = indices
         except Exception as e:
             logger.error(f"[大盘] 获取指数行情失败: {e}")
 
-        # 2. 获取市场统计
-        if target_region == "cn":
+        # 2. 获取市场统计 (如果之前没拿到或无效)
+        if target_region == "cn" and (not context.stats or context.stats.get('volume_total', 0) == 0):
             try:
                 stats = await self._maybe_await(self.data_manager.get_market_stats())
-                # 只有在 stats 有实际意义（如成交额 > 0）时才采信
                 if stats and stats.get('volume_total', 0) > 0:
                     context.stats = stats
                 else:
-                    logger.debug("[大盘] 实时市场统计无效（成交额为0），可能是非交易日")
+                    # 只有在完全拿不到远程真实快照时，才降级使用数据库个股样本推算
+                    from src.storage import get_db
+                    db = get_db()
+                    target_date = date.fromisoformat(context.date)
+                    with db.get_session() as session:
+                        from src.storage import StockDaily
+                        from sqlalchemy import select
+                        all_today = session.execute(
+                            select(StockDaily.pct_chg, StockDaily.amount).where(StockDaily.date == target_date)
+                        ).all()
+                        if all_today:
+                            ups = len([r for r in all_today if (r[0] or 0) > 0])
+                            downs = len([r for r in all_today if (r[0] or 0) < 0])
+                            total_amt = sum([(r[1] or 0) for r in all_today]) / 100000000.0
+                            context.stats = {
+                                'up': ups,
+                                'down': downs,
+                                'volume_total': round(total_amt, 2),
+                                'limit_up': 'N/A',
+                                'is_sample': True
+                            }
+                            logger.info(f"[大盘] 远程统计不可用，使用 DB 样本推算: {ups}涨/{downs}跌")
             except Exception as e:
                 logger.error(f"[大盘] 获取市场统计失败: {e}")
 
-            # 3. 获取板块涨跌榜
-            try:
-                sector_rankings = await self._maybe_await(self.data_manager.get_sector_rankings())
-                if sector_rankings:
-                    if isinstance(sector_rankings, tuple) and len(sector_rankings) == 2:
-                        top, bottom = sector_rankings
-                        context.sector_rankings = {'top': top, 'bottom': bottom}
-                    else:
-                        context.sector_rankings = {'top': sector_rankings[:5], 'bottom': sector_rankings[-5:]}
-            except Exception as e:
-                logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
+        # 3. 获取板块涨跌榜
+        try:
+            sector_rankings = await self._maybe_await(self.data_manager.get_sector_rankings())
+            if sector_rankings:
+                if isinstance(sector_rankings, tuple) and len(sector_rankings) == 2:
+                    top, bottom = sector_rankings
+                    context.sector_rankings = {'top': top, 'bottom': bottom}
+                else:
+                    context.sector_rankings = {'top': sector_rankings[:5], 'bottom': sector_rankings[-5:]}
+        except Exception as e:
+            logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
 
         # 4. 联网搜索大盘情报
         try:
@@ -296,10 +336,10 @@ class MarketAnalyzer:
         """异步生成报告"""
         logger.info("[大盘] 正在调用 AI 生成复盘报告...")
         prompt = self._build_prompt(context)
-        
+
         if not self.analyzer or not self.analyzer.is_available():
             return self._generate_fallback_report(context)
-            
+
         try:
             report = None
 
@@ -318,7 +358,7 @@ class MarketAnalyzer:
     def _build_prompt(self, context: MarketAnalysisContext) -> str:
         market_name = self._get_market_name(context.region)
         role, missing_data_guidance, output_template = self._get_prompt_scaffold(context)
-        
+
         # 检查是否为历史数据
         is_historical = context.date != date.today().isoformat()
         historical_hint = f"注意：当前数据日期为 {context.date}，是最近一个交易日的收盘数据，请基于此进行分析。" if is_historical else ""
@@ -341,16 +381,16 @@ class MarketAnalyzer:
                         price = idx.get('current', idx.get('price', 'N/A'))
                         change = idx.get('change_pct', 'N/A')
                         indices_text += f"- {name}: {price} ({change}%)\n"
-        
+
         if context.stats:
-            up = context.stats.get('up', 'N/A')
-            down = context.stats.get('down', 'N/A')
-            l_up = context.stats.get('limit_up', 'N/A')
-            vol = context.stats.get('volume_total', 'N/A')
+            up = context.stats.get('up', context.stats.get('up_count', context.stats.get('rise_count', 'N/A')))
+            down = context.stats.get('down', context.stats.get('down_count', context.stats.get('fall_count', 'N/A')))
+            l_up = context.stats.get('limit_up', context.stats.get('limit_up_count', 'N/A'))
+            vol = context.stats.get('volume_total', context.stats.get('total_amount', 'N/A'))
             stats_text = f"- 上涨: {up} | 下跌: {down} | 涨停: {l_up}\n- 成交额: {vol} 亿元\n"
         else:
             stats_text = "暂无统计数据\n"
-        
+
         sectors_text = "- 领涨: 暂无\n- 领跌: 暂无\n"
         if isinstance(context.sector_rankings, dict):
             top_list = context.sector_rankings.get('top', [])
@@ -359,7 +399,7 @@ class MarketAnalyzer:
                 t_str = ", ".join([f"{s.get('name', '未知')}({s.get('change_pct', 0)}%)" for s in top_list if isinstance(s, dict)])
                 b_str = ", ".join([f"{s.get('name', '未知')}({s.get('change_pct', 0)}%)" for s in bottom_list if isinstance(s, dict)])
                 sectors_text = f"- 领涨: {t_str}\n- 领跌: {b_str}\n"
-            
+
         news_text = "暂无相关新闻\n"
         if context.market_news:
             lines = []
@@ -377,7 +417,7 @@ class MarketAnalyzer:
             blueprint_name = getattr(blueprint, 'name', '默认策略') if blueprint else '默认策略'
             blueprint_desc = getattr(blueprint, 'description', '') if blueprint else ''
             strategy_text = f"{strategy_section_title}\n## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
-        
+
         return f"""{role}，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
 {historical_hint}
 
@@ -417,7 +457,7 @@ class MarketAnalyzer:
 
     def _generate_fallback_report(self, context: MarketAnalysisContext) -> str:
         market_name = self._get_market_name(context.region)
-        vol = context.stats.get('volume_total', 'N/A') if isinstance(context.stats, dict) else 'N/A'
-        up = context.stats.get('up', 0) if isinstance(context.stats, dict) else 0
-        down = context.stats.get('down', 0) if isinstance(context.stats, dict) else 0
+        vol = context.stats.get('volume_total', context.stats.get('total_amount', 'N/A')) if isinstance(context.stats, dict) else 'N/A'
+        up = context.stats.get('up', context.stats.get('up_count', 0)) if isinstance(context.stats, dict) else 0
+        down = context.stats.get('down', context.stats.get('down_count', 0)) if isinstance(context.stats, dict) else 0
         return f"# {context.date} {market_name} 简要复盘\n\n> 提示：AI 分析服务暂时不可用，以下为基于原始数据的简报。\n\n- 成交统计: {vol} 亿\n- 涨跌分布: 上涨 {up} / 下跌 {down}"

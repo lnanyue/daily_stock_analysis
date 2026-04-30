@@ -199,6 +199,8 @@ def _classify_eastmoney_error(exc: Exception) -> Tuple[str, str]:
     for efinance's internal requests library usage.
     """
     message = str(exc).strip() or type(exc).__name__
+    if "remote end closed connection" in message.lower():
+        return "remote_disconnect", message
 
     # Type-based checks needed because efinance internally uses requests
     if isinstance(exc, (TimeoutError, requests.exceptions.Timeout)):

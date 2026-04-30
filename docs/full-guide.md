@@ -119,6 +119,10 @@ daily_stock_analysis/
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 备用搜索 | 可选 |
 | `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json）；留空时默认自动发现公共实例 | 可选 |
 | `SEARXNG_PUBLIC_INSTANCES_ENABLED` | 是否在 `SEARXNG_BASE_URLS` 为空时自动从 `searx.space` 获取公共实例（默认 `true`） | 可选 |
+| `OPENBB_NEWS_ENABLED` | 启用 [OpenBB](https://docs.openbb.co/) 公司新闻源；需本地安装 `openbb` 及对应 provider 扩展，默认 `false` | 可选 |
+| `OPENBB_NEWS_PROVIDER` | OpenBB 公司新闻 provider，例如 `yfinance`、`benzinga`、`fmp`（取决于本地 OpenBB 扩展与凭证），默认 `yfinance` | 可选 |
+| `OPENBB_FETCHER_ENABLED` | 启用 OpenBB 行情/日线数据源；用于历史价格、实时行情与股票名称 fallback，默认 `false` | 可选 |
+| `OPENBB_FETCHER_PROVIDER` | OpenBB 行情 provider，例如 `yfinance`、`fmp`、`intrinio`（取决于本地 OpenBB 扩展与凭证），默认 `yfinance` | 可选 |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | 可选 |
 | `ENABLE_CHIP_DISTRIBUTION` | 启用筹码分布（Actions 默认 false；需筹码数据时在 Variables 中设为 true，接口可能不稳定） | 可选 |
 
@@ -162,6 +166,8 @@ daily_stock_analysis/
 | 变量名 | 说明 | 默认值 | 必填 |
 |--------|------|--------|:----:|
 | `LITELLM_MODEL` | 主模型，格式 `provider/model`（如 `gemini/gemini-2.5-flash`），推荐优先使用 | - | 否 |
+| `AGENT_MODE` | 强制单股分析与策略问股走 Agent；适合你明确希望所有相关分析都走工具链推理 | `false` | 否 |
+| `AGENT_AUTO_ROUTE_ANALYSIS` | 条件式过 Agent：经典单股分析仍是默认，但在数据缺口、密集/高风险情报、较丰富的 A 股情报等复杂场景自动升级为 Agent | `false` | 否 |
 | `AGENT_LITELLM_MODEL` | Agent 主模型（可选）；留空继承 `LITELLM_MODEL`，无 provider 前缀按 `openai/<model>` 解析 | - | 否 |
 | `LITELLM_FALLBACK_MODELS` | 备选模型，逗号分隔 | - | 否 |
 | `LLM_CHANNELS` | 渠道名称列表（逗号分隔），配合 `LLM_{NAME}_*` 使用，详见 [LLM 配置指南](LLM_CONFIG_GUIDE.md) | - | 否 |

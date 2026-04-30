@@ -46,11 +46,13 @@ class TestAgentConfig(unittest.TestCase):
         config = Config._load_from_env()
         self.assertEqual(config.agent_litellm_model, "")
         self.assertFalse(config.agent_mode)
+        self.assertFalse(config.agent_auto_route_analysis)
         self.assertEqual(config.agent_max_steps, 10)
         self.assertEqual(config.agent_skills, [])
 
     @patch.dict(os.environ, {
         'AGENT_MODE': 'true',
+        'AGENT_AUTO_ROUTE_ANALYSIS': 'true',
         'AGENT_MAX_STEPS': '15',
         'AGENT_SKILLS': 'dragon_head,shrink_pullback,volume_breakout',
     }, clear=True)
@@ -60,6 +62,7 @@ class TestAgentConfig(unittest.TestCase):
         Config._instance = None
         config = Config._load_from_env()
         self.assertTrue(config.agent_mode)
+        self.assertTrue(config.agent_auto_route_analysis)
         self.assertEqual(config.agent_max_steps, 15)
         self.assertEqual(config.agent_skills, ['dragon_head', 'shrink_pullback', 'volume_breakout'])
 
@@ -563,6 +566,7 @@ class TestPipelineRouting(unittest.TestCase):
             pipeline.fetcher_manager.get_fundamental_context = AsyncMock(return_value={})
             pipeline.fetcher_manager.get_market_overview = AsyncMock(return_value={})
             pipeline.db.get_data_range_async = AsyncMock(return_value=[])
+            pipeline.search_service.is_available = False
 
             asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
 
@@ -574,6 +578,55 @@ class TestPipelineRouting(unittest.TestCase):
             self.assertEqual(call_args[0][2], "q1")
             # trend_result (8th arg) should be present (may be a TrendAnalysisResult or None)
             self.assertEqual(len(call_args[0]), 8)
+
+    def test_auto_agent_route_escalates_complex_single_stock_runs(self):
+        """When auto routing is enabled, complex runs should switch to Agent mode."""
+        with patch('src.core.pipeline.get_config') as mock_config, \
+             patch('src.core.pipeline.get_db'), \
+             patch('src.core.pipeline.DataFetcherManager'), \
+             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.NotificationService'), \
+             patch('src.core.pipeline.SearchService'):
+
+            mock_cfg = MagicMock()
+            mock_cfg.max_workers = 2
+            mock_cfg.agent_mode = False
+            mock_cfg.agent_auto_route_analysis = True
+            mock_cfg.agent_skills = []
+            mock_cfg.bocha_api_keys = []
+            mock_cfg.tavily_api_keys = []
+            mock_cfg.brave_api_keys = []
+            mock_cfg.serpapi_keys = []
+            mock_cfg.searxng_base_urls = []
+            mock_cfg.searxng_public_instances_enabled = False
+            mock_cfg.news_max_age_days = 7
+            mock_cfg.enable_realtime_quote = True
+            mock_cfg.enable_chip_distribution = True
+            mock_cfg.realtime_source_priority = []
+            mock_cfg.save_context_snapshot = False
+            mock_cfg.is_agent_available.return_value = True
+            mock_config.return_value = mock_cfg
+
+            from src.core.pipeline import StockAnalysisPipeline
+            from src.enums import ReportType
+            pipeline = StockAnalysisPipeline(config=mock_cfg)
+
+            pipeline._analyze_with_agent = MagicMock(return_value=None)
+            pipeline.fetcher_manager.get_stock_name = AsyncMock(return_value="贵州茅台")
+            pipeline.fetcher_manager.get_realtime_quote = AsyncMock(return_value=None)
+            pipeline.fetcher_manager.get_chip_distribution = AsyncMock(return_value=None)
+            pipeline.fetcher_manager.get_fundamental_context = AsyncMock(return_value={})
+            pipeline.fetcher_manager.get_market_overview = AsyncMock(return_value={})
+            pipeline.db.get_data_range_async = AsyncMock(return_value=[])
+            pipeline.search_service.is_available = False
+
+            asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q-auto"))
+
+            pipeline._analyze_with_agent.assert_called_once()
+            self.assertEqual(
+                pipeline._analyze_with_agent.call_args.kwargs.get("route_reasons"),
+                ["core_data_gap"],
+            )
 
     def test_legacy_mode_does_not_call_agent(self):
         """When agent_mode=False, analyze_stock should NOT call _analyze_with_agent."""
@@ -701,6 +754,11 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
 
             self.assertIsNotNone(result)
             self.assertEqual(result.name, "科创芯片ETF")
+            mock_executor.run.assert_called_once()
+            agent_context = mock_executor.run.call_args.kwargs["context"]
+            self.assertEqual(agent_context["stock_code"], "588200")
+            self.assertEqual(agent_context["stock_name"], "股票588200")
+            self.assertEqual(agent_context["report_type"], ReportType.SIMPLE.value)
             pipeline.search_service.search_stock_news.assert_called_once_with(
                 stock_code="588200",
                 stock_name="科创芯片ETF",
@@ -709,6 +767,73 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             pipeline.db.save_news_intel.assert_called_once()
             saved_kwargs = pipeline.db.save_news_intel.call_args.kwargs
             self.assertEqual(saved_kwargs["name"], "科创芯片ETF")
+
+    def test_analyze_with_agent_passes_prefetched_context_to_executor(self):
+        with patch('src.core.pipeline.get_config') as mock_config, \
+             patch('src.core.pipeline.get_db'), \
+             patch('src.core.pipeline.DataFetcherManager'), \
+             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.NotificationService'), \
+             patch('src.core.pipeline.SearchService'), \
+             patch('src.agent.factory.build_agent_executor') as mock_build_executor:
+
+            mock_cfg = MagicMock()
+            mock_cfg.max_workers = 2
+            mock_cfg.agent_mode = True
+            mock_cfg.agent_skills = []
+            mock_cfg.report_language = "zh"
+            mock_cfg.bocha_api_keys = []
+            mock_cfg.tavily_api_keys = []
+            mock_cfg.brave_api_keys = []
+            mock_cfg.serpapi_keys = []
+            mock_cfg.searxng_base_urls = []
+            mock_cfg.searxng_public_instances_enabled = False
+            mock_cfg.news_max_age_days = 7
+            mock_cfg.enable_realtime_quote = True
+            mock_cfg.enable_chip_distribution = True
+            mock_cfg.realtime_source_priority = []
+            mock_cfg.save_context_snapshot = False
+            mock_config.return_value = mock_cfg
+
+            from src.core.pipeline import StockAnalysisPipeline
+            from src.agent.executor import AgentResult
+            from src.enums import ReportType
+
+            pipeline = StockAnalysisPipeline(config=mock_cfg)
+
+            agent_result = AgentResult(
+                success=True,
+                content="{}",
+                dashboard={"stock_name": "贵州茅台", "sentiment_score": 72, "decision_type": "hold"},
+                provider="gemini",
+            )
+            mock_executor = MagicMock()
+            mock_executor.run.return_value = agent_result
+            mock_build_executor.return_value = mock_executor
+            pipeline.search_service.is_available = False
+
+            realtime_quote = SimpleNamespace(price=123.4, change_pct=1.23, volume=1000, amount=2000, name="贵州茅台")
+            chip_data = SimpleNamespace(profit_ratio=0.71, avg_cost=120.5, concentration_90=0.12, concentration_70=0.08, date="2026-04-30")
+            trend_result = SimpleNamespace(to_dict=lambda: {"trend_status": "多头排列", "signal_score": 78})
+
+            asyncio.run(pipeline._analyze_with_agent(
+                code="600519",
+                report_type=ReportType.FULL,
+                query_id="q-context",
+                stock_name="贵州茅台",
+                realtime_quote=realtime_quote,
+                chip_data=chip_data,
+                trend_result=trend_result,
+                news_context="### 风险\n- 2026-04-30: 无重大利空",
+            ))
+
+            agent_context = mock_executor.run.call_args.kwargs["context"]
+            self.assertEqual(agent_context["stock_code"], "600519")
+            self.assertEqual(agent_context["report_type"], ReportType.FULL.value)
+            self.assertEqual(agent_context["realtime_quote"]["price"], 123.4)
+            self.assertEqual(agent_context["chip_distribution"]["avg_cost"], 120.5)
+            self.assertEqual(agent_context["trend_result"]["signal_score"], 78)
+            self.assertIn("无重大利空", agent_context["news_context"])
 
 
 # ============================================================
