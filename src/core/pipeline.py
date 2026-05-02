@@ -11,13 +11,8 @@ import logging
 import random
 import re
 import threading
-import time
 import uuid
 import json
-from collections import defaultdict
-from datetime import date, datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple, Callable
 
@@ -135,64 +130,6 @@ class StockAnalysisPipeline:
             if normalized in {"0", "false", "no", "off", ""}:
                 return False
         return default
-        self.fetcher_manager = DataFetcherManager()
-        # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
-        self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
-        self.analyzer = GeminiAnalyzer(config=self.config)
-        self.notifier = NotificationService(source_message=source_message)
-        self._single_stock_notify_lock = threading.Lock()
-        
-        # 初始化搜索服务（可选，初始化失败不应阻断主分析流程）
-        try:
-            self.search_service = SearchService(
-                bocha_keys=self.config.bocha_api_keys,
-                tavily_keys=self.config.tavily_api_keys,
-                anspire_keys=self.config.anspire_api_keys,
-                brave_keys=self.config.brave_api_keys,
-                serpapi_keys=self.config.serpapi_keys,
-                minimax_keys=self.config.minimax_api_keys,
-                searxng_base_urls=self.config.searxng_base_urls,
-                searxng_public_instances_enabled=self.config.searxng_public_instances_enabled,
-                news_max_age_days=self.config.news_max_age_days,
-                news_strategy_profile=getattr(self.config, "news_strategy_profile", "short"),
-            )
-        except Exception as exc:
-            logger.warning("搜索服务初始化失败，将以无搜索模式运行: %s", exc, exc_info=True)
-            self.search_service = None
-        
-        logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
-        logger.info("已启用技术分析引擎（均线/趋势/量价指标）")
-        # 打印实时行情/筹码配置状态
-        if self.config.enable_realtime_quote:
-            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
-        else:
-            logger.info("实时行情已禁用，将使用历史收盘价")
-        if self.config.enable_chip_distribution:
-            logger.info("筹码分布分析已启用")
-        else:
-            logger.info("筹码分布分析已禁用")
-        if self.search_service is None:
-            logger.warning("搜索服务未启用（初始化失败或依赖缺失）")
-        elif self.search_service.is_available:
-            logger.info("搜索服务已启用")
-        else:
-            logger.warning("搜索服务未启用（未配置搜索能力）")
-
-        # 初始化社交舆情服务（仅美股，可选）
-        try:
-            self.social_sentiment_service = SocialSentimentService(
-                api_key=self.config.social_sentiment_api_key,
-                api_url=self.config.social_sentiment_api_url,
-            )
-            if self.social_sentiment_service.is_available:
-                logger.info("Social sentiment service enabled (Reddit/X/Polymarket, US stocks only)")
-        except Exception as exc:
-            logger.warning(
-                "社交舆情服务初始化失败，将跳过舆情分析: %s",
-                exc,
-                exc_info=True,
-            )
-            self.social_sentiment_service = None
 
     def _emit_progress(self, progress: int, message: str) -> None:
         """Best-effort bridge from pipeline stages to task SSE progress."""
@@ -215,46 +152,6 @@ class StockAnalysisPipeline:
                     "query_id": query_id,
                 },
             )
-
-    def fetch_and_save_stock_data(
-        self, 
-        code: str,
-        force_refresh: bool = False,
-        current_time: Optional[datetime] = None,
-    ) -> Tuple[bool, Optional[str]]:
-        """
-        获取并保存单只股票数据
-        
-        断点续传逻辑：
-        1. 检查数据库是否已有最新可复用交易日数据
-        2. 如果有且不强制刷新，则跳过网络请求
-        3. 否则从数据源获取并保存
-        
-        Args:
-            code: 股票代码
-            force_refresh: 是否强制刷新（忽略本地缓存）
-            current_time: 本轮运行冻结的参考时间，用于统一断点续传目标交易日判断
-            
-        Returns:
-            Tuple[是否成功, 错误信息]
-        """
-        stock_name = code
-        # 首先获取股票名称
-        try:
-            stock_name = self.fetcher_manager.get_stock_name(code, allow_realtime=False)
-        except Exception:
-            pass
-
-        target_date = self._resolve_resume_target_date(
-            code, current_time=current_time
-        )
-
-        # 断点续传检查：如果最新可复用交易日的数据已存在，则跳过
-        if not force_refresh and self.db.has_today_data(code, target_date):
-            logger.info(
-                f"{stock_name}({code}) {target_date} 数据已存在，跳过获取（断点续传）"
-            )
-            return True, None
 
     def _is_agent_runtime_available(self) -> bool:
         checker = getattr(self.config, "is_agent_available", None)
@@ -297,13 +194,27 @@ class StockAnalysisPipeline:
                 hits.append(label)
         return hits
 
-    async def fetch_and_save_stock_data(self, code: str, force_refresh: bool = False) -> Tuple[bool, Optional[str]]:
+    async def fetch_and_save_stock_data(
+        self,
+        code: str,
+        force_refresh: bool = False,
+        current_time: Optional[datetime] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        获取并保存单只股票数据
+        """
+        stock_name = code
         try:
-            await self.fetcher_manager.get_stock_name(code)
-        except Exception as e:
-            return False, str(e)
+            stock_name = await self._maybe_await(self.fetcher_manager.get_stock_name(code))
+        except Exception as exc:
+            return False, str(exc)
+
+        target_date = self._resolve_resume_target_date(code, current_time=current_time)
+
         try:
-            if not force_refresh and self.db.has_today_data(code):
+            # 断点续传检查
+            if not force_refresh and self.db.has_today_data(code, target_date):
+                logger.info(f"{stock_name}({code}) {target_date} 数据已存在，跳过获取（断点续传）")
                 return True, None
             
             res = await self.fetcher_manager.get_daily_data(code, days=45)
@@ -342,7 +253,7 @@ class StockAnalysisPipeline:
         try:
             self._emit_progress(18, f"{code}：正在获取行情与筹码数据")
             # 获取股票名称（先走轻量名称路径，后续若 realtime_quote 有 name 再覆盖）
-            stock_name = self.fetcher_manager.get_stock_name(code, allow_realtime=False)
+            stock_name = await self.fetcher_manager.get_stock_name(code, allow_realtime=False)
 
             # Step 1: 获取实时行情（量比、换手率等）- 使用统一入口，自动故障切换
             realtime_quote = None
@@ -571,16 +482,6 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] AI 分析失败: {e}", exc_info=True)
             return None
 
-    async def process_single_stock(self, code, skip_analysis=False, single_stock_notify=False, report_type=ReportType.SIMPLE):
-        logger.info(f"[{code}] 正在处理...")
-        await self.fetch_and_save_stock_data(code)
-        if skip_analysis: return None
-        result = await self.analyze_stock(code, report_type, uuid.uuid4().hex)
-        if result and single_stock_notify and self.notifier.is_available():
-            report_content = self.notifier.generate_single_stock_report(result)
-            await self.notifier.send(report_content, email_stock_codes=[code])
-        return result
-
     async def run(self, stock_codes=None, dry_run=False, send_notification=True, merge_notification=False):
         if stock_codes is None: stock_codes = self.config.stock_list
         if not stock_codes: return []
@@ -632,7 +533,8 @@ class StockAnalysisPipeline:
 
         enhanced = context.copy()
         enhanced['stock_name'] = stock_name
-        
+        enhanced['news_window_days'] = getattr(self.search_service, "news_window_days", None)
+
         if fundamental_context: enhanced['fundamental'] = fundamental_context
         if market_overview: enhanced['market_overview'] = market_overview
 
@@ -667,12 +569,6 @@ class StockAnalysisPipeline:
             today['ma5'] = round(ma5, 2)
             today['ma10'] = round(_as_float(trend_payload.get('ma10')) or 0, 2)
             today['ma20'] = round(_as_float(trend_payload.get('ma20')) or 0, 2)
-
-        # 实时价覆盖历史收盘价
-        rt_price = _as_float(_get_quote_value(realtime_quote, 'price'))
-        if rt_price:
-            today['close'] = round(rt_price, 2)
-            today['pct_chg'] = round(_as_float(_get_quote_value(realtime_quote, 'change_pct')) or 0, 2)
 
         enhanced['today'] = today
         enhanced['ma_status'] = self._compute_ma_status(today.get('ma5'), today.get('ma10'), today.get('ma20'), today.get('close'))
@@ -718,7 +614,7 @@ class StockAnalysisPipeline:
                         realtime_today[k] = v
                 enhanced['today'] = realtime_today
                 enhanced['ma_status'] = self._compute_ma_status(
-                    price, trend_result.ma5, trend_result.ma10, trend_result.ma20
+                    trend_result.ma5, trend_result.ma10, trend_result.ma20, price
                 )
                 enhanced['date'] = get_market_now(
                     get_market_for_stock(normalize_stock_code(enhanced.get('code', '')))
@@ -762,22 +658,6 @@ class StockAnalysisPipeline:
         )
 
         return enhanced
-
-    @staticmethod
-    def _compute_ma_status(ma5, ma10, ma20, price=None) -> str:
-        if not all([ma5, ma10, ma20]): return "均线不足"
-        if ma5 > ma10 > ma20: return "多头排列" if price is None or price >= ma5 else "多头承压"
-        if ma5 < ma10 < ma20: return "空头排列" if price is None or price <= ma5 else "空头反抽"
-        return "震荡整理"
-
-    def _augment_historical_with_realtime(self, df: pd.DataFrame, realtime_quote: Any, code: str) -> pd.DataFrame:
-        if df is None or df.empty or realtime_quote is None: return df
-        price = float(getattr(realtime_quote, 'price', 0) or 0)
-        if price <= 0: return df
-        df = df.copy()
-        new_row = {'code': code, 'date': date.today(), 'close': price, 'open': getattr(realtime_quote, 'open_price', price), 'high': getattr(realtime_quote, 'high', price), 'low': getattr(realtime_quote, 'low', price)}
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        return df
 
     def _should_auto_route_to_agent(
         self,
@@ -841,7 +721,7 @@ class StockAnalysisPipeline:
         should_route = bool(major_reasons) or len(minor_reasons) >= 2
         return should_route, reasons
 
-    def _ensure_agent_history(self, code: str, min_days: int = 240) -> None:
+    async def _ensure_agent_history(self, code: str, min_days: int = 240) -> None:
         """Ensure at least *min_days* of K-line history is in DB for agent tools."""
         from src.services.history_loader import get_frozen_target_date
 
@@ -854,152 +734,12 @@ class StockAnalysisPipeline:
             logger.debug("[%s] Agent history: %d bars in DB, sufficient", code, len(bars))
             return
         try:
-            df, source = self.fetcher_manager.get_daily_data(code, days=min_days)
+            df, source = await self.fetcher_manager.get_daily_data(code, days=min_days)
             if df is not None and not df.empty:
                 self.db.save_daily_data(df, code, source)
                 logger.info("[%s] Prefetched %d rows of history for agent (source: %s)", code, len(df), source)
         except Exception as e:
             logger.warning("[%s] Agent history prefetch failed: %s", code, e)
-
-    def _analyze_with_agent(
-        self, 
-        code: str, 
-        report_type: ReportType, 
-        query_id: str,
-        stock_name: str,
-        realtime_quote: Any,
-        chip_data: Optional[ChipDistribution],
-        fundamental_context: Optional[Dict[str, Any]] = None,
-        trend_result: Optional[TrendAnalysisResult] = None,
-    ) -> Optional[AnalysisResult]:
-        """
-        使用 Agent 模式分析单只股票。
-        """
-        try:
-            from src.agent.factory import build_agent_executor
-            report_language = normalize_report_language(getattr(self.config, "report_language", "zh"))
-
-            # Build executor from shared factory (ToolRegistry and SkillManager prototype are cached)
-            executor = build_agent_executor(self.config, getattr(self.config, 'agent_skills', None) or None)
-
-            # Build initial context to avoid redundant tool calls
-            initial_context = {
-                "stock_code": code,
-                "stock_name": stock_name,
-                "report_type": report_type.value,
-                "report_language": report_language,
-                "fundamental_context": fundamental_context,
-            }
-            
-            if realtime_quote:
-                initial_context["realtime_quote"] = self._safe_to_dict(realtime_quote)
-            if chip_data:
-                initial_context["chip_distribution"] = self._safe_to_dict(chip_data)
-            if trend_result:
-                initial_context["trend_result"] = self._safe_to_dict(trend_result)
-
-            # Agent path: inject social sentiment as news_context so both
-            # executor (_build_user_message) and orchestrator (ctx.set_data)
-            # can consume it through the existing news_context channel
-            if self.social_sentiment_service is not None and self.social_sentiment_service.is_available and is_us_stock_code(code):
-                try:
-                    social_context = self.social_sentiment_service.get_social_context(code)
-                    if social_context:
-                        existing = initial_context.get("news_context")
-                        if existing:
-                            initial_context["news_context"] = existing + "\n\n" + social_context
-                        else:
-                            initial_context["news_context"] = social_context
-                        logger.info(f"[{code}] Agent mode: social sentiment data injected into news_context")
-                except Exception as e:
-                    logger.warning(f"[{code}] Agent mode: social sentiment fetch failed: {e}")
-
-            # Issue #1066: ensure deep history is in DB before agent tools run
-            self._ensure_agent_history(code)
-
-            # 运行 Agent
-            if report_language == "en":
-                message = f"Analyze stock {code} ({stock_name}) and return the full decision dashboard JSON in English."
-            else:
-                message = f"请分析股票 {code} ({stock_name})，并生成决策仪表盘报告。"
-            agent_result = executor.run(message, context=initial_context)
-
-            # 转换为 AnalysisResult
-            result = self._agent_result_to_analysis_result(
-                agent_result,
-                code,
-                stock_name,
-                report_type,
-                query_id,
-                trend_result=trend_result,
-            )
-            if result:
-                result.query_id = query_id
-            # Agent weak integrity: placeholder fill only, no LLM retry
-            if result and getattr(self.config, "report_integrity_enabled", False):
-                from src.analyzer import check_content_integrity, apply_placeholder_fill
-
-                pass_integrity, missing = check_content_integrity(result)
-                if not pass_integrity:
-                    apply_placeholder_fill(result, missing)
-                    logger.info(
-                        "[LLM完整性] integrity_mode=agent_weak 必填字段缺失 %s，已占位补全",
-                        missing,
-                    )
-            # chip_structure fallback (Issue #589), before save_analysis_history
-            if result and chip_data:
-                fill_chip_structure_if_needed(result, chip_data)
-
-            # price_position fallback (same as non-agent path Step 7.7)
-            if result:
-                fill_price_position_if_needed(result, trend_result, realtime_quote)
-
-            resolved_stock_name = result.name if result and result.name else stock_name
-
-            # 保存新闻情报到数据库（Agent 工具结果仅用于 LLM 上下文，未持久化，Fixes #396）
-            # 使用 search_stock_news（与 Agent 工具调用逻辑一致），仅 1 次 API 调用，无额外延迟
-            if self.search_service is not None and self.search_service.is_available:
-                try:
-                    news_response = self.search_service.search_stock_news(
-                        stock_code=code,
-                        stock_name=resolved_stock_name,
-                        max_results=5
-                    )
-                    if news_response.success and news_response.results:
-                        query_context = self._build_query_context(query_id=query_id)
-                        self.db.save_news_intel(
-                            code=code,
-                            name=resolved_stock_name,
-                            dimension="latest_news",
-                            query=news_response.query,
-                            response=news_response,
-                            query_context=query_context
-                        )
-                        logger.info(f"[{code}] Agent 模式: 新闻情报已保存 {len(news_response.results)} 条")
-                except Exception as e:
-                    logger.warning(f"[{code}] Agent 模式保存新闻情报失败: {e}")
-
-            # 保存分析历史记录
-            if result and result.success:
-                try:
-                    initial_context["stock_name"] = resolved_stock_name
-                    self.db.save_analysis_history(
-                        result=result,
-                        query_id=query_id,
-                        report_type=report_type.value,
-                        news_content=None,
-                        context_snapshot=initial_context,
-                        save_snapshot=self.save_context_snapshot
-                    )
-                except Exception as e:
-                    logger.warning(f"[{code}] 保存 Agent 分析历史失败: {e}")
-
-            return result
-
-        except Exception as e:
-            logger.error(f"[{code}] Agent 分析失败: {e}")
-            logger.exception(f"[{code}] Agent 详细错误信息:")
-            return None
 
     @staticmethod
     def _extract_quote_payload(realtime_quote: Any) -> Optional[Dict[str, Any]]:
@@ -1080,50 +820,6 @@ class StockAnalysisPipeline:
         result.data_sources = f"{result.data_sources},trend:fallback" if result.data_sources else "trend:fallback"
 
     @staticmethod
-    def _is_placeholder_stock_name(name: str, code: str) -> bool:
-        """Return True when the stock name is missing or placeholder-like."""
-        if not name:
-            return True
-        normalized = str(name).strip()
-        if not normalized:
-            return True
-        if normalized == code:
-            return True
-        if normalized.startswith("股票"):
-            return True
-        if "Unknown" in normalized:
-            return True
-        return False
-
-        def _get_value(key: str, fallback: Optional[str] = None) -> Any:
-            if isinstance(realtime_quote, dict):
-                if key in realtime_quote:
-                    return realtime_quote.get(key)
-                return realtime_quote.get(fallback) if fallback else None
-            value = getattr(realtime_quote, key, None)
-            if value is not None:
-                return value
-            return getattr(realtime_quote, fallback, None) if fallback else None
-
-        payload = {
-            "name": _get_value("name"),
-            "price": _get_value("price"),
-            "change_pct": _get_value("change_pct"),
-            "volume": _get_value("volume"),
-            "amount": _get_value("amount"),
-            "open": _get_value("open_price", "open"),
-            "high": _get_value("high"),
-            "low": _get_value("low"),
-            "turnover_rate": _get_value("turnover_rate"),
-            "pe_ratio": _get_value("pe_ratio"),
-            "pb_ratio": _get_value("pb_ratio"),
-            "total_mv": _get_value("total_mv"),
-            "circ_mv": _get_value("circ_mv"),
-        }
-        payload = {key: value for key, value in payload.items() if value is not None}
-        return payload or None
-
-    @staticmethod
     def _extract_chip_payload(chip_data: Any) -> Optional[Dict[str, Any]]:
         if chip_data is None:
             return None
@@ -1152,10 +848,12 @@ class StockAnalysisPipeline:
         ma5 = ma5 or 0
         ma10 = ma10 or 0
         ma20 = ma20 or 0
-        if price > ma5 > ma10 > ma20 > 0:
-            return "多头排列 📈"
-        elif price < ma5 < ma10 < ma20 and ma20 > 0:
-            return "空头排列 📉"
+        if not all([ma5, ma10, ma20]):
+            return "均线不足"
+        if ma5 > ma10 > ma20:
+            return "多头排列 📈" if price >= ma5 else "多头承压"
+        elif ma5 < ma10 < ma20:
+            return "空头排列 📉" if price <= ma5 else "空头反抽"
         elif price > ma5 and ma5 > ma10:
             return "短期向好 🔼"
         elif price < ma5 and ma5 < ma10:
@@ -1234,6 +932,7 @@ class StockAnalysisPipeline:
                 'amount': amt if amt is not None else 0,
                 'pct_chg': pct if pct is not None else 0,
             }
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         return df
 
     @staticmethod
@@ -1332,6 +1031,18 @@ class StockAnalysisPipeline:
             context["belong_boards"] = []
             return context
 
+        boards = self._call_fetcher_manager_sync(
+            "get_belong_boards_sync",
+            "get_belong_boards",
+            stock_code,
+        )
+        if isinstance(boards, list):
+            context["belong_boards"] = [
+                dict(item) if isinstance(item, dict) else item
+                for item in boards
+            ]
+        else:
+            context["belong_boards"] = []
         return context
     
     async def process_single_stock(
@@ -1417,6 +1128,91 @@ class StockAnalysisPipeline:
             return None
         finally:
             reset_frozen_target_date(token)
+
+    @staticmethod
+    def _sync_maybe_await(value: Any) -> Any:
+        if inspect.isawaitable(value):
+            return asyncio.run(value)
+        return value
+
+    def _send_notifications(
+        self,
+        results: List[AnalysisResult],
+        report_type: ReportType = ReportType.SIMPLE,
+    ) -> bool:
+        """Synchronous notification helper kept for legacy callers/tests."""
+        if not results or not self.notifier.is_available():
+            return False
+
+        channels = self.notifier.get_available_channels()
+        sent = False
+
+        def _channel_enabled(target: NotificationChannel) -> bool:
+            return any(channel == target or getattr(channel, "value", None) == target.value for channel in channels)
+
+        def _send_email_report(subset: List[AnalysisResult], receivers: Optional[List[str]] = None) -> None:
+            nonlocal sent
+            content = self.notifier.generate_dashboard_report(subset)
+            image_bytes = None
+            if "email" in getattr(self.notifier, "_markdown_to_image_channels", set()):
+                from src.md2img import markdown_to_image
+
+                image_bytes = markdown_to_image(
+                    content,
+                    max_chars=getattr(self.notifier, "_markdown_to_image_max_chars", 15000),
+                )
+            if self.notifier._should_use_image_for_channel(NotificationChannel.EMAIL, image_bytes):
+                sent = bool(self._sync_maybe_await(
+                    self.notifier._send_email_with_inline_image(
+                        content,
+                        image_bytes,
+                        receivers=receivers,
+                    )
+                )) or sent
+            else:
+                sent = bool(self._sync_maybe_await(
+                    self.notifier.send_to_email(content, receivers=receivers)
+                )) or sent
+
+        if _channel_enabled(NotificationChannel.WECHAT):
+            wechat_content = (
+                self.notifier.generate_wechat_dashboard(results)
+                if hasattr(self.notifier, "generate_wechat_dashboard")
+                else self.notifier.generate_dashboard_report(results)
+            )
+            image_bytes = None
+            if "wechat" in getattr(self.notifier, "_markdown_to_image_channels", set()):
+                from src.md2img import markdown_to_image
+
+                image_bytes = markdown_to_image(
+                    wechat_content,
+                    max_chars=getattr(self.notifier, "_markdown_to_image_max_chars", 15000),
+                )
+            if self.notifier._should_use_image_for_channel(NotificationChannel.WECHAT, image_bytes):
+                sent = bool(self._sync_maybe_await(self.notifier._send_wechat_image(image_bytes))) or sent
+            else:
+                if "wechat" in getattr(self.notifier, "_markdown_to_image_channels", set()):
+                    engine = getattr(get_config(), "md2img_engine", "unknown")
+                    logger.warning("企业微信 Markdown 转图片失败，已回退文本推送，engine=%s", engine)
+                sent = bool(self._sync_maybe_await(self.notifier.send_to_wechat(wechat_content))) or sent
+
+        if _channel_enabled(NotificationChannel.EMAIL):
+            groups = list(getattr(self.config, "stock_email_groups", []) or [])
+            grouped_codes = set()
+            for codes, receivers in groups:
+                codes_set = set(codes or [])
+                subset = [result for result in results if getattr(result, "code", None) in codes_set]
+                if not subset:
+                    continue
+                grouped_codes.update(getattr(result, "code", None) for result in subset)
+                _send_email_report(subset, receivers=list(receivers or []))
+
+            remaining = [result for result in results if getattr(result, "code", None) not in grouped_codes]
+            if remaining:
+                _send_email_report(remaining, receivers=None)
+
+        return sent
+
     def _send_single_stock_notification(
         self,
         result: AnalysisResult,
@@ -1492,6 +1288,9 @@ class StockAnalysisPipeline:
             agent_context["trend_result"] = trend_payload
         if news_context:
             agent_context["news_context"] = news_context
+
+        # Issue #1066: ensure deep history is in DB before agent tools run
+        await self._ensure_agent_history(code)
 
         agent_result = executor.run(
             f"深度分析股票 {code} ({prompt_name})，请结合最新技术面、筹码面、新闻情报和基本面给出决策仪表盘。",

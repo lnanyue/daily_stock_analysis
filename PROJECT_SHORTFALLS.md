@@ -5,12 +5,13 @@
 
 ---
 
-## 🚨 核心问题 Top 5
+## 🚨 核心问题摘要
 
-### 1. **缺失的前端应用** ❌
-- `apps/dsa-web/` 与 `apps/dsa-desktop/` 目录**不存在**
-- README 中承诺的"Web 工作台"与"Electron 桌面端"无对应代码
-- **影响**：文档失真，用户期望与实际差异大
+### 1. **项目定位对齐 (CLI/API Only)** ✅
+- `apps/dsa-web/` 与 `apps/dsa-desktop/` 已从文档中清理
+- 项目明确不再支持 Web/Desktop UI，相关资源已移除
+- **解决方式**：更新 README 与 Agent 指令，回归 CLI 核心本质
+
 
 ### 2. **代码臃肿难以维护** 📦
 - `src/notification.py` (~83KB) + `data_provider/base.py` (~96KB)
@@ -26,7 +27,7 @@
 - **影响**：回归风险，无法保证核心流程稳定
 
 ### 4. **异步化不彻底** ⚡
-- 搜索 Provider（Bocha、Brave、Exa、MiniMax）仍同步
+- `Brave`、`Exa`、`MiniMax`、`Bocha`、`SerpAPI` 已从作用域移除
 - Pipeline 中存在 `asyncio.to_thread` 阻塞点
 - **影响**：并发查询性能 20-40% 下降
 
@@ -111,9 +112,9 @@
 
 **建议优先处理的 5 个问题** (由重到轻)：
 
-1. 🔴 恢复/明确 apps/ 代码（影响：文档可信度）
+1. 🔴 恢复/明确 apps/ 代码（通过清理文档解决）
 2. 🔴 补齐关键路径测试（影响：生产稳定性）
-3. 🔴 完成异步化（影响：性能）
+3. 🔴 完成异步化（保留垂直源；Brave/Exa/MiniMax/Bocha/SerpAPI 已移除）
 4. 🔴 统一配置验证（影响：用户体验）
 5. 🟠 深度模块拆分（影响：长期维护成本）
 

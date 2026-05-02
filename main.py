@@ -557,18 +557,8 @@ async def main() -> int:
             analyzer = None
 
             if config.has_search_capability_enabled():
-                search_service = SearchService(
-                    bocha_keys=config.bocha_api_keys,
-                    tavily_keys=config.tavily_api_keys,
-                    anspire_keys=config.anspire_api_keys,
-                    brave_keys=config.brave_api_keys,
-                    serpapi_keys=config.serpapi_keys,
-                    minimax_keys=config.minimax_api_keys,
-                    searxng_base_urls=config.searxng_base_urls,
-                    searxng_public_instances_enabled=config.searxng_public_instances_enabled,
-                    news_max_age_days=config.news_max_age_days,
-                    news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
-                )
+                from src.search_service import get_search_service
+                search_service = get_search_service()
 
             if config.gemini_api_key or config.openai_api_key:
                 analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
@@ -626,6 +616,52 @@ def main() -> int:
             service.run_backtest(getattr(args, 'backtest_code', None))
             return 0
 
+        if args.market_review:
+            from src.analyzer import GeminiAnalyzer
+            from src.core.market_review import run_market_review
+            from src.notification import NotificationService
+            from src.search_service import SearchService
+
+            effective_region = None
+            if not getattr(args, 'force_run', False) and getattr(config, 'trading_day_check_enabled', True):
+                from src.core.trading_calendar import get_open_markets_today, compute_effective_region as _compute_region
+                open_markets = get_open_markets_today()
+                effective_region = _compute_region(
+                    getattr(config, 'market_review_region', 'cn') or 'cn',
+                    open_markets,
+                )
+                if effective_region == '':
+                    logger.info("今日大盘复盘相关市场均为非交易日，跳过执行。可使用 --force-run 强制执行。")
+                    return 0
+
+            logger.info("模式: 仅大盘复盘")
+            notifier = NotificationService()
+            search_service = None
+            has_search = getattr(config, "has_search_capability_enabled", None)
+            if callable(has_search) and has_search():
+                from src.search_service import get_search_service
+                search_service = get_search_service()
+
+            analyzer = None
+            if getattr(config, "gemini_api_key", None) or getattr(config, "openai_api_key", None):
+                analyzer = GeminiAnalyzer(api_key=getattr(config, "gemini_api_key", None))
+                if not analyzer.is_available():
+                    logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
+                    analyzer = None
+            else:
+                logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
+
+            result = run_market_review(
+                notifier=notifier,
+                analyzer=analyzer,
+                search_service=search_service,
+                send_notification=not args.no_notify,
+                override_region=effective_region,
+            )
+            if asyncio.iscoroutine(result):
+                return asyncio.run(_run_single_shot_with_cleanup(result))
+            return 0
+
         if args.schedule or config.schedule_enabled:
             _warn_schedule_stock_override(args)
             logger.info(f"每日执行时间: {config.schedule_time}")
@@ -645,7 +681,13 @@ def main() -> int:
 
             def scheduled_task():
                 runtime_config = _reload_runtime_config()
-                run_full_analysis(runtime_config, args, scheduled_stock_codes)
+                result = run_full_analysis(runtime_config, args, scheduled_stock_codes)
+                if asyncio.iscoroutine(result):
+                    try:
+                        asyncio.get_running_loop()
+                    except RuntimeError:
+                        return asyncio.run(_run_single_shot_with_cleanup(result))
+                return result
 
             background_tasks = []
             if getattr(config, 'agent_event_monitor_enabled', False):
@@ -670,7 +712,7 @@ def main() -> int:
                     logger.info("EventMonitor 已启用，但未加载到有效规则，跳过后台提醒任务")
 
             run_with_schedule(
-                task=_build_schedule_task(config, args),
+                task=scheduled_task,
                 schedule_time=config.schedule_time,
                 run_immediately=should_run_immediately,
                 background_tasks=background_tasks,

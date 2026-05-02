@@ -23,20 +23,34 @@ logger = logging.getLogger(__name__)
 # WeChat Work image msgtype limit ~2MB (base64 payload)
 WECHAT_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 
-class WechatSender:
+from .base import BaseNotificationSender
+
+class WechatSender(BaseNotificationSender):
 
     def __init__(self, config: Config):
-        """
-        初始化企业微信配置
-
-        Args:
-            config: 配置对象
-        """
+        super().__init__(config)
         self._wechat_url = config.wechat_webhook_url
         self._wechat_max_bytes = getattr(config, 'wechat_max_bytes', 4000)
         self._wechat_msg_type = getattr(config, 'wechat_msg_type', 'markdown')
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
+
+    def _check_enabled(self) -> bool:
+        return bool(self.config.wechat_webhook_url)
+
+    @property
+    def name(self) -> str:
+        return "企业微信"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+        
+        if image_bytes:
+            return await self._send_wechat_image(image_bytes)
+        
+        return await self.send_to_wechat(content)
 
     async def send_to_wechat(self, content: str) -> bool:
         """
@@ -78,11 +92,12 @@ class WechatSender:
         if not self._wechat_url:
             return False
         if len(image_bytes) > WECHAT_IMAGE_MAX_BYTES:
+            image_bytes_before = len(image_bytes)
             image_bytes = self._compress_image(image_bytes)
             if image_bytes is None:
                 logger.warning(
                     "企业微信图片超限 (%d > %d bytes)，且无法压缩，回退为文本",
-                    len(image_bytes), WECHAT_IMAGE_MAX_BYTES,
+                    image_bytes_before, WECHAT_IMAGE_MAX_BYTES,
                 )
                 return False
         b64 = base64.b64encode(image_bytes).decode("ascii")

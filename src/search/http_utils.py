@@ -15,6 +15,7 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type,
     before_sleep_log,
+    AsyncRetrying,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,16 @@ SEARCH_TRANSIENT_EXCEPTIONS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
     requests.exceptions.ChunkedEncodingError,
+)
+
+# httpx transient exceptions
+SEARCH_TRANSIENT_EXCEPTIONS_ASYNC = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+    httpx.RemoteProtocolError,
 )
 
 
@@ -40,6 +51,22 @@ def post_with_retry(url: str, *, headers: Dict[str, str], json: Dict[str, Any], 
     return requests.post(url, headers=headers, json=json, timeout=timeout)
 
 
+async def post_with_retry_async(url: str, *, headers: Dict[str, str], json: Dict[str, Any], timeout: int) -> httpx.Response:
+    """Async POST with retry on transient network errors."""
+    from src.utils.async_http import get_global_client
+    
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(SEARCH_TRANSIENT_EXCEPTIONS_ASYNC),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    ):
+        with attempt:
+            client = await get_global_client()
+            return await client.post(url, headers=headers, json=json, timeout=timeout)
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=10),
@@ -52,6 +79,24 @@ def get_with_retry(
 ) -> requests.Response:
     """GET with retry on transient SSL/network errors."""
     return requests.get(url, headers=headers, params=params, timeout=timeout)
+
+
+async def get_with_retry_async(
+    url: str, *, headers: Dict[str, str], params: Dict[str, Any], timeout: int
+) -> httpx.Response:
+    """Async GET with retry on transient network errors."""
+    from src.utils.async_http import get_global_client
+    
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(SEARCH_TRANSIENT_EXCEPTIONS_ASYNC),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    ):
+        with attempt:
+            client = await get_global_client()
+            return await client.get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _fetch_url_content_sync(url: str, timeout: int = 5) -> str:

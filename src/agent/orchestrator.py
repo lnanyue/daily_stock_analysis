@@ -214,12 +214,7 @@ class AgentOrchestrator:
         the agent is capped at the global value.
         """
         if hasattr(agent, "max_steps"):
-            if self.max_steps > AGENT_MAX_STEPS_DEFAULT:
-                # User explicitly raised the limit — apply to all agents.
-                agent.max_steps = self.max_steps
-            else:
-                # Default or lowered — keep per-agent limit as ceiling.
-                agent.max_steps = min(agent.max_steps, self.max_steps)
+            agent.max_steps = self.max_steps
         return agent
 
     def _callable_accepts_timeout_kwarg(self, func: Any) -> Optional[bool]:

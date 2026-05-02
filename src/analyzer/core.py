@@ -73,6 +73,20 @@ class GeminiAnalyzer:
         except Exception:
             return get_config()
 
+    def _build_integrity_retry_prompt(
+        self,
+        base_prompt: str,
+        previous_response: str,
+        missing_fields: List[str],
+    ) -> str:
+        config = self._get_runtime_config()
+        return build_integrity_retry_prompt(
+            base_prompt,
+            previous_response,
+            missing_fields,
+            report_language=getattr(config, "report_language", "zh"),
+        )
+
     def _init_router(self):
         config = self._get_runtime_config()
         

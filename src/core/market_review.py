@@ -76,18 +76,9 @@ async def run_market_review(
         if override_region is not None
         else (getattr(config, 'market_review_region', 'cn') or 'cn')
     )
-    if region not in ('cn', 'us', 'both', 'global'):
+    if region not in ('cn', 'hk', 'us', 'both', 'global') and ',' not in region:
         region = 'cn'
 
-    # 当设置为 both 或 global 时，启用全新的全球联动分析模式
-    if region in ('both', 'global'):
-        logger.info("启用全球联动复盘模式 (A股 + 美股)...")
-        global_analyzer = MarketAnalyzer(
-            search_service=search_service,
-            analyzer=analyzer,
-            region='global'
-        )
-        review_report = await global_analyzer.run_daily_review()
     _ALL_MARKETS = [('cn', 'cn_title', 'A 股'), ('hk', 'hk_title', '港股'), ('us', 'us_title', '美股')]
     _VALID_SINGLES = {'cn', 'us', 'hk'}
 
@@ -96,7 +87,9 @@ async def run_market_review(
     if ',' in region:
         run_markets = [m.strip() for m in region.split(',') if m.strip() in _VALID_SINGLES]
     elif region == 'both':
-        run_markets = list(_VALID_SINGLES)
+        run_markets = [m for m, _title_key, _label in _ALL_MARKETS]
+    elif region == 'global':
+        run_markets = ['global']
     elif region in _VALID_SINGLES:
         run_markets = [region]
     else:
@@ -113,7 +106,7 @@ async def run_market_review(
                 mkt_analyzer = MarketAnalyzer(
                     search_service=search_service, analyzer=analyzer, region=mkt
                 )
-                mkt_report = mkt_analyzer.run_daily_review()
+                mkt_report = await mkt_analyzer.run_daily_review()
                 if mkt_report:
                     parts.append(f"{review_text[title_key]}\n\n{mkt_report}")
             if parts:
@@ -124,7 +117,7 @@ async def run_market_review(
             market_analyzer = MarketAnalyzer(
                 search_service=search_service,
                 analyzer=analyzer,
-                region=region,
+                region=run_markets[0],
             )
             review_report = await market_analyzer.run_daily_review()
         

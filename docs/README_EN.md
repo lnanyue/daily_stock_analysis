@@ -29,7 +29,6 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 
 <div align="center">
   <a href="https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis" target="_blank">
-    <img src="../sources/serpapi_banner_en.png" alt="Easily scrape real-time financial news data from search engines - SerpApi" height="160">
   </a>
 </div>
 <br>
@@ -55,7 +54,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 |------|----------|
 | LLMs | Gemini (free), OpenAI-compatible, DeepSeek, Qwen, Claude, Ollama |
 | Market Data | AkShare, Tushare, Baostock, YFinance, optional OpenBB |
-| News Search | Tavily, SerpAPI, Bocha, Brave, MiniMax |
+| News Search | Tavily |
 
 ### Built-in Trading Rules
 
@@ -99,15 +98,9 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 | Secret Name | Description | Required |
 |------------|------|:----:|
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token (Get from @BotFather) | Optional |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | Optional |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID (For sending to topics) | Optional |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL | Optional |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token (choose one with Webhook) | Optional |
 | `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID (required when using Bot) | Optional |
-| `SLACK_BOT_TOKEN` | Slack Bot Token (recommended, supports image upload; takes priority over Webhook when both set) | Optional |
-| `SLACK_CHANNEL_ID` | Slack Channel ID (required when using Bot) | Optional |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL (text only, no image support) | Optional |
 | `EMAIL_SENDER` | Sender email (e.g., `xxx@qq.com`) | Optional |
 | `EMAIL_PASSWORD` | Email authorization code (not login password) | Optional |
 | `EMAIL_RECEIVERS` | Receiver emails (comma-separated, leave empty to send to yourself) | Optional |
@@ -132,12 +125,6 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 |------------|------|:----:|
 | `STOCK_LIST` | Watchlist codes, e.g., `600519,AAPL,hk00700` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news) | Recommended |
-| `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimaxi.com/) Coding Plan Web Search (structured search results) | Optional |
-| `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API (privacy-focused, US stocks optimized) | Optional |
-| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
-| `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
-| `SEARXNG_BASE_URLS` | SearXNG self-hosted instances (quota-free fallback, enable format: json in settings.yml); when empty the app auto-discovers public instances | Optional |
-| `SEARXNG_PUBLIC_INSTANCES_ENABLED` | Auto-discover public SearXNG instances from `searx.space` when `SEARXNG_BASE_URLS` is empty (default `true`) | Optional |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | Optional |
 | `TICKFLOW_API_KEY` | [TickFlow](https://tickflow.org) API key (CN market review index enhancement; breadth also uses TickFlow when the plan supports universe queries) | Optional |
 | `WECHAT_MSG_TYPE` | WeChat Work message type, default `markdown`, set to `text` for plain markdown text | Optional |
@@ -251,17 +238,7 @@ python main.py --market-review
 
 ## 📱 Supported Notification Channels
 
-### 1. Telegram (Recommended)
-
-1. Talk to [@BotFather](https://t.me/BotFather) → `/newbot` → get Bot Token
-2. Get Chat ID: send a message to [@userinfobot](https://t.me/userinfobot)
-3. Configure:
-  ```bash
-  TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
-  TELEGRAM_CHAT_ID=123456789
-  ```
-
-### 2. Discord
+### 1. Discord
 
 Webhook:
 ```bash
@@ -274,20 +251,7 @@ DISCORD_BOT_TOKEN=your_bot_token
 DISCORD_MAIN_CHANNEL_ID=your_channel_id
 ```
 
-### 3. Slack
-
-Bot (recommended, supports image upload; takes priority when both set):
-```bash
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_CHANNEL_ID=C01234567
-```
-
-Webhook (text only):
-```bash
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
-```
-
-### 4. Email
+### 2. Email
 
 ```bash
 EMAIL_SENDER=your_email@gmail.com
@@ -295,7 +259,7 @@ EMAIL_PASSWORD=your_app_password
 EMAIL_RECEIVERS=receiver@example.com  # Optional
 ```
 
-### 5. WeChat Work / Feishu
+### 3. WeChat Work / Feishu
 
 WeChat Work:
 ```bash
@@ -307,7 +271,7 @@ Feishu:
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
 ```
 
-### 6. PushPlus
+### 4. PushPlus
 
 ```bash
 PUSHPLUS_TOKEN=your_token_here

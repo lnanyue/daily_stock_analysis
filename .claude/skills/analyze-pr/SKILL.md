@@ -50,15 +50,13 @@ gh run view <run_id> --log-failed
 如果必须补本地验证，按改动面选择最接近的检查，例如：
 
 - 后端：`./scripts/ci_gate.sh` 或 `python -m py_compile <changed_python_files>`
-- 前端：`cd apps/dsa-web && npm ci && npm run lint && npm run build`
-- 桌面端：先构建 Web，再构建 Electron
 
 ### Step 4: 评估正确性与风险
 
 重点检查：
 
 - 是否解决了明确问题，且没有夹带无关改动
-- 是否破坏 API / Schema / Web / Desktop 兼容性
+- 是否破坏 API / Schema 兼容性
 - 是否破坏 fallback、降级路径、通知链路或发布流程
 - 是否存在明显逻辑错误、异常吞没、安全问题、配置语义变化未同步文档
 
@@ -95,7 +93,7 @@ gh run view <run_id> --log-failed
 
 ## Compatibility And Risk
 
-- API / Web / Desktop：
+- API：
 - 配置 / Docker / GitHub Actions：
 - fallback / 通知 / 报告结构：
 

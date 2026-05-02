@@ -46,6 +46,13 @@ class OpenBBNewsProvider(BaseSearchProvider):
         self._key_errors[key] = self._key_errors.get(key, 0) + 1
         logger.warning("[%s] 错误计数: %s", self._name, self._key_errors[key])
 
+    async def _do_search_async(
+        self, query: str, api_key: str, max_results: int, days: int = 7
+    ) -> SearchResponse:
+        """执行异步 OpenBB 搜索 (委托给线程池)"""
+        import asyncio
+        return await asyncio.to_thread(self._do_search, query, api_key, max_results, days=days)
+
     def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
         symbol = self._extract_symbol(query)
         if not symbol:

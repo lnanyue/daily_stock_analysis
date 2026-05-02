@@ -21,7 +21,6 @@ REVIEW_PATHS = [
     'setup.cfg',
     '.github/workflows/*.yml',
     '.github/scripts/*.py',
-    'apps/dsa-web/**',
 ]
 
 
@@ -66,12 +65,11 @@ def get_pr_context():
 def classify_files(files):
     py_files = [f for f in files if f.endswith('.py')]
     doc_files = [f for f in files if f.endswith('.md') or f.startswith('docs/') or f in ('README.md', 'AGENTS.md')]
-    frontend_files = [f for f in files if f.startswith('apps/dsa-web/') or f.endswith(('.tsx', '.ts'))]
     ci_files = [f for f in files if f.startswith('.github/workflows/')]
     config_files = [
         f for f in files if f in ('requirements.txt', 'pyproject.toml', 'setup.cfg', '.github/PULL_REQUEST_TEMPLATE.md')
     ]
-    return py_files, doc_files, frontend_files, ci_files, config_files
+    return py_files, doc_files, ci_files, config_files
 
 
 def _build_ci_context():
@@ -105,9 +103,9 @@ def build_prompt(diff_content, files, truncated, pr_title, pr_body):
     if truncated:
         truncate_notice = "\n\n> ⚠️ 注意：diff 过长已截断，请基于可见内容审查并标注不确定点。\n"
 
-    py_files, doc_files, frontend_files, ci_files, config_files = classify_files(files)
+    py_files, doc_files, ci_files, config_files = classify_files(files)
     ci_context = _build_ci_context()
-    return f"""你是本仓库的 PR 审查助手。请根据变更内容和 PR 描述，执行“代码 + 文档 + CI”联合审查。
+    return f"""你是本仓库的 PR 审查助手。请根据变更内容 and PR 描述，执行“代码 + 文档 + CI”联合审查。
 
 ## PR 信息
 - 标题: {pr_title or '(empty)'}
@@ -117,12 +115,12 @@ def build_prompt(diff_content, files, truncated, pr_title, pr_body):
 ## 修改文件统计
 - Python: {len(py_files)}
 - Docs/Markdown: {len(doc_files)}
-- Frontend (apps/dsa-web): {len(frontend_files)}
 - CI Workflow: {len(ci_files)}
 - Config/Template: {len(config_files)}
 
 修改文件列表:
 {', '.join(files)}{truncate_notice}
+
 
 ## 代码变更 (diff)
 ```diff

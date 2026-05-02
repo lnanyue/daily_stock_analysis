@@ -26,7 +26,6 @@ from src.enums import ReportType
 from src.report_language import normalize_report_language
 from bot.models import BotMessage
 from src.notification_sender import (
-    AstrbotSender,
     CustomWebhookSender,
     DiscordSender,
     EmailSender,
@@ -34,8 +33,6 @@ from src.notification_sender import (
     PushoverSender,
     PushplusSender,
     Serverchan3Sender,
-    SlackSender,
-    TelegramSender,
     WechatSender,
     WECHAT_IMAGE_MAX_BYTES
 )
@@ -49,15 +46,12 @@ class NotificationChannel(Enum):
     """通知渠道类型"""
     WECHAT = "wechat"
     FEISHU = "feishu"
-    TELEGRAM = "telegram"
     EMAIL = "email"
     PUSHOVER = "pushover"
     PUSHPLUS = "pushplus"
     SERVERCHAN3 = "serverchan3"
     CUSTOM = "custom"
     DISCORD = "discord"
-    SLACK = "slack"
-    ASTRBOT = "astrbot"
     UNKNOWN = "unknown"
 
 
@@ -68,15 +62,12 @@ class ChannelDetector:
         names = {
             NotificationChannel.WECHAT: "企业微信",
             NotificationChannel.FEISHU: "飞书",
-            NotificationChannel.TELEGRAM: "Telegram",
             NotificationChannel.EMAIL: "邮件",
             NotificationChannel.PUSHOVER: "Pushover",
             NotificationChannel.PUSHPLUS: "PushPlus",
             NotificationChannel.SERVERCHAN3: "Server酱3",
             NotificationChannel.CUSTOM: "自定义Webhook",
             NotificationChannel.DISCORD: "Discord机器人",
-            NotificationChannel.SLACK: "Slack",
-            NotificationChannel.ASTRBOT: "ASTRBOT机器人",
         }
         return names.get(channel, "未知渠道")
 
@@ -96,42 +87,27 @@ class NotificationService:
         self._notification_max_retries = getattr(config, 'notification_max_retries', 2)
 
         # 初始化各渠道发送器 (组合模式)
-        self._wechat = WechatSender(config)
-        self._feishu = FeishuSender(config)
-        self._telegram = TelegramSender(config)
-        self._email = EmailSender(config)
-        self._pushover = PushoverSender(config)
-        self._pushplus = PushplusSender(config)
-        self._serverchan3 = Serverchan3Sender(config)
-        self._custom = CustomWebhookSender(config)
-        self._discord = DiscordSender(config)
-        self._slack = SlackSender(config)
-        self._astrbot = AstrbotSender(config)
+        self._senders: Dict[NotificationChannel, Any] = {
+            NotificationChannel.WECHAT: WechatSender(config),
+            NotificationChannel.FEISHU: FeishuSender(config),
+            NotificationChannel.EMAIL: EmailSender(config),
+            NotificationChannel.PUSHOVER: PushoverSender(config),
+            NotificationChannel.PUSHPLUS: PushplusSender(config),
+            NotificationChannel.SERVERCHAN3: Serverchan3Sender(config),
+            NotificationChannel.CUSTOM: CustomWebhookSender(config),
+            NotificationChannel.DISCORD: DiscordSender(config),
+        }
 
-        self._available_channels = self._detect_all_channels()
+        self._available_channels = [ch for ch, s in self._senders.items() if s.enabled]
         self._last_delivery_results: List[Dict[str, Any]] = []
         self._last_delivery_summary: str = "尚未执行通知发送"
 
     def _detect_all_channels(self) -> List[NotificationChannel]:
-        """检测已配置的渠道"""
-        config = get_config()
-        channels = []
-        if config.wechat_webhook_url: channels.append(NotificationChannel.WECHAT)
-        if config.feishu_webhook_url: channels.append(NotificationChannel.FEISHU)
-        if config.telegram_bot_token and config.telegram_chat_id: channels.append(NotificationChannel.TELEGRAM)
-        if config.email_sender and config.email_password: channels.append(NotificationChannel.EMAIL)
-        if config.pushover_user_key and config.pushover_api_token: channels.append(NotificationChannel.PUSHOVER)
-        if config.pushplus_token: channels.append(NotificationChannel.PUSHPLUS)
-        if config.serverchan3_sendkey: channels.append(NotificationChannel.SERVERCHAN3)
-        if config.custom_webhook_urls: channels.append(NotificationChannel.CUSTOM)
-        if config.discord_webhook_url or (config.discord_bot_token and config.discord_main_channel_id):
-            channels.append(NotificationChannel.DISCORD)
-        if config.slack_webhook_url or (config.slack_bot_token and config.slack_channel_id): channels.append(NotificationChannel.SLACK)
-        if config.astrbot_url: channels.append(NotificationChannel.ASTRBOT)
-        return channels
+        """(Legacy) 已由 __init__ 中的列表推导式替代"""
+        return self._available_channels
 
     def get_channel_names(self) -> List[str]:
-        return [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
+        return [self._senders[ch].name for ch in self._available_channels]
 
     def is_available(self) -> bool:
         return bool(self._available_channels)
@@ -171,19 +147,17 @@ class NotificationService:
         return self._renderer.generate_single_stock_report(result)
 
     # ------------------------------------------------------------------
-    # Forwarding methods to Senders
+    # Forwarding methods to Senders (Legacy compatibility)
     # ------------------------------------------------------------------
-    async def send_to_wechat(self, content: str) -> bool: return await self._wechat.send_to_wechat(content)
-    async def send_to_feishu(self, content: str) -> bool: return await self._feishu.send_to_feishu(content)
-    async def send_to_telegram(self, content: str) -> bool: return await self._telegram.send_to_telegram(content)
-    async def send_to_email(self, content: str, receivers=None) -> bool: return await self._email.send_to_email(content, receivers=receivers)
-    async def send_to_pushover(self, content: str) -> bool: return await self._pushover.send_to_pushover(content)
-    async def send_to_pushplus(self, content: str) -> bool: return await self._pushplus.send_to_pushplus(content)
-    async def send_to_serverchan3(self, content: str) -> bool: return await self._serverchan3.send_to_serverchan3(content)
-    async def send_to_custom(self, content: str) -> bool: return await self._custom.send_to_custom(content)
-    async def send_to_discord(self, content: str) -> bool: return await self._discord.send_to_discord(content)
-    async def send_to_slack(self, content: str) -> bool: return await self._slack.send_to_slack(content)
-    async def send_to_astrbot(self, content: str) -> bool: return await self._astrbot.send_to_astrbot(content)
+    async def send_to_wechat(self, content: str) -> bool: return await self._senders[NotificationChannel.WECHAT].send(content)
+    async def send_to_feishu(self, content: str) -> bool: return await self._senders[NotificationChannel.FEISHU].send(content)
+    async def send_to_telegram(self, content: str) -> bool: return False # Telegram handled via Bot dispatcher usually
+    async def send_to_email(self, content: str, receivers=None) -> bool: return await self._senders[NotificationChannel.EMAIL].send(content, receivers=receivers)
+    async def send_to_pushover(self, content: str) -> bool: return await self._senders[NotificationChannel.PUSHOVER].send(content)
+    async def send_to_pushplus(self, content: str) -> bool: return await self._senders[NotificationChannel.PUSHPLUS].send(content)
+    async def send_to_serverchan3(self, content: str) -> bool: return await self._senders[NotificationChannel.SERVERCHAN3].send(content)
+    async def send_to_custom(self, content: str) -> bool: return await self._senders[NotificationChannel.CUSTOM].send(content)
+    async def send_to_discord(self, content: str) -> bool: return await self._senders[NotificationChannel.DISCORD].send(content)
 
     async def send(self, content: str, email_stock_codes: Optional[List[str]] = None, email_send_to_all: bool = False) -> bool:
         if not self._available_channels:
@@ -199,7 +173,14 @@ class NotificationService:
 
         coros = []
         for channel in self._available_channels:
-            coros.append(self._send_channel_with_retry(channel, content, image_bytes, email_stock_codes, email_send_to_all))
+            kwargs = {}
+            if channel == NotificationChannel.EMAIL:
+                if email_send_to_all:
+                    kwargs['receivers'] = self._senders[channel].get_all_email_receivers()
+                elif email_stock_codes:
+                    kwargs['receivers'] = self._senders[channel].get_receivers_for_stocks(email_stock_codes)
+            
+            coros.append(self._send_channel_with_retry(channel, content, image_bytes, **kwargs))
         
         raw_results = await asyncio.gather(*coros, return_exceptions=True)
         normalized_results: List[Dict[str, Any]] = []
@@ -208,7 +189,7 @@ class NotificationService:
                 error_message = f"{type(result).__name__}: {result}"
                 normalized_results.append({
                     "channel": channel.value,
-                    "channel_name": ChannelDetector.get_channel_name(channel),
+                    "channel_name": self._senders[channel].name,
                     "success": False,
                     "attempts": self._notification_max_retries + 1,
                     "error": error_message,
@@ -222,7 +203,7 @@ class NotificationService:
 
             normalized_results.append({
                 "channel": channel.value,
-                "channel_name": ChannelDetector.get_channel_name(channel),
+                "channel_name": self._senders[channel].name,
                 "success": bool(result),
                 "attempts": 1,
                 "error": "" if result else "sender returned False",
@@ -255,43 +236,24 @@ class NotificationService:
             parts.append("失败[" + "；".join(failed) + "]")
         return "，".join(parts) if parts else "所有渠道均未返回有效结果"
 
-    async def _send_channel_with_retry(self, channel, content, image_bytes, email_stock_codes, email_send_to_all) -> Dict[str, Any]:
+    async def _send_channel_with_retry(self, channel: NotificationChannel, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> Dict[str, Any]:
         attempts = 0
         last_error = ""
+        sender = self._senders[channel]
+        
         for attempt in range(self._notification_max_retries + 1):
             attempts = attempt + 1
             try:
-                success = False
-                if channel == NotificationChannel.WECHAT:
-                    if image_bytes:
-                        success = await self._wechat._send_wechat_image(image_bytes)
-                    else:
-                        success = await self.send_to_wechat(content)
-                elif channel == NotificationChannel.FEISHU:
-                    success = await self.send_to_feishu(content)
-                elif channel == NotificationChannel.TELEGRAM:
-                    if image_bytes:
-                        success = await self._telegram._send_telegram_photo(image_bytes)
-                    else:
-                        success = await self.send_to_telegram(content)
-                elif channel == NotificationChannel.EMAIL:
-                    receivers = None
-                    if email_send_to_all:
-                        receivers = self._email.get_all_email_receivers()
-                    elif email_stock_codes:
-                        receivers = self._email.get_receivers_for_stocks(email_stock_codes)
-                    
-                    if image_bytes:
-                        success = await self._email._send_email_with_inline_image(image_bytes, receivers=receivers)
-                    else:
-                        success = await self.send_to_email(content, receivers=receivers)
-                else:
-                    success = await self._send_single_channel(channel, content)
+                # 某些渠道即使启用了图片模式，也可能因为图片转换失败而回退到文本
+                # 目前由 sender 内部处理，或在此处传递 image_bytes
+                send_image = image_bytes if channel.value in self._markdown_to_image_channels else None
+                
+                success = await sender.send(content, image_bytes=send_image, **kwargs)
                 
                 if success:
                     return {
                         "channel": channel.value,
-                        "channel_name": ChannelDetector.get_channel_name(channel),
+                        "channel_name": sender.name,
                         "success": True,
                         "attempts": attempts,
                         "error": "",
@@ -309,22 +271,14 @@ class NotificationService:
                 await asyncio.sleep(0.5 * (2**attempt))
         return {
             "channel": channel.value,
-            "channel_name": ChannelDetector.get_channel_name(channel),
+            "channel_name": sender.name,
             "success": False,
             "attempts": attempts,
             "error": last_error or "unknown failure",
         }
 
-    async def _send_single_channel(self, channel, content) -> bool:
-        # Implementation moved to specialized senders
-        if channel == NotificationChannel.PUSHOVER: return await self.send_to_pushover(content)
-        if channel == NotificationChannel.PUSHPLUS: return await self.send_to_pushplus(content)
-        if channel == NotificationChannel.SERVERCHAN3: return await self.send_to_serverchan3(content)
-        if channel == NotificationChannel.CUSTOM: return await self.send_to_custom(content)
-        if channel == NotificationChannel.DISCORD: return await self.send_to_discord(content)
-        if channel == NotificationChannel.SLACK: return await self.send_to_slack(content)
-        if channel == NotificationChannel.ASTRBOT: return await self.send_to_astrbot(content)
-        return False
+    async def _send_single_channel(self, channel: NotificationChannel, content: str) -> bool:
+        return await self._senders[channel].send(content)
 
     def save_report_to_file(self, content: str, filename: Optional[str] = None) -> str:
         from pathlib import Path

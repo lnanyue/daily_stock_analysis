@@ -20,8 +20,8 @@ def get_stock_index_candidate_paths() -> tuple[Path, ...]:
     """Return the supported locations for the generated stock index."""
     repo_root = Path(__file__).resolve().parents[2]
     return (
-        repo_root / "apps" / "dsa-web" / "public" / _STOCK_INDEX_FILENAME,
         repo_root / "static" / _STOCK_INDEX_FILENAME,
+        repo_root / "data" / _STOCK_INDEX_FILENAME,
     )
 
 

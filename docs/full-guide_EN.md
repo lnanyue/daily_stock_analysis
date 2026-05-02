@@ -17,7 +17,6 @@ daily_stock_analysis/
 ├── data_provider/       # Multi-source data adapters
 ├── bot/                 # Bot interaction module
 ├── api/                 # FastAPI backend service
-├── apps/dsa-web/        # React frontend
 ├── docker/              # Docker configuration
 ├── docs/                # Project documentation
 └── .github/workflows/   # GitHub Actions
@@ -35,7 +34,7 @@ daily_stock_analysis/
 - [Data Source Configuration](#data-source-configuration)
 - [Advanced Features](#advanced-features)
 - [Backtesting](#backtesting)
-- [Local WebUI Management Interface](#local-webui-management-interface)
+- [FastAPI API Service](#fastapi-api-service)
 
 ---
 
@@ -70,15 +69,9 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 |------------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | WeChat Work Webhook URL | Optional |
 | `FEISHU_WEBHOOK_URL` | Feishu Webhook URL | Optional |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token (get from @BotFather) | Optional |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | Optional |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID (for sending to topics) | Optional |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL ([How to create](https://support.discord.com/hc/en-us/articles/228383668)) | Optional |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token (choose one with Webhook) | Optional |
 | `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID (required when using Bot) | Optional |
-| `SLACK_BOT_TOKEN` | Slack Bot Token (recommended, supports image upload; takes priority over Webhook when both set) | Optional |
-| `SLACK_CHANNEL_ID` | Slack Channel ID (required when using Bot) | Optional |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL (text only, no image support) | Optional |
 | `EMAIL_SENDER` | Sender email (e.g., `xxx@qq.com`) | Optional |
 | `EMAIL_PASSWORD` | Email authorization code (not login password) | Optional |
 | `EMAIL_RECEIVERS` | Receiver emails (comma-separated, leave empty to send to self) | Optional |
@@ -96,7 +89,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 |------------|------|:----:|
 | `SINGLE_STOCK_NOTIFY` | Single stock push mode: set to `true` to push immediately after each stock analysis | Optional |
 | `REPORT_TYPE` | Report type: `simple` (concise), `full` (complete), `brief` (3-5 sentences), Docker recommended: `full` | Optional |
-| `REPORT_LANGUAGE` | Report output language: `zh` (default Chinese) / `en` (English); also updates prompt instructions, templates, notification fallbacks, and fixed copy in the Web report view | Optional |
+| `REPORT_LANGUAGE` | Report output language: `zh` (default Chinese) / `en` (English); also updates prompt instructions, templates, notification fallbacks, and fixed copy | Optional |
 | `REPORT_TEMPLATES_DIR` | Jinja2 template directory (relative to project root, default `templates`) | Optional |
 | `REPORT_RENDERER_ENABLED` | Enable Jinja2 template rendering (default `false`, zero regression) | Optional |
 | `REPORT_INTEGRITY_ENABLED` | Enable report integrity checks, retry or placeholder on missing fields (default `true`) | Optional |
@@ -110,11 +103,6 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 |------------|------|:----:|
 | `STOCK_LIST` | Watchlist codes, e.g., `600519,300750,002594` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news search) | Recommended |
-| `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimaxi.com/) Coding Plan Web Search (structured search results) | Optional |
-| `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
-| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
-| `SEARXNG_BASE_URLS` | SearXNG self-hosted instances (quota-free fallback, enable format: json in settings.yml); when empty the app auto-discovers public instances | Optional |
-| `SEARXNG_PUBLIC_INSTANCES_ENABLED` | Auto-discover public SearXNG instances from `searx.space` when `SEARXNG_BASE_URLS` is empty (default `true`) | Optional |
 | `OPENBB_NEWS_ENABLED` | Enable [OpenBB](https://docs.openbb.co/) as an optional company-news source; requires local `openbb` plus the selected provider extension, default `false` | Optional |
 | `OPENBB_NEWS_PROVIDER` | OpenBB company-news provider, for example `yfinance`, `benzinga`, or `fmp` depending on installed OpenBB extensions and credentials; default `yfinance` | Optional |
 | `OPENBB_FETCHER_ENABLED` | Enable OpenBB as an optional price-data fetcher for historical prices, realtime quote, and stock-name fallback; default `false` | Optional |
@@ -184,16 +172,10 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 |--------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | WeChat Work Bot Webhook URL | Optional |
 | `FEISHU_WEBHOOK_URL` | Feishu Bot Webhook URL | Optional |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | Optional |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | Optional |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID | Optional |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL | Optional |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token (choose one with Webhook) | Optional |
 | `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID (required when using Bot) | Optional |
 | `DISCORD_MAX_WORDS` | Discord Word Limit (default 2000 for un-upgraded servers) | Optional |
-| `SLACK_BOT_TOKEN` | Slack Bot Token (recommended, supports image upload; takes priority over Webhook when both set) | Optional |
-| `SLACK_CHANNEL_ID` | Slack Channel ID (required when using Bot) | Optional |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL (text only, no image support) | Optional |
 | `EMAIL_SENDER` | Sender email | Optional |
 | `EMAIL_PASSWORD` | Email authorization code (not login password) | Optional |
 | `EMAIL_RECEIVERS` | Receiver emails (comma-separated, leave empty to send to self) | Optional |
@@ -224,12 +206,6 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 | Variable | Description | Required |
 |--------|------|:----:|
 | `TAVILY_API_KEYS` | Tavily Search API Key (recommended) | Recommended |
-| `MINIMAX_API_KEYS` | MiniMax Coding Plan Web Search (structured results) | Optional |
-| `BOCHA_API_KEYS` | Bocha Search API Key (Chinese optimized) | Optional |
-| `BRAVE_API_KEYS` | Brave Search API Key (US stocks optimized) | Optional |
-| `SERPAPI_API_KEYS` | SerpAPI Backup search | Optional |
-| `SEARXNG_BASE_URLS` | SearXNG self-hosted instances (quota-free fallback, enable format: json in settings.yml); when empty the app auto-discovers public instances | Optional |
-| `SEARXNG_PUBLIC_INSTANCES_ENABLED` | Auto-discover public SearXNG instances from `searx.space` when `SEARXNG_BASE_URLS` is empty (default `true`) | Optional |
 
 ### Data Source Configuration
 
@@ -302,14 +278,11 @@ cp .env.example .env
 vim .env  # Fill in API Keys and configuration
 
 # 3. Start container
-docker-compose -f ./docker/docker-compose.yml up -d server     # Web service mode (recommended, provides API & WebUI)
+docker-compose -f ./docker/docker-compose.yml up -d server     # API service mode
 docker-compose -f ./docker/docker-compose.yml up -d analyzer   # Scheduled task mode
 docker-compose -f ./docker/docker-compose.yml up -d            # Start both modes
 
-# 4. Access WebUI
-# http://localhost:8000
-
-# 5. View logs
+# 4. View logs
 docker-compose -f ./docker/docker-compose.yml logs -f server
 ```
 
@@ -317,7 +290,7 @@ docker-compose -f ./docker/docker-compose.yml logs -f server
 
 | Command | Description | Port |
 |------|------|------|
-| `docker-compose -f ./docker/docker-compose.yml up -d server` | Web service mode, provides API & WebUI | 8000 |
+| `docker-compose -f ./docker/docker-compose.yml up -d server` | API service mode | 8000 |
 | `docker-compose -f ./docker/docker-compose.yml up -d analyzer` | Scheduled task mode, daily auto execution | - |
 | `docker-compose -f ./docker/docker-compose.yml up -d` | Start both modes simultaneously | 8000 |
 
@@ -463,14 +436,6 @@ crontab -e
 2. Copy Webhook URL
 3. Set `FEISHU_WEBHOOK_URL`
 
-### Telegram
-
-1. Talk to @BotFather to create a Bot
-2. Get Bot Token
-3. Get Chat ID (via @userinfobot)
-4. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
-5. (Optional) To send to Topic, set `TELEGRAM_MESSAGE_THREAD_ID` (get from Topic link)
-
 ### Email
 
 1. Enable SMTP service for your email
@@ -518,33 +483,6 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
 ```bash
 DISCORD_BOT_TOKEN=your_bot_token
 DISCORD_MAIN_CHANNEL_ID=your_channel_id
-```
-
-### Slack
-
-Slack supports two push methods. When both are configured, Bot API takes priority to ensure text and images land in the same channel:
-
-**Method 1: Bot API (Recommended, supports image upload)**
-
-1. Create a Slack App: https://api.slack.com/apps → Create New App
-2. Add Bot Token Scopes: `chat:write`, `files:write`
-3. Install to workspace and get Bot Token (xoxb-...)
-4. Get Channel ID: channel details → copy channel ID at the bottom
-5. Configure environment variables:
-
-```bash
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_CHANNEL_ID=C01234567
-```
-
-**Method 2: Incoming Webhook (Simple setup, text only)**
-
-1. Create an Incoming Webhook in Slack App management page
-2. Copy the Webhook URL
-3. Configure environment variable:
-
-```bash
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
 ```
 
 ### Pushover (iOS/Android Push)
@@ -803,7 +741,6 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 
 ### Notes
 
-- Browser access: `http://127.0.0.1:8000` (or your configured port)
 - After analysis completion, notifications are automatically pushed to configured channels
 - This feature is automatically disabled in GitHub Actions environment
 
@@ -822,17 +759,6 @@ A: Modify `STOCK_LIST` environment variable, separate multiple codes with commas
 
 ### Q: GitHub Actions not executing?
 A: Check if Actions is enabled, and if cron expression is correct (note it's UTC time).
-
----
-
-## Portfolio Web Notes
-
-### Manual FX refresh on `/portfolio`
-
-- The FX status card on the Web `/portfolio` page includes a manual refresh action.
-- The button calls the existing `POST /api/v1/portfolio/fx/refresh` endpoint and reloads snapshot/risk data only.
-- If upstream FX fetch fails, the page may still remain stale after refresh and will explain the fallback result inline.
-- When `PORTFOLIO_FX_UPDATE_ENABLED=false`, the refresh API returns an explicit disabled status and the page shows that online FX refresh is disabled instead of implying that no refreshable pairs exist.
 
 ---
 

@@ -11,7 +11,7 @@ import hmac
 import logging
 import asyncio
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 
 from src.config import Config
 from src.formatters import (
@@ -25,15 +25,21 @@ from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 logger = logging.getLogger(__name__)
 
 
-class FeishuSender:
+from .base import BaseNotificationSender
+
+class FeishuSender(BaseNotificationSender):
 
     def __init__(self, config: Config):
+        super().__init__(config)
         self._feishu_url = getattr(config, 'feishu_webhook_url', None)
         self._feishu_secret = (getattr(config, 'feishu_webhook_secret', None) or '').strip()
         self._feishu_keyword = (getattr(config, 'feishu_webhook_keyword', None) or '').strip()
         self._feishu_max_bytes = getattr(config, 'feishu_max_bytes', 20000)
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
+
+    def _check_enabled(self) -> bool:
+        return bool(self.config.feishu_webhook_url)
 
     def _get_keyword_prefix(self) -> str:
         if not self._feishu_keyword:
@@ -58,6 +64,18 @@ class FeishuSender:
             ).digest()
         ).decode('utf-8')
         return {"timestamp": timestamp, "sign": sign}
+
+    @property
+    def name(self) -> str:
+        return "飞书"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+        
+        # 飞书目前主要支持 Markdown，图片暂未统一封装到 send 接口
+        return await self.send_to_feishu(content)
 
     async def send_to_feishu(self, content: str) -> bool:
         if not self._feishu_url:

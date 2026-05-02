@@ -103,6 +103,7 @@ class Config:
     analysis_mode: str = "simple"
 
     max_workers: int = 3
+    webui_port: int = 8000
     log_level: str = "INFO"
     log_dir: str = "./logs"
     debug: bool = False
@@ -118,9 +119,6 @@ class Config:
     dingtalk_webhook_url: Optional[str] = None
     dingtalk_stream_enabled: bool = False
     feishu_stream_enabled: bool = False
-    telegram_bot_token: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
-    telegram_message_thread_id: Optional[str] = None
     email_sender: Optional[str] = None
     email_sender_name: str = "股票分析助手"
     email_password: Optional[str] = None
@@ -135,13 +133,8 @@ class Config:
     discord_main_channel_id: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     discord_max_words: int = 2000
-    slack_webhook_url: Optional[str] = None
-    slack_bot_token: Optional[str] = None
-    slack_channel_id: Optional[str] = None
     custom_webhook_urls: List[str] = field(default_factory=list)
     custom_webhook_bearer_token: Optional[str] = None
-    astrbot_url: Optional[str] = None
-    astrbot_token: Optional[str] = None
     webhook_verify_ssl: bool = True
     notification_timeout_sec: int = 15
     wechat_msg_type: str = "markdown"
@@ -206,6 +199,8 @@ class Config:
     tavily_api_keys: List[str] = field(default_factory=list)
     openbb_news_enabled: bool = False
     openbb_news_provider: str = "yfinance"
+    openbb_fetcher_enabled: bool = False
+    openbb_fetcher_provider: str = "yfinance"
 
     feishu_app_id: Optional[str] = None
     feishu_app_secret: Optional[str] = None
@@ -227,6 +222,10 @@ class Config:
         if cls._instance is None:
             cls._instance = cls._load_from_env()
         return cls._instance
+
+    @staticmethod
+    def _parse_news_strategy_profile(value: Optional[str]) -> str:
+        return normalize_news_strategy_profile(value)
 
     @classmethod
     def _call_setup_env(cls, *, override: bool = False) -> None:
@@ -435,6 +434,13 @@ class Config:
                 field_name="MAX_WORKERS",
                 minimum=1,
             ),
+            webui_port=parse_env_int(
+                os.getenv("WEBUI_PORT"),
+                8000,
+                field_name="WEBUI_PORT",
+                minimum=1,
+                maximum=65535,
+            ),
             log_level=(os.getenv("LOG_LEVEL") or sys_s.get("log_level", "INFO")).strip() or "INFO",
             log_dir=(os.getenv("LOG_DIR") or sys_s.get("log_dir", "./logs")).strip() or "./logs",
             debug=parse_env_bool(os.getenv("DEBUG"), default=bool(sys_s.get("debug", False))),
@@ -454,9 +460,6 @@ class Config:
             dingtalk_webhook_url=os.getenv("DINGTALK_WEBHOOK_URL"),
             dingtalk_stream_enabled=parse_env_bool(os.getenv("DINGTALK_STREAM_ENABLED"), default=False),
             feishu_stream_enabled=parse_env_bool(os.getenv("FEISHU_STREAM_ENABLED"), default=False),
-            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
-            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID"),
-            telegram_message_thread_id=os.getenv("TELEGRAM_MESSAGE_THREAD_ID"),
             email_sender=os.getenv("EMAIL_SENDER"),
             email_sender_name=os.getenv("EMAIL_SENDER_NAME", "股票分析助手"),
             email_password=os.getenv("EMAIL_PASSWORD"),
@@ -476,13 +479,8 @@ class Config:
                 field_name="DISCORD_MAX_WORDS",
                 minimum=1,
             ),
-            slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL"),
-            slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
-            slack_channel_id=os.getenv("SLACK_CHANNEL_ID"),
             custom_webhook_urls=[u.strip() for u in os.getenv("CUSTOM_WEBHOOK_URLS", "").split(",") if u.strip()],
             custom_webhook_bearer_token=os.getenv("CUSTOM_WEBHOOK_BEARER_TOKEN"),
-            astrbot_url=os.getenv("ASTRBOT_URL"),
-            astrbot_token=os.getenv("ASTRBOT_TOKEN"),
             webhook_verify_ssl=parse_env_bool(os.getenv("WEBHOOK_VERIFY_SSL"), default=True),
             notification_timeout_sec=notification_timeout_sec,
             wechat_msg_type=wechat_msg_type,
@@ -604,6 +602,11 @@ class Config:
                 default=False,
             ),
             openbb_news_provider=(os.getenv("OPENBB_NEWS_PROVIDER") or "yfinance").strip() or "yfinance",
+            openbb_fetcher_enabled=parse_env_bool(
+                os.getenv("OPENBB_FETCHER_ENABLED"),
+                default=False,
+            ),
+            openbb_fetcher_provider=(os.getenv("OPENBB_FETCHER_PROVIDER") or "yfinance").strip() or "yfinance",
             feishu_app_id=os.getenv("FEISHU_APP_ID"),
             feishu_app_secret=os.getenv("FEISHU_APP_SECRET"),
             feishu_folder_token=os.getenv("FEISHU_FOLDER_TOKEN"),
@@ -884,17 +887,13 @@ class Config:
             self.wechat_webhook_url
             or self.feishu_webhook_url
             or self.dingtalk_webhook_url
-            or (self.telegram_bot_token and self.telegram_chat_id)
             or (self.email_sender and self.email_password)
             or (self.discord_bot_token and self.discord_main_channel_id)
             or self.discord_webhook_url
-            or self.slack_webhook_url
-            or (self.slack_bot_token and self.slack_channel_id)
             or self.pushplus_token
             or self.serverchan3_sendkey
             or (self.pushover_user_key and self.pushover_api_token)
             or self.custom_webhook_urls
-            or self.astrbot_url
         )
         if not has_notification:
             issues.append(ConfigIssue("warning", "未配置通知渠道，分析结果将不会自动推送。", field="WECHAT_WEBHOOK_URL"))

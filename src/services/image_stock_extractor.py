@@ -169,9 +169,21 @@ def _parse_items_from_text(text: str) -> List[Tuple[str, Optional[str], str]]:
             from json_repair import repair_json
 
             parsed_data = repair_json(cleaned, return_objects=True)
+            if isinstance(parsed_data, str):
+                parsed_data = json.loads(parsed_data)
             logger.debug("[ImageExtractor] json.loads failed, repaired malformed JSON response")
         except Exception:
             parsed_data = None
+        if not isinstance(parsed_data, list):
+            repaired = cleaned
+            missing_braces = repaired.count("{") - repaired.count("}")
+            missing_brackets = repaired.count("[") - repaired.count("]")
+            if missing_braces > 0 or missing_brackets > 0:
+                repaired = repaired + ("}" * max(0, missing_braces)) + ("]" * max(0, missing_brackets))
+                try:
+                    parsed_data = json.loads(repaired)
+                except json.JSONDecodeError:
+                    parsed_data = None
 
     if isinstance(parsed_data, list):
         seen: set[str] = set()

@@ -8,7 +8,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from threading import RLock
+from threading import BoundedSemaphore, RLock, Thread
 from typing import Callable, Optional, List, Tuple, Dict, Any
 
 import pandas as pd
@@ -19,6 +19,9 @@ from .utils import (
     normalize_stock_code,
     summarize_exception,
     STANDARD_COLUMNS,
+    _is_etf_code,
+    _is_hk_market,
+    _market_tag,
 )
 from .exceptions import DataFetchError, RateLimitError, DataSourceUnavailableError, InsufficientQuotaError
 import numpy as np
@@ -166,13 +169,6 @@ class BaseFetcher(ABC):
         sleep_time = random.uniform(min_seconds, max_seconds)
         time.sleep(sleep_time)
 
-def __getattr__(name: str):
-    if name == "DataFetcherManager":
-        from .manager import DataFetcherManager
-
-        return DataFetcherManager
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 __all__ = [
     "BaseFetcher",
     "DataFetcherManager",
@@ -186,6 +182,7 @@ __all__ = [
     "summarize_exception",
     "STANDARD_COLUMNS",
 ]
+
 
 class DataFetcherManager:
     """
@@ -264,6 +261,38 @@ class DataFetcherManager:
         method = getattr(fetcher, method_name)
         with self._get_fetcher_call_lock(fetcher):
             return method(*args, **kwargs)
+
+    def get_daily_data_sync(self, *args, **kwargs):
+        return self.get_daily_data(*args, **kwargs)
+
+    def get_realtime_quote_sync(self, stock_code: str):
+        return self.get_realtime_quote(stock_code)
+
+    def get_chip_distribution_sync(self, stock_code: str):
+        return self.get_chip_distribution(stock_code)
+
+    def get_stock_name_sync(self, stock_code: str, allow_realtime: bool = True) -> Optional[str]:
+        return self.get_stock_name(stock_code, allow_realtime=allow_realtime)
+
+    def get_belong_boards_sync(self, stock_code: str) -> List[Dict[str, Any]]:
+        return self.get_belong_boards(stock_code)
+
+    def get_fundamental_context_sync(
+        self,
+        stock_code: str,
+        budget_seconds: Optional[float] = None,
+        include_raw: bool = False,
+    ) -> Dict[str, Any]:
+        return self.get_fundamental_context(stock_code, budget_seconds=budget_seconds)
+
+    def get_main_indices_sync(self, region: str = "cn") -> List[Dict[str, Any]]:
+        return self.get_main_indices(region=region)
+
+    def get_market_stats_sync(self) -> Dict[str, Any]:
+        return self.get_market_stats()
+
+    def get_sector_rankings_sync(self, n: int = 5) -> Tuple[List[Dict], List[Dict]]:
+        return self.get_sector_rankings(n=n)
 
     def _get_cached_stock_name(self, stock_code: str) -> Optional[str]:
         self._ensure_concurrency_guards()
@@ -569,27 +598,21 @@ class DataFetcherManager:
         - 否则按默认优先级：
           0. EfinanceFetcher (Priority 0) - 最高优先级
           1. AkshareFetcher (Priority 1)
-          2. PytdxFetcher (Priority 2) - 通达信
           2. TushareFetcher (Priority 2)
           3. BaostockFetcher (Priority 3)
           4. YfinanceFetcher (Priority 4)
-          5. LongbridgeFetcher (Priority 5) - 长桥（美股/港股兜底）
         """
         from .efinance_fetcher import EfinanceFetcher
         from .akshare_fetcher import AkshareFetcher
         from .tushare_fetcher import TushareFetcher
-        from .pytdx_fetcher import PytdxFetcher
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
-        from .longbridge_fetcher import LongbridgeFetcher
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
         efinance = EfinanceFetcher()
         akshare = AkshareFetcher()
         tushare = TushareFetcher()  # 会根据 Token 配置自动调整优先级
-        pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_HOST/PYTDX_PORT）
         baostock = BaostockFetcher()
         yfinance = YfinanceFetcher()
-        longbridge = LongbridgeFetcher()  # 长桥（美股/港股兜底，懒加载）
 
         # 初始化数据源列表
         self._ensure_concurrency_guards()
@@ -598,10 +621,8 @@ class DataFetcherManager:
                 efinance,
                 akshare,
                 tushare,
-                pytdx,
                 baostock,
                 yfinance,
-                longbridge,
             ]
 
             # 按优先级排序（Tushare 如果配置了 Token 且初始化成功，优先级为 0）
@@ -1270,7 +1291,7 @@ class DataFetcherManager:
         for code in stock_codes:
             # Skip realtime lookup to avoid triggering expensive full-market quote
             # requests during the prefetch phase.
-            self.get_stock_name(code, allow_realtime=False)
+            self.get_stock_name_sync(code, allow_realtime=False)
 
     def batch_get_stock_names(self, stock_codes: List[str]) -> Dict[str, str]:
         """

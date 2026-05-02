@@ -17,11 +17,29 @@ from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 logger = logging.getLogger(__name__)
 
 
-class Serverchan3Sender:
+from .base import BaseNotificationSender
+
+class Serverchan3Sender(BaseNotificationSender):
 
     def __init__(self, config: Config):
+        # 必须在 super().__init__() 之前初始化，因为 _check_enabled 会访问
         self._serverchan3_sendkey = getattr(config, 'serverchan3_sendkey', None)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
+        super().__init__(config)
+
+    def _check_enabled(self) -> bool:
+        return bool(self._serverchan3_sendkey)
+
+    @property
+    def name(self) -> str:
+        return "Server酱3"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+            
+        return await self.send_to_serverchan3(content, title=kwargs.get('title'))
 
     async def send_to_serverchan3(self, content: str, title: Optional[str] = None) -> bool:
         """推送消息到 Server酱3"""

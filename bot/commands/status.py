@@ -71,12 +71,7 @@ class StatusCommand(BotCommand):
         status["ai_openai"] = bool(config.openai_api_key)
         
         # 搜索服务状态
-        status["search_bocha"] = len(config.bocha_api_keys) > 0
         status["search_tavily"] = len(config.tavily_api_keys) > 0
-        status["search_brave"] = len(config.brave_api_keys) > 0
-        status["search_serpapi"] = len(config.serpapi_keys) > 0
-        status["search_minimax"] = len(config.minimax_api_keys) > 0
-        status["search_searxng"] = config.has_searxng_enabled()
         status["search_openbb"] = bool(getattr(config, "openbb_news_enabled", False))
         status["data_openbb_fetcher"] = bool(getattr(config, "openbb_fetcher_enabled", False))
         
@@ -120,12 +115,7 @@ class StatusCommand(BotCommand):
             f"• OpenAI API: {icon(status['ai_openai'])}",
             "",
             "**🔍 搜索服务**",
-            f"• Bocha: {icon(status['search_bocha'])}",
             f"• Tavily: {icon(status['search_tavily'])}",
-            f"• Brave: {icon(status['search_brave'])}",
-            f"• SerpAPI: {icon(status['search_serpapi'])}",
-            f"• MiniMax: {icon(status['search_minimax'])}",
-            f"• SearXNG: {icon(status['search_searxng'])}",
             f"• OpenBB News: {icon(status['search_openbb'])}",
             f"• OpenBB Fetcher: {icon(status['data_openbb_fetcher'])}",
             "",

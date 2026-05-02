@@ -700,22 +700,6 @@ class SystemConfigService:
         """Validate dependencies across multiple keys."""
         issues: List[Dict[str, Any]] = []
 
-        token_value = (effective_map.get("TELEGRAM_BOT_TOKEN") or "").strip()
-        chat_id_value = (effective_map.get("TELEGRAM_CHAT_ID") or "").strip()
-        if token_value and not chat_id_value and (
-            "TELEGRAM_BOT_TOKEN" in updated_keys or "TELEGRAM_CHAT_ID" in updated_keys
-        ):
-            issues.append(
-                {
-                    "key": "TELEGRAM_CHAT_ID",
-                    "code": "missing_dependency",
-                    "message": "TELEGRAM_CHAT_ID is required when TELEGRAM_BOT_TOKEN is set",
-                    "severity": "error",
-                    "expected": "non-empty TELEGRAM_CHAT_ID",
-                    "actual": chat_id_value,
-                }
-            )
-
         issues.extend(
             SystemConfigService._validate_llm_channel_map(
                 effective_map=effective_map,

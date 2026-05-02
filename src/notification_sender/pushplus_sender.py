@@ -20,7 +20,9 @@ from .async_base import get_sender_http_client
 logger = logging.getLogger(__name__)
 
 
-class PushplusSender:
+from .base import BaseNotificationSender
+
+class PushplusSender(BaseNotificationSender):
     
     def __init__(self, config: Config):
         """
@@ -29,11 +31,26 @@ class PushplusSender:
         Args:
             config: 配置对象
         """
+        super().__init__(config)
         self._pushplus_token = getattr(config, 'pushplus_token', None)
         self._pushplus_topic = getattr(config, 'pushplus_topic', None)
         self._pushplus_max_bytes = getattr(config, 'pushplus_max_bytes', 20000)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         
+    def _check_enabled(self) -> bool:
+        return bool(self.config.pushplus_token)
+
+    @property
+    def name(self) -> str:
+        return "PushPlus"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+            
+        return await self.send_to_pushplus(content, title=kwargs.get('title'))
+
     async def send_to_pushplus(self, content: str, title: Optional[str] = None) -> bool:
         """
         推送消息到 PushPlus

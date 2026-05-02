@@ -38,8 +38,6 @@ def _make_config(**kwargs) -> Config:
         openbb_news_enabled=False,
         wechat_webhook_url="https://example.com/webhook",
         feishu_webhook_url=None,
-        telegram_bot_token=None,
-        telegram_chat_id=None,
         email_sender=None,
         email_password=None,
         pushover_user_key=None,

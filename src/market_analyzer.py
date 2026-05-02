@@ -186,7 +186,10 @@ Focus on HSI trend, southbound flow dynamics, and sector rotation to define next
 - Neutral: mixed index signals; focus on selective relative strength.
 - Risk-off: failed breakouts and rising volatility; prioritize capital preservation."""
         if not (self.region == "cn" and self._get_review_language() == "en"):
-            return self.strategy.to_prompt_block()
+            strategy = getattr(self, "strategy", None)
+            if strategy is None:
+                strategy = get_market_strategy_blueprint(getattr(self, "region", "cn"))
+            return strategy.to_prompt_block()
         return """## Strategy Blueprint: A-share Three-Phase Recap Strategy
 Focus on index trend, liquidity, and sector rotation to shape the next-session trading plan.
 
@@ -509,6 +512,39 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 ### 五、策略建议
 （仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
             return role, missing_data_guidance, template
+
+        role = "你是一位专业的A股市场分析师"
+        missing_data_guidance = (
+            "若市场数据（指数、成交额等）缺失或显示为 N/A，但提供了市场新闻，请务必以新闻和历史背景为主要依据进行推断性复盘；"
+            "若当前日期为回溯的交易日，请在报告中明确说明；不要臆测全球市场或跨市场联动。"
+        )
+        template = f"""## {context.date} 大盘复盘
+
+### 一、市场总结
+（2-3句话概括指数方向、赚钱效应、量能温度；必须保留提供的市场宽度行。）
+
+### 二、指数点评
+（围绕主要指数共振/分化、权重与成长风格强弱展开；必须输出提供的指数表。）
+
+### 三、资金动向
+（结合成交额、涨跌家数、涨跌停结构判断风险偏好和短线情绪。）
+
+### 四、热点解读
+（解读领涨/领跌板块及可能的调仓含义；必须输出“🔥 领涨”和“💧 领跌”两行。）
+
+### 五、后市展望
+（结合走势、量能和板块持续性，给出下一交易日观察重点。）
+
+### 六、风险提示
+（列出2-3条最关键风险，不要空泛。）
+
+### 七、策略计划
+市场状态：（进攻/均衡/防守之一，并说明原因）
+仓位建议：（给出可执行的仓位节奏）
+失效条件：（写清触发降级或转向的条件）
+
+> 建议仅供参考，不构成投资建议。"""
+        return role, missing_data_guidance, template
 
     # def _get_north_flow(self, overview: MarketOverview):
     #     """获取北向资金流入"""
@@ -1068,7 +1104,7 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
                 for name, code in major_indices:
                     try:
                         # 强制通过历史日线接口获取
-                        df, _ = await self.data_manager.get_daily_data(code, days=1)
+                        df, _ = await self._maybe_await(self.data_manager.get_daily_data(code, days=1))
                         if df is not None and not df.empty:
                             last_row = df.iloc[-1]
                             fetched_indices.append({
@@ -1253,7 +1289,7 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
 - A 股复盘的“七、策略计划”必须包含“市场状态 / 仓位建议 / 失效条件”
 """
 
-        return f"""你是一位专业的A/H/美股市场分析师，请根据以下数据生成一份结构化的{self._get_market_scope_name('zh')}大盘复盘报告。
+        return f"""{role}，请根据以下数据生成一份结构化的{self._get_market_scope_name('zh')}大盘复盘报告。
 
 【重要】输出要求：
 - 必须输出纯 Markdown 文本格式
@@ -1262,6 +1298,8 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
 - emoji 仅在标题处少量使用（每个标题最多1个）
 - 报告要像交易员盘后工作台：先给结论，再按数据表、主线、催化、计划展开
 - 不要重复列出已由系统注入的表格数据；正文负责解释表格背后的含义
+{cn_requirements.rstrip()}
+- {missing_data_guidance}
 
 ---
 
@@ -1502,27 +1540,13 @@ Market conditions can change quickly. The data above is for reference only and d
 *复盘时间: {datetime.now().strftime('%H:%M')}*
 """
     
-    def run_daily_review(self) -> str:
-        """
-        执行每日大盘复盘流程
-        
-        Returns:
-            复盘报告文本
-        """
-        logger.info("========== 开始大盘复盘分析 ==========")
-        
-        # 1. 获取市场概览
-        overview = self.get_market_overview()
-        
-        # 2. 搜索市场新闻
-        news = self.search_market_news()
-        
-        # 3. 生成复盘报告
-        report = self.generate_market_review(overview, news)
-        
-        logger.info("========== 大盘复盘分析完成 ==========")
-        
-        return report
+    async def run_daily_review(self) -> str:
+        """执行每日大盘复盘流程。"""
+        return await self.analyze(self.region)
+
+    def run_daily_review_sync(self) -> str:
+        """同步兼容入口，供旧调用方显式使用。"""
+        return asyncio.run(self.run_daily_review())
 
 
 # 测试入口

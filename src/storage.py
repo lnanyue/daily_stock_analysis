@@ -81,6 +81,33 @@ from src.schemas.storage_models import (
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
+
+class AutoCommitSession(Session):
+    """SQLAlchemy Session that commits when used as ``with db.get_session()``."""
+
+    def _normalize_pending_objects(self) -> None:
+        analysis_history_cls = globals().get("AnalysisHistory")
+        if analysis_history_cls is None:
+            return
+        for obj in list(self.new) + list(self.dirty):
+            if isinstance(obj, analysis_history_cls) and isinstance(getattr(obj, "raw_result", None), dict):
+                obj.raw_result = json.dumps(obj.raw_result, ensure_ascii=False)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            if exc_type is None:
+                self._normalize_pending_objects()
+                self.commit()
+            else:
+                self.rollback()
+        except Exception:
+            self.rollback()
+            raise
+        finally:
+            self.close()
+        return False
+
+
 # SQLAlchemy ORM 基类
 Base = declarative_base()
 
@@ -706,6 +733,7 @@ class DatabaseManager:
         # 创建 Session 工厂
         self._SessionLocal = sessionmaker(
             bind=self._engine,
+            class_=AutoCommitSession,
             autocommit=False,
             autoflush=False,
             expire_on_commit=False,
@@ -839,42 +867,20 @@ class DatabaseManager:
     
     def get_session(self) -> Session:
         """
-        获取数据库 Session
-        
-        使用示例:
-            with db.get_session() as session:
-                # 执行查询
-                session.commit()  # 如果需要
+        获取数据库 Session。调用方可直接使用 ``with db.get_session()``，
+        也可手动管理生命周期；写入且需要自动 commit 时使用
+        :meth:`session_scope` 或 :meth:`_run_write_transaction`。
         """
         if not getattr(self, '_initialized', False) or not hasattr(self, '_SessionLocal'):
             raise RuntimeError(
                 "DatabaseManager 未正确初始化。"
                 "请确保通过 DatabaseManager.get_instance() 获取实例。"
             )
-        session = self._SessionLocal()
-        try:
-            engine.dispose()
-        except Exception:
-            pass
-
-    def _install_sqlite_pragma_handler(self):
-        if not self._is_sqlite_engine: return
-        @event.listens_for(self._engine, "connect")
-        def set_sqlite_pragma(dbapi_connection, connection_record):
-            cursor = dbapi_connection.cursor()
-            if self._sqlite_wal_enabled:
-                try:
-                    cursor.execute("PRAGMA journal_mode=WAL")
-                    cursor.execute("PRAGMA synchronous=NORMAL")
-                except Exception: pass
-            if self._sqlite_busy_timeout_ms > 0:
-                try: cursor.execute(f"PRAGMA busy_timeout={self._sqlite_busy_timeout_ms}")
-                except Exception: pass
-            cursor.close()
+        return self._SessionLocal()
 
     @contextmanager
-    def get_session(self) -> Session:
-        session = self._SessionLocal()
+    def session_scope(self):
+        session = self.get_session()
         try:
             yield session
             for obj in list(session.dirty):
@@ -887,27 +893,36 @@ class DatabaseManager:
         finally:
             session.close()
 
-    @contextmanager
-    def session_scope(self):
-        with self.get_session() as session:
-            yield session
-
     def _run_write_transaction(self, name: str, operation: Callable[[Session], T]) -> T:
-        with self.get_session() as session:
-            if self._is_sqlite_engine:
-                session.execute(text("BEGIN IMMEDIATE"))
-            
-            retry_count = 0
-            while retry_count <= self._sqlite_write_retry_max:
-                try:
-                    return operation(session)
-                except OperationalError as e:
-                    if "database is locked" in str(e) and retry_count < self._sqlite_write_retry_max:
-                        retry_count += 1
-                        time.sleep(self._sqlite_write_retry_base_delay * (2 ** (retry_count - 1)))
-                        continue
-                    raise
-                except Exception: raise
+        max_retries = self._sqlite_write_retry_max if self._is_sqlite_engine else 0
+
+        for attempt in range(max_retries + 1):
+            session = self.get_session()
+            try:
+                if self._is_sqlite_engine:
+                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                result = operation(session)
+                session.commit()
+                return result
+            except OperationalError as exc:
+                session.rollback()
+                if (
+                    self._is_sqlite_engine
+                    and self._is_sqlite_locked_error(exc)
+                    and attempt < max_retries
+                ):
+                    delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
+                    if delay > 0:
+                        time.sleep(delay)
+                    continue
+                raise
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+
+        raise RuntimeError(f"write transaction failed after retries: {name}")
 
     # --- Data Access Methods ---
 
@@ -1264,27 +1279,73 @@ class DatabaseManager:
 
         return self._run_write_transaction(f"save_daily_data[{code}]", _write)
 
-    def save_news_intel(self, news_items: List[Dict[str, Any]]) -> int:
-        if not news_items: return 0
+    def save_news_intel(
+        self,
+        news_items: Optional[List[Any]] = None,
+        *,
+        code: Optional[str] = None,
+        name: Optional[str] = None,
+        dimension: Optional[str] = None,
+        query: Optional[str] = None,
+        response: Optional['SearchResponse'] = None,
+        query_context: Optional[Dict[str, str]] = None,
+        query_id: Optional[str] = None,
+    ) -> int:
+        if response is not None:
+            news_items = list(getattr(response, "results", []) or [])
+        if not news_items:
+            return 0
         now = datetime.now()
-        
+        query_ctx = dict(query_context or {})
+        current_query_id = query_id or query_ctx.get("query_id")
+
+        def _item_get(item: Any, key: str, default: Any = None) -> Any:
+            if isinstance(item, dict):
+                return item.get(key, default)
+            return getattr(item, key, default)
+
         def _write(session: Session) -> int:
             new_count = 0
             for item in news_items:
-                pub_date = self._parse_published_date(item.get('published_date'))
-                url = item.get('url') or self._build_fallback_url_key(item.get('code',''), item.get('title',''), item.get('source',''), pub_date)
+                item_code = code or _item_get(item, 'code') or ""
+                title = (_item_get(item, 'title') or "").strip()
+                source = (_item_get(item, 'source') or "").strip()
+                pub_date = self._parse_published_date(_item_get(item, 'published_date'))
+                url = (_item_get(item, 'url') or "").strip() or self._build_fallback_url_key(
+                    item_code,
+                    title,
+                    source,
+                    pub_date,
+                )
+                if not title and not url:
+                    continue
                 
                 record = {
-                    'query_id': item.get('query_id'), 'code': item.get('code'), 'name': item.get('name'),
-                    'dimension': item.get('dimension'), 'query': item.get('query'), 'provider': item.get('provider'),
-                    'title': item.get('title'), 'snippet': item.get('snippet'), 'url': url,
-                    'source': item.get('source'), 'published_date': pub_date, 'fetched_at': now,
-                    'query_source': item.get('query_source', 'system'),
+                    'query_id': current_query_id or _item_get(item, 'query_id'),
+                    'code': item_code,
+                    'name': name or _item_get(item, 'name'),
+                    'dimension': dimension or _item_get(item, 'dimension'),
+                    'query': query or getattr(response, "query", None) or _item_get(item, 'query'),
+                    'provider': getattr(response, "provider", None) or _item_get(item, 'provider'),
+                    'title': title,
+                    'snippet': _item_get(item, 'snippet'),
+                    'url': url,
+                    'source': source,
+                    'published_date': pub_date,
+                    'fetched_at': now,
+                    'query_source': query_ctx.get("query_source") or _item_get(item, 'query_source', 'system'),
+                    'requester_platform': query_ctx.get("requester_platform"),
+                    'requester_user_id': query_ctx.get("requester_user_id"),
+                    'requester_user_name': query_ctx.get("requester_user_name"),
+                    'requester_chat_id': query_ctx.get("requester_chat_id"),
+                    'requester_message_id': query_ctx.get("requester_message_id"),
+                    'requester_query': query_ctx.get("requester_query"),
                 }
                 
                 if self._is_sqlite_engine:
                     stmt = sqlite_insert(NewsIntel).values(record).on_conflict_do_nothing(index_elements=['url'])
-                    if session.execute(stmt).rowcount > 0: new_count += 1
+                    if session.execute(stmt).rowcount > 0:
+                        new_count += 1
                 else:
                     if not session.execute(select(NewsIntel.id).where(NewsIntel.url == url)).scalar():
                         session.add(NewsIntel(**record))
@@ -1488,158 +1549,19 @@ class DatabaseManager:
         source_chain: Optional[List[str]] = None,
         coverage: Optional[Dict[str, Any]] = None,
     ) -> int:
-        snapshot = FundamentalSnapshot(
-            query_id=query_id,
-            code=code,
-            payload=json.dumps(payload or {}, ensure_ascii=False),
-            source_chain=json.dumps(source_chain or [], ensure_ascii=False) if source_chain is not None else None,
-            coverage=json.dumps(coverage or {}, ensure_ascii=False) if coverage is not None else None,
-        )
-        """
-        保存日线数据到数据库
-        
-        策略：
-        - 按 `(code, date)` 做批量 UPSERT，已存在记录会覆盖更新
-        - 同一批次内若存在重复日期，以最后一条记录为准
-        - SQLite 分支按 chunk 写入以避免绑定参数上限
-        
-        Args:
-            df: 包含日线数据的 DataFrame
-            code: 股票代码
-            data_source: 数据来源名称
-            
-        Returns:
-            本次实际新增的记录数（不含更新）
-        """
-        if df is None or df.empty:
-            logger.warning(f"保存数据为空，跳过 {code}")
-            return 0
-
-        now = datetime.now()
-        records_by_date: Dict[date, Dict[str, Any]] = {}
-        for row in df.to_dict(orient='records'):
-            row_date = self._normalize_daily_date(row.get('date'))
-            records_by_date[row_date] = {
-                'code': code,
-                'date': row_date,
-                'open': self._normalize_sql_value(row.get('open')),
-                'high': self._normalize_sql_value(row.get('high')),
-                'low': self._normalize_sql_value(row.get('low')),
-                'close': self._normalize_sql_value(row.get('close')),
-                'volume': self._normalize_sql_value(row.get('volume')),
-                'amount': self._normalize_sql_value(row.get('amount')),
-                'pct_chg': self._normalize_sql_value(row.get('pct_chg')),
-                'ma5': self._normalize_sql_value(row.get('ma5')),
-                'ma10': self._normalize_sql_value(row.get('ma10')),
-                'ma20': self._normalize_sql_value(row.get('ma20')),
-                'volume_ratio': self._normalize_sql_value(row.get('volume_ratio')),
-                'data_source': data_source,
-                'created_at': now,
-                'updated_at': now,
-            }
-
-        if not records_by_date:
-            return 0
-
-        records = list(records_by_date.values())
-        batch_dates = list(records_by_date.keys())
-
         def _write(session: Session) -> int:
-            if self._is_sqlite_engine:
-                # SQLite has a per-statement bind-parameter limit (commonly 999).
-                # Each record has ~15 columns, so chunk upserts to stay within bounds.
-                _SQLITE_CHUNK = 50
-                # `_run_write_transaction()` opens SQLite writes with
-                # `BEGIN IMMEDIATE`, so existence checks and upsert execute
-                # within one stable write window.
-                existing_dates = set()
-                _COUNT_CHUNK = 500
-                for j in range(0, len(batch_dates), _COUNT_CHUNK):
-                    chunk_dates = batch_dates[j : j + _COUNT_CHUNK]
-                    if not chunk_dates:
-                        continue
-                    existing_dates.update(
-                        session.execute(
-                            select(StockDaily.date).where(
-                                and_(
-                                    StockDaily.code == code,
-                                    StockDaily.date.in_(chunk_dates),
-                                )
-                            )
-                        ).scalars().all()
-                    )
-                new_records = [
-                    record for record in records if record['date'] not in existing_dates
-                ]
-                for i in range(0, len(records), _SQLITE_CHUNK):
-                    chunk = records[i : i + _SQLITE_CHUNK]
-                    stmt = sqlite_insert(StockDaily).values(chunk)
-                    excluded = stmt.excluded
-                    session.execute(
-                        stmt.on_conflict_do_update(
-                            index_elements=['code', 'date'],
-                            set_={
-                                'open': excluded.open,
-                                'high': excluded.high,
-                                'low': excluded.low,
-                                'close': excluded.close,
-                                'volume': excluded.volume,
-                                'amount': excluded.amount,
-                                'pct_chg': excluded.pct_chg,
-                                'ma5': excluded.ma5,
-                                'ma10': excluded.ma10,
-                                'ma20': excluded.ma20,
-                                'volume_ratio': excluded.volume_ratio,
-                                'data_source': excluded.data_source,
-                                'updated_at': excluded.updated_at,
-                            },
-                        )
-                    )
-                return len(new_records)
-            else:
-                existing_rows = {
-                    row.date: row
-                    for row in session.execute(
-                        select(StockDaily).where(
-                            and_(
-                                StockDaily.code == code,
-                                StockDaily.date.in_(batch_dates),
-                            )
-                        )
-                    ).scalars().all()
-                }
-                new_count = 0
-                for record in records:
-                    existing = existing_rows.get(record['date'])
-                    if existing is None:
-                        session.add(StockDaily(**record))
-                        new_count += 1
-                        continue
-                    existing.open = record['open']
-                    existing.high = record['high']
-                    existing.low = record['low']
-                    existing.close = record['close']
-                    existing.volume = record['volume']
-                    existing.amount = record['amount']
-                    existing.pct_chg = record['pct_chg']
-                    existing.ma5 = record['ma5']
-                    existing.ma10 = record['ma10']
-                    existing.ma20 = record['ma20']
-                    existing.volume_ratio = record['volume_ratio']
-                    existing.data_source = record['data_source']
-                    existing.updated_at = record['updated_at']
-                return new_count
-
-        try:
-            saved_count = self._run_write_transaction(
-                f"save_daily_data[{code}]",
-                _write,
+            session.add(
+                FundamentalSnapshot(
+                    query_id=query_id,
+                    code=code,
+                    payload=json.dumps(payload or {}, ensure_ascii=False),
+                    source_chain=json.dumps(source_chain or [], ensure_ascii=False) if source_chain is not None else None,
+                    coverage=json.dumps(coverage or {}, ensure_ascii=False) if coverage is not None else None,
+                )
             )
-            logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
-            return saved_count
-        except Exception as e:
-            logger.error(f"保存 {code} 数据失败: {e}")
-            raise
+            return 1
+
+        return self._run_write_transaction(f"save_fundamental_snapshot[{query_id}:{code}]", _write)
     
     def get_analysis_context(
         self, 
@@ -1858,6 +1780,89 @@ class DatabaseManager:
             if yest.volume: context['volume_change_ratio'] = round(today_data.volume / yest.volume, 2)
             if yest.close: context['price_change_ratio'] = round((today_data.close - yest.close) / yest.close * 100, 2)
         return context
+
+    def record_llm_usage(
+        self,
+        *,
+        call_type: str,
+        model: str,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: Optional[int] = None,
+        stock_code: Optional[str] = None,
+    ) -> int:
+        total = (
+            int(total_tokens)
+            if total_tokens is not None
+            else int(prompt_tokens or 0) + int(completion_tokens or 0)
+        )
+
+        def _write(session: Session) -> int:
+            row = LLMUsage(
+                call_type=str(call_type or "unknown"),
+                model=str(model or "unknown"),
+                stock_code=stock_code,
+                prompt_tokens=int(prompt_tokens or 0),
+                completion_tokens=int(completion_tokens or 0),
+                total_tokens=total,
+                called_at=datetime.now(),
+            )
+            session.add(row)
+            session.flush()
+            return int(row.id or 0)
+
+        return self._run_write_transaction("record_llm_usage", _write)
+
+    def get_llm_usage_summary(self, from_dt: datetime, to_dt: datetime) -> Dict[str, Any]:
+        with self.get_session() as session:
+            conditions = and_(LLMUsage.called_at >= from_dt, LLMUsage.called_at <= to_dt)
+            total_calls = session.execute(
+                select(func.count()).select_from(LLMUsage).where(conditions)
+            ).scalar() or 0
+            total_tokens = session.execute(
+                select(func.coalesce(func.sum(LLMUsage.total_tokens), 0)).where(conditions)
+            ).scalar() or 0
+            by_call_type = session.execute(
+                select(
+                    LLMUsage.call_type,
+                    func.count().label("calls"),
+                    func.coalesce(func.sum(LLMUsage.total_tokens), 0).label("total_tokens"),
+                )
+                .where(conditions)
+                .group_by(LLMUsage.call_type)
+                .order_by(LLMUsage.call_type.asc())
+            ).all()
+            by_model = session.execute(
+                select(
+                    LLMUsage.model,
+                    func.count().label("calls"),
+                    func.coalesce(func.sum(LLMUsage.total_tokens), 0).label("total_tokens"),
+                )
+                .where(conditions)
+                .group_by(LLMUsage.model)
+                .order_by(LLMUsage.model.asc())
+            ).all()
+
+        return {
+            "total_calls": int(total_calls),
+            "total_tokens": int(total_tokens),
+            "by_call_type": [
+                {
+                    "call_type": row.call_type,
+                    "calls": int(row.calls or 0),
+                    "total_tokens": int(row.total_tokens or 0),
+                }
+                for row in by_call_type
+            ],
+            "by_model": [
+                {
+                    "model": row.model,
+                    "calls": int(row.calls or 0),
+                    "total_tokens": int(row.total_tokens or 0),
+                }
+                for row in by_model
+            ],
+        }
 
     # --- Internal Helpers ---
     def _normalize_daily_date(self, val: Any) -> date:

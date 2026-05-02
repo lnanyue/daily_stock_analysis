@@ -19,7 +19,9 @@ from .async_base import get_sender_http_client
 logger = logging.getLogger(__name__)
 
 
-class PushoverSender:
+from .base import BaseNotificationSender
+
+class PushoverSender(BaseNotificationSender):
     
     def __init__(self, config: Config):
         """
@@ -28,15 +30,28 @@ class PushoverSender:
         Args:
             config: 配置对象
         """
+        # 必须在 super().__init__() 之前初始化，因为 _check_enabled 会访问
         self._pushover_config = {
             'user_key': getattr(config, 'pushover_user_key', None),
             'api_token': getattr(config, 'pushover_api_token', None),
         }
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
+        super().__init__(config)
         
-    def _is_pushover_configured(self) -> bool:
+    def _check_enabled(self) -> bool:
         """检查 Pushover 配置是否完整"""
         return bool(self._pushover_config['user_key'] and self._pushover_config['api_token'])
+
+    @property
+    def name(self) -> str:
+        return "Pushover"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+            
+        return await self.send_to_pushover(content, title=kwargs.get('title'))
 
     async def send_to_pushover(self, content: str, title: Optional[str] = None) -> bool:
         """
@@ -64,7 +79,7 @@ class PushoverSender:
         Returns:
             是否发送成功
         """
-        if not self._is_pushover_configured():
+        if not self._check_enabled():
             logger.warning("Pushover 配置不完整，跳过推送")
             return False
         

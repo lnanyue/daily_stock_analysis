@@ -54,8 +54,6 @@ Go to repo page → **Settings** → **Secrets and variables** → **Actions** �
 | `GEMINI_API_KEY` | Gemini AI API Key | ✅ |
 | `WECHAT_WEBHOOK_URL` | WeChat Work Bot Webhook | Optional* |
 | `FEISHU_WEBHOOK_URL` | Feishu Bot Webhook | Optional* |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | Optional* |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | Optional* |
 | `EMAIL_SENDER` | Sender email | Optional* |
 | `EMAIL_PASSWORD` | Email authorization code | Optional* |
 | `STOCK_LIST` | Watchlist, e.g., `600519,300750` | ✅ |

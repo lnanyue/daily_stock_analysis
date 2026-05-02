@@ -23,7 +23,7 @@
 
 ## 3. 搜索 Provider 的全量异步化
 **目标路径**: `src/search/providers/`
-- **现状**: 除 SerpAPI 和 Tavily 外，`Bocha`, `Brave`, `Exa`, `MiniMax` 等仍在使用同步的 `requests` 库。
+- **现状**: 除 SerpAPI 和 Tavily 外，`Bocha` 仍在使用同步的 `requests` 库；`Brave`, `Exa`, `MiniMax` 已被移除。
 - **方案**: 
     - 使用 `httpx` 重写各 Provider 的 `_do_search_async` 方法。
 - **收益**: 在配置了多搜索引擎自动切换时，彻底消除 I/O 阻塞，极大提升并发性能。

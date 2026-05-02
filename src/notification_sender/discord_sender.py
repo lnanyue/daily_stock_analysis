@@ -6,7 +6,7 @@ Discord 发送提醒服务
 1. 通过 webhook 或 Discord bot API 发送 Discord 消息
 """
 import logging
-from typing import List
+from typing import List, Optional, Dict, Any
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_words
@@ -16,7 +16,9 @@ from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
 logger = logging.getLogger(__name__)
 
 
-class DiscordSender:
+from .base import BaseNotificationSender
+
+class DiscordSender(BaseNotificationSender):
     
     def __init__(self, config: Config):
         """
@@ -25,6 +27,7 @@ class DiscordSender:
         Args:
             config: 配置对象
         """
+        # 必须在 super().__init__() 之前初始化，因为 _check_enabled 会访问
         self._discord_config = {
             'bot_token': getattr(config, 'discord_bot_token', None),
             'channel_id': getattr(config, 'discord_main_channel_id', None),
@@ -33,14 +36,26 @@ class DiscordSender:
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
         self._discord_max_words = getattr(config, 'discord_max_words', 2000)
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
+        super().__init__(config)
     
-    def _is_discord_configured(self) -> bool:
+    def _check_enabled(self) -> bool:
         """检查 Discord 配置是否完整（支持 Bot 或 Webhook）"""
         # 只要配置了 Webhook 或完整的 Bot Token+Channel，即视为可用
         bot_ok = bool(self._discord_config['bot_token'] and self._discord_config['channel_id'])
         webhook_ok = bool(self._discord_config['webhook_url'])
         return bot_ok or webhook_ok
-    
+
+    @property
+    def name(self) -> str:
+        return "Discord机器人"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+            
+        return await self.send_to_discord(content)
+
     async def send_to_discord(self, content: str) -> bool:
         """
         推送消息到 Discord（支持 Webhook 和 Bot API）

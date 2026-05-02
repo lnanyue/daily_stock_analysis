@@ -8,6 +8,7 @@
 import logging
 import json
 import asyncio
+from typing import Optional, List, Dict, Any
 
 from src.config import Config
 from src.formatters import chunk_content_by_max_bytes, slice_at_max_bytes
@@ -18,7 +19,9 @@ from .async_base import get_sender_http_client
 logger = logging.getLogger(__name__)
 
 
-class CustomWebhookSender:
+from .base import BaseNotificationSender
+
+class CustomWebhookSender(BaseNotificationSender):
 
     def __init__(self, config: Config):
         """
@@ -27,11 +30,30 @@ class CustomWebhookSender:
         Args:
             config: 配置对象
         """
+        # 必须在 super().__init__() 之前初始化，因为 _check_enabled 会访问
         self._custom_webhook_urls = getattr(config, 'custom_webhook_urls', []) or []
         self._custom_webhook_bearer_token = getattr(config, 'custom_webhook_bearer_token', None)
         self._webhook_verify_ssl = getattr(config, 'webhook_verify_ssl', True)
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
- 
+        super().__init__(config)
+
+    def _check_enabled(self) -> bool:
+        return bool(self._custom_webhook_urls)
+
+    @property
+    def name(self) -> str:
+        return "自定义Webhook"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+            
+        if image_bytes:
+            return await self._send_custom_webhook_image(image_bytes, fallback_content=content)
+            
+        return await self.send_to_custom(content)
+
     async def send_to_custom(self, content: str) -> bool:
         """
         推送消息到自定义 Webhook

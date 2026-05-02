@@ -79,7 +79,6 @@ This document compiles common issues encountered by users and their solutions.
 2. **Secrets** (click `New repository secret`): Store sensitive information
    - `GEMINI_API_KEY`
    - `OPENAI_API_KEY`
-   - `TELEGRAM_BOT_TOKEN`
    - Various Webhook URLs
 3. **Variables** (click `Variables` tab): Store non-sensitive configuration
    - `STOCK_LIST`
@@ -152,20 +151,7 @@ Use channel mode: set `LLM_CHANNELS=aihubmix,deepseek,gemini` and configure each
 
 ---
 
-### Q9: Not receiving Telegram push messages?
-
-**Solution**:
-1. Confirm both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured
-2. How to get Chat ID:
-   - Send any message to the Bot
-   - Visit `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - Find `chat.id` in the returned JSON
-3. Ensure Bot has been added to target group (if group chat)
-4. When running locally, need to be able to access Telegram API (may need proxy)
-
----
-
-### Q10: WeChat Work Markdown format not displaying correctly?
+### Q9: WeChat Work Markdown format not displaying correctly?
 
 **Solution**:
 1. WeChat Work has limited Markdown support, try setting:

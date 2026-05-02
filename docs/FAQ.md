@@ -81,7 +81,6 @@
 2. **Secrets**（点击 `New repository secret`）：存放敏感信息
    - `GEMINI_API_KEY`
    - `OPENAI_API_KEY`
-   - `TELEGRAM_BOT_TOKEN`
    - 各类 Webhook URL
 3. **Variables**（点击 `Variables` 标签）：存放非敏感配置
    - `STOCK_LIST`
@@ -151,20 +150,7 @@ PROXY_PORT=10809
 
 ---
 
-### Q9: Telegram 推送收不到消息？
-
-**解决方案**：
-1. 确认 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID` 都已配置
-2. 获取 Chat ID 方法：
-   - 给 Bot 发送任意消息
-   - 访问 `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - 在返回的 JSON 中找到 `chat.id`
-3. 确保 Bot 已被添加到目标群组（如果是群聊）
-4. 本地运行时需要能访问 Telegram API（可能需要代理）
-
----
-
-### Q10: 企业微信 Markdown 格式显示不正常？
+### Q9: 企业微信 Markdown 格式显示不正常？
 
 **解决方案**：
 1. 企业微信对 Markdown 支持有限，可尝试设置：

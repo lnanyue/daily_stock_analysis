@@ -274,6 +274,19 @@ def try_parse_json(text: str) -> Optional[Dict[str, Any]]:
             if repaired is not None:
                 return repaired
 
+    for candidate in unique_candidates:
+        repaired = re.sub(r",\s*([}\]])", r"\1", candidate)
+        missing_braces = repaired.count("{") - repaired.count("}")
+        missing_brackets = repaired.count("[") - repaired.count("]")
+        if missing_braces > 0 or missing_brackets > 0:
+            repaired = repaired + ("}" * max(0, missing_braces)) + ("]" * max(0, missing_brackets))
+        try:
+            obj = json.loads(repaired)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            continue
+
     return None
 
 
@@ -283,8 +296,11 @@ _try_parse_json = try_parse_json
 
 def _try_repair_json(text: str, repair_fn: Callable) -> Optional[Dict[str, Any]]:
     try:
-        repaired = repair_fn(text)
-        obj = json.loads(repaired)
+        try:
+            repaired = repair_fn(text, return_objects=True)
+        except TypeError:
+            repaired = repair_fn(text)
+        obj = repaired if isinstance(repaired, dict) else json.loads(repaired)
         return obj if isinstance(obj, dict) else None
     except Exception:
         return None

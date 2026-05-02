@@ -81,20 +81,6 @@ class TestNotificationServiceSendToMethods(unittest.IsolatedAsyncioTestCase):
 
     @mock.patch("src.notification.service.get_config")
     @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
-    async def test_send_to_astrbot_via_notification_service(self, mock_post, mock_get_config):
-        cfg = _make_config(astrbot_url="https://astrbot.example")
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200)
-
-        service = NotificationService()
-        self.assertIn(NotificationChannel.ASTRBOT, service.get_available_channels())
-
-        ok = await service.send("astrbot content")
-        self.assertTrue(ok)
-        mock_post.assert_called_once()
-
-    @mock.patch("src.notification.service.get_config")
-    @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
     async def test_send_to_custom_webhook_via_notification_service(self, mock_post, mock_get_config):
         cfg = _make_config(custom_webhook_urls=["https://custom.example"])
         mock_get_config.return_value = cfg
@@ -194,18 +180,6 @@ class TestNotificationServiceReportGeneration(unittest.IsolatedAsyncioTestCase):
 
         service = NotificationService()
         ok = await service.send("feishu content")
-        self.assertTrue(ok)
-        mock_post.assert_called()
-
-    @mock.patch("src.notification.service.get_config")
-    @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
-    async def test_send_to_telegram_via_notification_service(self, mock_post, mock_get_config):
-        cfg = _make_config(telegram_bot_token="T", telegram_chat_id="C")
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200, {"ok": True})
-
-        service = NotificationService()
-        ok = await service.send("hello telegram")
         self.assertTrue(ok)
         mock_post.assert_called()
 

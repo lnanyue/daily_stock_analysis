@@ -38,7 +38,7 @@ gh issue view <issue_number> --repo ZhuLinsen/daily_stock_analysis --comments
 ### Step 3: 结合仓库现状做证据检查
 
 - 阅读相关代码、配置、测试、脚本、工作流与文档
-- 如果问题涉及 API、数据源 fallback、报告生成、通知发送、认证、桌面端、发布流程，明确写出影响面
+- 如果问题涉及 API、数据源 fallback、报告生成、通知发送、认证、发布流程，明确写出影响面
 - 判断是实际 bug、环境配置问题、使用方式问题、还是外部依赖问题
 - 如怀疑已被修复，检查当前代码而不是只看 issue 描述
 
@@ -88,7 +88,7 @@ gh issue view <issue_number> --repo ZhuLinsen/daily_stock_analysis --comments
 ## Impact Scope
 
 - 受影响模块：
-- 受影响运行路径（本地 / Docker / GitHub Actions / API / Web / Desktop）：
+- 受影响运行路径（本地 / Docker / GitHub Actions / API）：
 
 ## Root Cause / Main Reasoning
 

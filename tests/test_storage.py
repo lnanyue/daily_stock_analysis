@@ -75,13 +75,13 @@ class TestStorage(unittest.TestCase):
         DatabaseManager.reset_instance()
         db = DatabaseManager(db_url="sqlite:///:memory:")
 
-        db.save_conversation_message("telegram_12345:chat", "user", "first user")
-        db.save_conversation_message("telegram_123456:chat", "user", "second user")
+        db.save_conversation_message("session_12345:chat", "user", "first user")
+        db.save_conversation_message("session_123456:chat", "user", "second user")
 
-        sessions = db.get_chat_sessions(session_prefix="telegram_12345")
+        sessions = db.get_chat_sessions(session_prefix="session_12345")
 
         self.assertEqual(len(sessions), 1)
-        self.assertEqual(sessions[0]["session_id"], "telegram_12345:chat")
+        self.assertEqual(sessions[0]["session_id"], "session_12345:chat")
 
         DatabaseManager.reset_instance()
 

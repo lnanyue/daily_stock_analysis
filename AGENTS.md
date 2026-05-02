@@ -95,8 +95,8 @@ gh run view <run_id> --log-failed
 
 1. 先判断任务类型：`fix / feat / refactor / docs / chore / test / review`
 2. 先读现有实现、配置、测试、脚本、工作流和文档，再动手修改。
-3. 识别改动边界：后端 / API / Web / Desktop / Workflow / Docs / AI 协作资产。
-4. 先判断是否命中高风险区域：配置语义、API / Schema、数据源 fallback、报告结构、认证、调度、发布流程、桌面端启动链路。
+3. 识别改动边界：后端 / API / Workflow / Docs / AI 协作资产。
+4. 先判断是否命中高风险区域：配置语义、API / Schema、数据源 fallback、报告结构、认证、调度、发布流程。
 5. 只做和当前任务直接相关的最小改动，不顺手夹带无关重构。
 6. 如果发现文档、脚本、工作流描述不一致，优先信任实际代码与工作流，再决定是否顺手修正文档。
 7. 改完后按下面的验证矩阵执行检查。
@@ -180,7 +180,7 @@ gh run view <run_id> --log-failed
   - 修改 `src/services/image_stock_extractor.py` 中 `EXTRACT_PROMPT` 时，要在 PR 描述中附完整最新 prompt。
 
 - 工作流 / 发布 / 打包：
-  - 修改自动 tag、Release、Docker 发布、日常分析或桌面端打包流程时，要评估触发条件、产物路径、权限边界和回滚方式。
+  - 修改自动 tag、Release、Docker 发布、或日常分析流程时，要评估触发条件、产物路径、权限边界和回滚方式。
   - 自动 tag 默认保持 opt-in：只有 commit title 含 `#patch`、`#minor`、`#major` 才触发版本号更新，除非需求明确要求改变发布策略。
 
 ## 8. Issue / PR / Skill 工作流

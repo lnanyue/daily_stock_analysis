@@ -66,15 +66,9 @@ daily_stock_analysis/
 |------------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | 企业微信 Webhook URL | 可选 |
 | `FEISHU_WEBHOOK_URL` | 飞书 Webhook URL | 可选 |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token（@BotFather 获取） | 可选 |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | 可选 |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID (用于发送到子话题) | 可选 |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL（[创建方法](https://support.discord.com/hc/en-us/articles/228383668)） | 可选 |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token（与 Webhook 二选一） | 可选 |
 | `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID（使用 Bot 时需要） | 可选 |
-| `SLACK_BOT_TOKEN` | Slack Bot Token（推荐，支持图片上传；同时配置时优先于 Webhook） | 可选 |
-| `SLACK_CHANNEL_ID` | Slack Channel ID（使用 Bot 时需要） | 可选 |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL（仅文本，不支持图片） | 可选 |
 | `EMAIL_SENDER` | 发件人邮箱（如 `xxx@qq.com`） | 可选 |
 | `EMAIL_PASSWORD` | 邮箱授权码（非登录密码） | 可选 |
 | `EMAIL_RECEIVERS` | 收件人邮箱（多个用逗号分隔，留空则发给自己） | 可选 |
@@ -93,7 +87,7 @@ daily_stock_analysis/
 |------------|------|:----:|
 | `SINGLE_STOCK_NOTIFY` | 单股推送模式：设为 `true` 则每分析完一只股票立即推送 | 可选 |
 | `REPORT_TYPE` | 报告类型：`simple`(精简)、`full`(完整)、`brief`(3-5句概括)，云服务器部署推荐设为 `full` | 可选 |
-| `REPORT_LANGUAGE` | 报告输出语言：`zh`(默认中文) / `en`(英文)；会同步影响 Prompt、模板、通知 fallback 与 Web 报告页固定文案 | 可选 |
+| `REPORT_LANGUAGE` | 报告输出语言：`zh`(默认中文) / `en`(英文)；会同步影响 Prompt、模板、通知 fallback 与固定文案 | 可选 |
 | `REPORT_SUMMARY_ONLY` | 仅分析结果摘要：设为 `true` 时只推送汇总，不含个股详情；多股时适合快速浏览（默认 false，Issue #262） | 可选 |
 | `REPORT_TEMPLATES_DIR` | Jinja2 模板目录（相对项目根，默认 `templates`） | 可选 |
 | `REPORT_RENDERER_ENABLED` | 启用 Jinja2 模板渲染（默认 `false`，保证零回归） | 可选 |
@@ -102,7 +96,7 @@ daily_stock_analysis/
 | `REPORT_HISTORY_COMPARE_N` | 历史信号对比条数，`0` 关闭（默认），`>0` 启用 | 可选 |
 | `ANALYSIS_DELAY` | 个股分析和大盘分析之间的延迟（秒），避免API限流，如 `10` | 可选 |
 | `MERGE_EMAIL_NOTIFICATION` | 个股与大盘复盘合并推送（默认 false），减少邮件数量、降低垃圾邮件风险；与 `SINGLE_STOCK_NOTIFY` 互斥（单股模式下合并不生效） | 可选 |
-| `MARKDOWN_TO_IMAGE_CHANNELS` | 将 Markdown 转为图片发送的渠道（用逗号分隔）：telegram,wechat,custom,email,slack；单股推送需同时配置且安装转图工具 | 可选 |
+| `MARKDOWN_TO_IMAGE_CHANNELS` | 将 Markdown 转为图片发送的渠道（用逗号分隔）：wechat,custom,email；单股推送需同时配置且安装转图工具 | 可选 |
 | `MARKDOWN_TO_IMAGE_MAX_CHARS` | 超过此长度不转图片，避免超大图片（默认 15000） | 可选 |
 | `MD2IMG_ENGINE` | 转图引擎：`wkhtmltoimage`（默认，需 wkhtmltopdf）或 `markdown-to-file`（emoji 更好，需 `npm i -g markdown-to-file`） | 可选 |
 | `PREFETCH_REALTIME_QUOTES` | 设为 `false` 可禁用实时行情预取，避免 efinance/akshare_em 全市场拉取（默认 true） | 可选 |
@@ -113,12 +107,6 @@ daily_stock_analysis/
 |------------|------|:----:|
 | `STOCK_LIST` | 自选股代码，如 `600519,300750,002594` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新闻搜索） | 推荐 |
-| `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimaxi.com/) Coding Plan Web Search（结构化搜索结果） | 可选 |
-| `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |
-| `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
-| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 备用搜索 | 可选 |
-| `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json）；留空时默认自动发现公共实例 | 可选 |
-| `SEARXNG_PUBLIC_INSTANCES_ENABLED` | 是否在 `SEARXNG_BASE_URLS` 为空时自动从 `searx.space` 获取公共实例（默认 `true`） | 可选 |
 | `OPENBB_NEWS_ENABLED` | 启用 [OpenBB](https://docs.openbb.co/) 公司新闻源；需本地安装 `openbb` 及对应 provider 扩展，默认 `false` | 可选 |
 | `OPENBB_NEWS_PROVIDER` | OpenBB 公司新闻 provider，例如 `yfinance`、`benzinga`、`fmp`（取决于本地 OpenBB 扩展与凭证），默认 `yfinance` | 可选 |
 | `OPENBB_FETCHER_ENABLED` | 启用 OpenBB 行情/日线数据源；用于历史价格、实时行情与股票名称 fallback，默认 `false` | 可选 |
@@ -193,16 +181,10 @@ daily_stock_analysis/
 |--------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | 企业微信机器人 Webhook URL | 可选 |
 | `FEISHU_WEBHOOK_URL` | 飞书机器人 Webhook URL | 可选 |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 可选 |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | 可选 |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID | 可选 |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL | 可选 |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token（与 Webhook 二选一） | 可选 |
 | `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID（使用 Bot 时需要） | 可选 |
 | `DISCORD_MAX_WORDS` | Discord 最大字数限制（默认 免费服务器限制2000） | 可选 |
-| `SLACK_BOT_TOKEN` | Slack Bot Token（推荐，支持图片上传；同时配置时优先于 Webhook） | 可选 |
-| `SLACK_CHANNEL_ID` | Slack Channel ID（使用 Bot 时需要） | 可选 |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL（仅文本，不支持图片） | 可选 |
 | `EMAIL_SENDER` | 发件人邮箱 | 可选 |
 | `EMAIL_PASSWORD` | 邮箱授权码（非登录密码） | 可选 |
 | `EMAIL_RECEIVERS` | 收件人邮箱（逗号分隔，留空发给自己） | 可选 |
@@ -234,14 +216,10 @@ daily_stock_analysis/
 
 | 变量名 | 说明 | 必填 |
 |--------|------|:----:|
-| `TAVILY_API_KEYS` | Tavily 搜索 API Key（推荐） | 推荐 |
-| `MINIMAX_API_KEYS` | MiniMax Coding Plan Web Search（结构化搜索结果） | 可选 |
-| `BOCHA_API_KEYS` | 博查搜索 API Key（中文优化） | 可选 |
-| `BRAVE_API_KEYS` | Brave Search API Key（美股优化） | 可选 |
-| `SERPAPI_API_KEYS` | SerpAPI 备用搜索 | 可选 |
-| `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json）；留空时默认自动发现公共实例 | 可选 |
-| `SEARXNG_PUBLIC_INSTANCES_ENABLED` | 是否在 `SEARXNG_BASE_URLS` 为空时自动从 `searx.space` 获取公共实例（默认 `true`） | 可选 |
+| `TAVILY_API_KEYS` | Tavily 搜索 API Key | 可选 |
+
 | `NEWS_STRATEGY_PROFILE` | 新闻策略窗口档位：`ultra_short`(1天)/`short`(3天)/`medium`(7天)/`long`(30天)；实际窗口取与 `NEWS_MAX_AGE_DAYS` 的最小值 | 默认 `short` |
+
 | `NEWS_MAX_AGE_DAYS` | 新闻最大时效（天），搜索时限制结果在近期内 | 默认 `3` |
 | `BIAS_THRESHOLD` | 乖离率阈值（%），超过提示不追高；强势趋势股自动放宽到 1.5 倍 | 默认 `5.0` |
 
@@ -292,9 +270,8 @@ daily_stock_analysis/
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `STOCK_LIST` | 自选股代码（逗号分隔） | - |
-| `ADMIN_AUTH_ENABLED` | Web 登录：设为 `true` 启用密码保护；首次访问在网页设置初始密码，可在「系统设置 > 修改密码」修改；忘记密码执行 `python -m src.auth reset_password` | `false` |
-| `TRUST_X_FORWARDED_FOR` | 反向代理部署时设为 `true`，从 `X-Forwarded-For` 获取真实 IP（限流等）；直连公网时保持 `false` 防伪造 | `false` |
 | `MAX_WORKERS` | 并发线程数 | `3` |
+
 | `MARKET_REVIEW_ENABLED` | 启用大盘复盘 | `true` |
 | `MARKET_REVIEW_REGION` | 大盘复盘市场区域：cn(A股)、us(美股)、both(两者)，us 适合仅关注美股的用户 | `cn` |
 | `TRADING_DAY_CHECK_ENABLED` | 交易日检查：默认 `true`，非交易日跳过执行；设为 `false` 或使用 `--force-run` 可强制执行（Issue #373） | `true` |
@@ -448,14 +425,6 @@ crontab -e
 2. 复制 Webhook URL
 3. 设置 `FEISHU_WEBHOOK_URL`
 
-### Telegram
-
-1. 与 @BotFather 对话创建 Bot
-2. 获取 Bot Token
-3. 获取 Chat ID（可通过 @userinfobot）
-4. 设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID`
-5. (可选) 如需发送到 Topic，设置 `TELEGRAM_MESSAGE_THREAD_ID` (从 Topic 链接末尾获取)
-
 ### 邮件
 
 1. 开启邮箱的 SMTP 服务
@@ -515,33 +484,6 @@ DISCORD_BOT_TOKEN=your_bot_token
 DISCORD_MAIN_CHANNEL_ID=your_channel_id
 ```
 
-### Slack
-
-Slack 支持两种方式推送，同时配置时优先使用 Bot API，确保文本与图片发送到同一频道：
-
-**方式一：Bot API（推荐，支持图片上传）**
-
-1. 创建 Slack App：https://api.slack.com/apps → Create New App
-2. 添加 Bot Token Scopes：`chat:write`、`files:write`
-3. 安装到工作区并获取 Bot Token (xoxb-...)
-4. 获取频道 ID：频道详情 → 底部复制频道 ID
-5. 配置环境变量：
-
-```bash
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_CHANNEL_ID=C01234567
-```
-
-**方式二：Incoming Webhook（配置简单，仅文本）**
-
-1. 在 Slack App 管理页面创建 Incoming Webhook
-2. 复制 Webhook URL
-3. 配置环境变量：
-
-```bash
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
-```
-
 ### Pushover（iOS/Android 推送）
 
 [Pushover](https://pushover.net/) 是一个跨平台的推送服务，支持 iOS 和 Android。
@@ -564,7 +506,7 @@ PUSHOVER_API_TOKEN=your_api_token
 
 ### Markdown 转图片（可选）
 
-配置 `MARKDOWN_TO_IMAGE_CHANNELS` 可将报告以图片形式发送至不支持 Markdown 的渠道（telegram, wechat, custom, email, slack）。
+配置 `MARKDOWN_TO_IMAGE_CHANNELS` 可将报告以图片形式发送至不支持 Markdown 的渠道（wechat, custom, email）。
 
 **依赖安装**：
 
@@ -578,7 +520,7 @@ PUSHOVER_API_TOKEN=your_api_token
 
 **单股推送 + 图片发送**（Issue #455）：
 
-单股推送模式（`SINGLE_STOCK_NOTIFY=true`）下，若希望 Telegram 等渠道以图片形式推送，需同时配置 `MARKDOWN_TO_IMAGE_CHANNELS=telegram` 并安装转图工具（wkhtmltopdf 或 markdown-to-file）。个股日报汇总同样支持转图，无需额外配置。
+单股推送模式（`SINGLE_STOCK_NOTIFY=true`）下，若希望不支持 Markdown 的渠道以图片形式推送，需同时配置 `MARKDOWN_TO_IMAGE_CHANNELS` 并安装转图工具（wkhtmltopdf 或 markdown-to-file）。个股日报汇总同样支持转图，无需额外配置。
 
 **故障排查**：若日志出现「Markdown 转图片失败，将回退为文本发送」，请检查 `MARKDOWN_TO_IMAGE_CHANNELS` 配置及转图工具是否已正确安装（`which wkhtmltoimage` 或 `which m2f`）。
 
@@ -792,134 +734,3 @@ A: 检查是否启用了 Actions，以及 cron 表达式是否正确（注意是
 ---
 
 更多问题请 [提交 Issue](https://github.com/ZhuLinsen/daily_stock_analysis/issues)
-
-## Portfolio P0 PR1 (Core Ledger and Snapshot)
-
-### Scope
-- Core portfolio domain models:
-  - account, trade, cash ledger, corporate action, position cache, lot cache, daily snapshot, fx cache
-- Core service capability:
-  - account CRUD
-  - event writes
-  - read-time replay snapshot for one account or all active accounts
-
-### Accounting semantics
-- Cost method:
-  - `fifo` (default)
-  - `avg`
-- Same-day event ordering:
-  - `cash -> corporate action -> trade`
-- Corporate action effective-date rule:
-  - `effective_date` is treated as effective before market trading on that day.
-
-### Error and stability semantics
-- `trade_uid` unique conflict returns `409` (API conflict semantics).
-- sell writes now validate available quantity before insert; oversell is rejected with `409 portfolio_oversell`.
-- portfolio source-event writes now serialize through a SQLite write lock; direct write/delete endpoints may return `409 portfolio_busy` when another ledger mutation is in progress.
-- Snapshot write path is atomic for positions/lots/daily snapshot.
-- FX conversion keeps fail-open behavior (fallback 1:1 with stale marker) to avoid pipeline interruption.
-
-### Test coverage in PR1
-- FIFO/AVG partial sell replay
-- Dividend and split replay
-- Same-day ordering (dividend/trade, split/trade)
-- API account/event/snapshot contract
-- API duplicate trade_uid conflict
-
-## Portfolio P0 PR2 (Import and Risk)
-
-### CSV import
-- Supported broker ids: `huatai`, `citic`, `cmb`.
-- Unified workflow: parse CSV into normalized records, then commit into portfolio trades.
-- Commit remains row-by-row instead of one long transaction; busy rows count into `failed_count` rather than converting the whole request to `409`.
-- Dedup policy:
-  - First key: `trade_uid` (account-scoped)
-  - Fallback key: deterministic hash of date/symbol/side/qty/price/fee/tax/currency
-
-### Risk report
-- Concentration monitoring: top position weight alert by config threshold.
-- Drawdown monitoring: max/current drawdown computed from daily snapshots.
-- Stop-loss proximity warning: mark near-alert and triggered items with threshold echo.
-
-### FX fail-open
-- FX refresh first tries online source (YFinance).
-- On online failure, fallback to latest cached rate and mark `is_stale=true`.
-- Main snapshot/risk pipeline stays available even when online FX fetch is unavailable.
-
-## Portfolio P0 PR3 (Web + Agent Consumption)
-
-### Web consumption page
-- Added Web page route: `/portfolio` (`apps/dsa-web/src/pages/PortfolioPage.tsx`).
-- Data sources:
-  - `GET /api/v1/portfolio/snapshot`
-  - `GET /api/v1/portfolio/risk`
-- Supports:
-  - full portfolio / single account switch
-  - cost method switch (`fifo` / `avg`)
-  - concentration pie chart (Top Positions) with Recharts
-  - snapshot KPI cards and risk summary cards
-
-### Agent tool
-- Added `get_portfolio_snapshot` data tool for account-aware LLM suggestions.
-- Default behavior:
-  - compact summary output (token-friendly)
-  - includes optional compact risk block
-- Optional parameters:
-  - `account_id`
-  - `cost_method` (`fifo` / `avg`)
-  - `as_of` (`YYYY-MM-DD`)
-  - `include_positions` (default `false`)
-  - `include_risk` (default `true`)
-
-### Stability and compatibility
-- New capability is additive only; no removal of existing keys/routes.
-- Fail-open semantics:
-  - If risk block fails, snapshot is still returned.
-  - If portfolio module is unavailable, tool returns structured `not_supported`.
-
-## Portfolio P0 PR4 (Gap Closure)
-
-### API query closure
-- Added event query endpoints:
-  - `GET /api/v1/portfolio/trades`
-  - `GET /api/v1/portfolio/cash-ledger`
-  - `GET /api/v1/portfolio/corporate-actions`
-- Added event delete endpoints:
-  - `DELETE /api/v1/portfolio/trades/{trade_id}`
-  - `DELETE /api/v1/portfolio/cash-ledger/{entry_id}`
-  - `DELETE /api/v1/portfolio/corporate-actions/{action_id}`
-- Unified query parameters:
-  - `account_id`, `date_from`, `date_to`, `page`, `page_size`
-- Trade/cash/corporate-action specific filters:
-  - trades: `symbol`, `side`
-  - cash-ledger: `direction`
-  - corporate-actions: `symbol`, `action_type`
-- Unified response shape:
-  - `items`, `total`, `page`, `page_size`
-
-### CSV import framework
-- Reworked parser logic into extensible parser registry.
-- Built-in adapters remain: `huatai`, `citic`, `cmb` with alias mapping.
-- Added parser discovery endpoint:
-  - `GET /api/v1/portfolio/imports/csv/brokers`
-
-### Web closure
-- `/portfolio` page now includes:
-  - inline account creation entry with empty-state guide and auto-switch to created account
-  - manual event entry forms: trade / cash / corporate action
-  - CSV parse + commit operations (supports `dry_run`)
-  - event list panel with filters and pagination
-  - single-account scoped event deletion for trade / cash / corporate action correction
-  - broker selector fallback to built-in brokers (`huatai/citic/cmb`) when broker list API fails or returns empty
-  - FX status card manual refresh action that calls existing `POST /api/v1/portfolio/fx/refresh`; if upstream FX fetch fails, the page may still show stale after refresh and will explain the result inline
-  - when `PORTFOLIO_FX_UPDATE_ENABLED=false`, the refresh API now returns explicit disabled status and the page will show “汇率在线刷新已被禁用” instead of “当前范围无可刷新的汇率对”
-
-### Risk sector concentration semantics
-- Added `sector_concentration` in `GET /api/v1/portfolio/risk`.
-- Mapping rules:
-  - CN positions try board mapping from `get_belong_boards`.
-  - Non-CN or mapping failure falls back to `UNCLASSIFIED`.
-  - Uses single primary board per symbol to avoid duplicate weighting.
-- Fail-open:
-  - board lookup errors do not interrupt risk response.
-  - response returns coverage/error details for explainability.

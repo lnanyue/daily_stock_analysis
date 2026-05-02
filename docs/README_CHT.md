@@ -29,7 +29,6 @@
 
 <div align="center">
   <a href="https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis" target="_blank">
-    <img src="../sources/serpapi_banner_zh.png" alt="輕鬆抓取搜尋引擎上的即時金融新聞數據 - SerpApi" height="160">
   </a>
 </div>
 <br>
@@ -54,7 +53,7 @@
 |------|------|
 | AI 模型 | Gemini（免費）、OpenAI 兼容、DeepSeek、通義千問、Claude、Ollama |
 | 行情數據 | AkShare、Tushare、Baostock、YFinance、可選 OpenBB |
-| 新聞搜索 | Tavily、SerpAPI、Bocha、Brave、MiniMax |
+| 新聞搜索 | Tavily |
 
 ### 內建交易紀律
 
@@ -95,15 +94,9 @@
 
 | Secret 名稱 | 說明 | 必填 |
 |------------|------|:----:|
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token（@BotFather 獲取） | 可選 |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | 可選 |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID (用於發送到子話題) | 可選 |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL | 可選 |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token（與 Webhook 二選一） | 可選 |
 | `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID（使用 Bot 時需要） | 可選 |
-| `SLACK_BOT_TOKEN` | Slack Bot Token（推薦，支援圖片上傳；同時配置時優先於 Webhook） | 可選 |
-| `SLACK_CHANNEL_ID` | Slack Channel ID（使用 Bot 時需要） | 可選 |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL（僅文字，不支援圖片） | 可選 |
 | `EMAIL_SENDER` | 發件人郵箱（如 `xxx@qq.com`） | 可選 |
 | `EMAIL_PASSWORD` | 郵箱授權碼（非登錄密碼） | 可選 |
 | `EMAIL_RECEIVERS` | 收件人郵箱（多個用逗號分隔，留空則發給自己） | 可選 |
@@ -128,12 +121,6 @@
 |------------|------|:----:|
 | `STOCK_LIST` | 自選股代碼，如 `600519,hk00700,AAPL,TSLA` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新聞搜索） | 推薦 |
-| `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimaxi.com/) Coding Plan Web Search（結構化搜索結果） | 可選 |
-| `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索優化，支持AI摘要，多個key用逗號分隔） | 可選 |
-| `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隱私優先，美股優化，多個key用逗號分隔） | 可選 |
-| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 備用搜索 | 可選 |
-| `SEARXNG_BASE_URLS` | SearXNG 自建實例（無配額兜底，需在 settings.yml 啟用 format: json）；留空時預設自動發現公共實例 | 可選 |
-| `SEARXNG_PUBLIC_INSTANCES_ENABLED` | 是否在 `SEARXNG_BASE_URLS` 為空時自動從 `searx.space` 取得公共實例（預設 `true`） | 可選 |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | 可選 |
 | `AGENT_MODE` | 啟用 Agent 策略問股模式（內部統一命名為 skill，`true`/`false`，預設 `false`） | 可選 |
 | `AGENT_AUTO_ROUTE_ANALYSIS` | 維持傳統單股分析為預設，但在資料缺口、密集/高風險情報、較豐富的 A 股情報等複雜場景自動升級為 Agent 分析 | 可選 |

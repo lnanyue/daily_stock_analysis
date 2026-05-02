@@ -180,6 +180,17 @@ class TushareFetcher(BaseFetcher):
             logger.error(f"Tushare API 初始化失败: {e}")
             self._api = None
 
+    def _build_api_client(self, token: str) -> _TushareHttpClient:
+        """
+        Build a lightweight Tushare Pro client over direct HTTP requests.
+
+        The project normalizes Pro calls through the same request contract, so
+        runtime does not require the official tushare SDK.
+        """
+        client = _TushareHttpClient(token=token)
+        logger.debug("Tushare API client configured for direct HTTP calls")
+        return client
+
     async def _api_post(self, api_name: str, fields: str = '', **kwargs) -> pd.DataFrame:
         """
         Async version of Tushare API call using shared httpx client.

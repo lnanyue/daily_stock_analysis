@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] Agent 运行时隔离 `futu` 导入副作用，并收紧 Intel / Risk / Decision 契约；`data_provider` 包初始化不再 eager import `FutuFetcher`，避免仅导入 pipeline/Agent 测试时触发 FutuOpenD 日志文件写入权限错误；同时要求 Intel 输出带日期与来源的结构化证据，Risk 优先复用上游情报再补搜，Decision 在缺少价格依据时明确输出 `N/A` 而不是编造点位。
-- [改进] Agent 分析历史新增运行审计元数据；自动分流的 `route_reasons`、Agent 架构/模式、token/step 统计、工具调用概览以及多 Agent 阶段摘要现在会一并写入 `analysis_history.raw_result.analysis_metadata`，便于后续排查、调参和效果复盘。
+- [修复] **通知发送器测试修复与初始化顺序修复** — 将 `test_notification_sender.py` 中 18 个测试从同步 `requests.post` mock 迁移至异步 `get_sender_http_client` mock，适配发送器全异步化；同时修复 `DiscordSender`/`EmailSender`/`CustomWebhookSender`/`PushoverSender`/`Serverchan3Sender` 子类属性初始化顺序（`_check_enabled` 在 `super().__init__` 内被调用时属性尚未就绪）；补充 `FeishuSender` 丢失的 `_get_keyword_prefix`/`_apply_keyword_prefix`/`_build_security_fields` 方法（三路合并误丢弃）；修复 `EmailSender` 丢失的 `_format_sender_address`/`_close_server` 方法与 `_run_sync_detached` 超时封装；修复 `PushoverSender`/`EmailSender` 引用不存在的 `_is_*_configured()` 方法；修复 `WechatSender._send_wechat_image` 日志在 `image_bytes` 被重赋为 `None` 后仍调用 `len()` 的问题。
+- [文档] **清理 DEPLOY_EN.md 中残留的 Telegram 配置表行**。
+- [移除] **Slack / Telegram / AstrBot 通知渠道已删除** — 移除三个渠道的 sender 实现（slack_sender.py / telegram_sender.py / astrbot_sender.py）、config 字段、config_registry 定义、NotificationChannel 枚举值及所有相关测试；`MARKDOWN_TO_IMAGE_CHANNELS` 已移除 slack/telegram 引用。如仍需要这些渠道，请回滚对应 sender 文件或迁移至自定义 Webhook。
 - [修复] **MiniMax-M2.7 模型连接测试支持** — 修复 LLM 通道连接测试在 MiniMax-M2.7 模型下返回 "Empty response" 的问题；增加了 `max_tokens` 上限（8→256）以容纳 MiniMax 思考过程，并添加 `content_blocks` 格式解析逻辑统一处理 MiniMax 响应格式差异。
 - [修复] 经典个股分析 prompt 恢复技术面数据插值，并补齐稳定规则层；`format_analysis_prompt()` 的技术面表格改回真正的 f-string，收盘价、成交量、成交额、均线形态等字段不再把占位表达式原样透传给模型，同时新增独立分析规则块并为新闻窗口缺省值兜底，避免 prompt 出现 `近None日`。
 - [改进] 决策仪表盘 JSON schema 收口为共享 prompt 资产；Agent 运行时 prompt 与 `src/prompts/trading_dashboard*.md` 模板改为注入同一份 `trading_dashboard_schema.md`，移除多处重复内联 schema，避免字段示例在运行时与模板文档之间继续漂移。

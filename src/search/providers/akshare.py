@@ -66,6 +66,13 @@ class AkshareNewsProvider(BaseSearchProvider):
         except (ValueError, AttributeError):
             return value[:10] if len(value) >= 10 else value
 
+    async def _do_search_async(
+        self, query: str, api_key: str, max_results: int, days: int = 7
+    ) -> SearchResponse:
+        """执行异步 AkShare 搜索 (委托给线程池)"""
+        import asyncio
+        return await asyncio.to_thread(self._do_search, query, api_key, max_results, days=days)
+
     def _do_search(
         self, query: str, api_key: str, max_results: int, days: int = 7
     ) -> SearchResponse:

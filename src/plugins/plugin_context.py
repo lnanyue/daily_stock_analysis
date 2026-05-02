@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.storage import Database
     from src.search_service import SearchService
-    from data_provider.base import DataFetcherManager
+    from data_provider import DataFetcherManager
 
 
 @dataclass

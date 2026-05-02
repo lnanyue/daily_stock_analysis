@@ -1,13 +1,5 @@
 $ErrorActionPreference = 'Stop'
 
-Write-Host 'Building React UI (static assets)...'
-Push-Location 'apps\dsa-web'
-if (!(Test-Path 'node_modules')) {
-  npm install
-}
-npm run build
-Pop-Location
-
 $pythonBin = $env:PYTHON_BIN
 if ([string]::IsNullOrWhiteSpace($pythonBin)) {
   $pythonBin = 'python'
@@ -76,7 +68,7 @@ function Install-BackendDependencies {
     [string]$RequirementsFile
   )
 
-  $tempRequirements = Join-Path ([System.IO.Path]::GetTempPath()) 'dsa-desktop-backend-requirements.txt'
+  $tempRequirements = Join-Path ([System.IO.Path]::GetTempPath()) 'dsa-backend-requirements.txt'
   $litellmTag = $null
   $filteredLines = foreach ($line in Get-Content $RequirementsFile) {
     if ($line -match '^\s*litellm\s*@\s*https://github\.com/BerriAI/litellm/archive/refs/tags/([^/\s]+)\.tar\.gz') {
@@ -170,8 +162,7 @@ $pyInstallerArgs = @(
   '--name', 'stock_analysis',
   '--onedir',
   '--noconfirm',
-  '--noconsole',
-  '--add-data', 'static;static',
+  '--console',
   '--collect-data', 'litellm',
   '--collect-data', 'tiktoken'
 )

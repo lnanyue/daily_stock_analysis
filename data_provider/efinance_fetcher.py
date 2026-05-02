@@ -916,7 +916,7 @@ class EfinanceFetcher(BaseFetcher):
             return results if results else None
         except Exception as e:
             _index_quotes_failure_until = time.time() + _INDEX_QUOTES_FAILURE_COOLDOWN
-            logger.debug(f"[efinance] 获取指数行情失败，进入 {_INDEX_QUOTES_FAILURE_COOLDOWN} 秒冷却并交给后续数据源兜底: {e}")
+            logger.warning(f"[efinance] 获取指数行情失败，进入 {_INDEX_QUOTES_FAILURE_COOLDOWN} 秒冷却并交给后续数据源兜底: {e}")
             return None
 
     def get_market_stats(self) -> Optional[Dict[str, Any]]:

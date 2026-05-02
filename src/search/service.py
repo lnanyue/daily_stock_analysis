@@ -23,6 +23,9 @@ from .providers import (
     TavilySearchProvider,
     OpenBBNewsProvider,
     AkshareNewsProvider,
+    BochaSearchProvider,
+    SerpAPISearchProvider,
+    SearXNGSearchProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,12 +90,16 @@ class SearchService:
             NEWS_STRATEGY_WINDOWS["short"],
         )
 
+        # 1. 注册搜索引擎 Provider
         if tavily_keys:
             self._providers.append(TavilySearchProvider(tavily_keys))
             logger.info(f"已配置 Tavily 搜索，共 {len(tavily_keys)} 个 API Key")
+
         if openbb_news_enabled:
+
             self._providers.append(OpenBBNewsProvider(provider=openbb_news_provider))
-            logger.info("已启用 OpenBB 公司新闻源，provider=%s", openbb_news_provider or "yfinance")
+            logger.info("已启用 OpenBB 公司新闻源")
+
         try:
             import akshare  # noqa: F401
             self._providers.append(AkshareNewsProvider(enabled=True))
@@ -751,8 +758,6 @@ class SearchService:
             target_per_dimension, provider_max_results,
         )
         
-        provider_index = 0
-        
         for dim in search_dimensions:
             if search_count >= max_searches:
                 break
@@ -760,25 +765,30 @@ class SearchService:
             available_providers = [p for p in self._providers if p.is_available]
             if not available_providers:
                 break
-            
-            provider = available_providers[provider_index % len(available_providers)]
-            provider_index += 1
 
-            logger.info(f"[情报搜索] {dim['desc']}: 使用 {provider.name}")
+            response = None
+            provider = None
+            for candidate in available_providers:
+                provider = candidate
+                logger.info(f"[情报搜索] {dim['desc']}: 使用 {provider.name}")
+                if isinstance(provider, TavilySearchProvider) and dim.get('tavily_topic'):
+                    response = provider.search(
+                        dim['query'],
+                        max_results=provider_max_results,
+                        days=search_days,
+                        topic=dim['tavily_topic'],
+                    )
+                else:
+                    response = provider.search(
+                        dim['query'],
+                        max_results=provider_max_results,
+                        days=search_days,
+                    )
+                if response.success:
+                    break
 
-            if isinstance(provider, TavilySearchProvider) and dim.get('tavily_topic'):
-                response = provider.search(
-                    dim['query'],
-                    max_results=provider_max_results,
-                    days=search_days,
-                    topic=dim['tavily_topic'],
-                )
-            else:
-                response = provider.search(
-                    dim['query'],
-                    max_results=provider_max_results,
-                    days=search_days,
-                )
+            if response is None or provider is None:
+                continue
             if dim['strict_freshness']:
                 filtered_response = self._filter_news_response(
                     response,
@@ -971,10 +981,10 @@ def get_search_service() -> SearchService:
         config = get_config()
         
         _search_service = SearchService(
-            tavily_keys=config.tavily_api_keys,
+            tavily_keys=getattr(config, "tavily_api_keys", None),
             openbb_news_enabled=getattr(config, "openbb_news_enabled", False),
             openbb_news_provider=getattr(config, "openbb_news_provider", "yfinance"),
-            news_max_age_days=config.news_max_age_days,
+            news_max_age_days=getattr(config, "news_max_age_days", 3),
             news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
         )
     

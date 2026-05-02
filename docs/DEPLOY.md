@@ -58,8 +58,6 @@ git push -u origin main
 | `GEMINI_API_KEY` | Gemini AI API Key | ✅ |
 | `WECHAT_WEBHOOK_URL` | 企业微信机器人 Webhook | 可选* |
 | `FEISHU_WEBHOOK_URL` | 飞书机器人 Webhook | 可选* |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 可选* |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | 可选* |
 | `EMAIL_SENDER` | 发件人邮箱 | 可选* |
 | `EMAIL_PASSWORD` | 邮箱授权码 | 可选* |
 | `STOCK_LIST` | 自选股列表，如 `600519,300750` | ✅ |

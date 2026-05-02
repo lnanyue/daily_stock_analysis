@@ -51,7 +51,9 @@ SMTP_CONFIGS = {
 }
 
 
-class EmailSender:
+from .base import BaseNotificationSender
+
+class EmailSender(BaseNotificationSender):
     
     def __init__(self, config: Config):
         """
@@ -60,6 +62,7 @@ class EmailSender:
         Args:
             config: 配置对象
         """
+        # 必须在 super().__init__() 之前初始化，因为 _check_enabled 会访问
         self._email_config = {
             'sender': config.email_sender,
             'sender_name': getattr(config, 'email_sender_name', 'daily_stock_analysis股票分析助手'),
@@ -68,109 +71,31 @@ class EmailSender:
         }
         self._stock_email_groups = getattr(config, 'stock_email_groups', None) or []
         self._timeout = getattr(config, 'notification_timeout_sec', NOTIFICATION_DEFAULT_TIMEOUT_SEC)
+        super().__init__(config)
         
-    def _is_email_configured(self) -> bool:
-        """检查邮件配置是否完整（只需邮箱和授权码）"""
+    def _check_enabled(self) -> bool:
+        """检查邮件配置是否完整"""
         return bool(self._email_config['sender'] and self._email_config['password'])
-    
-    def get_receivers_for_stocks(self, stock_codes: List[str]) -> List[str]:
-        """
-        Look up email receivers for given stock codes based on stock_email_groups.
-        Returns union of receivers for all matching groups; falls back to default if none match.
-        Stock codes are canonicalized before comparison so that equivalent
-        formats (e.g. SH600519 vs 600519) match correctly.
-        """
-        if not stock_codes or not self._stock_email_groups:
-            return self._email_config['receivers']
-        normalized_codes = [normalize_stock_code(c) for c in stock_codes]
-        seen: set = set()
-        result: List[str] = []
-        for stocks, emails in self._stock_email_groups:
-            for code in normalized_codes:
-                if code in stocks:
-                    for e in emails:
-                        if e not in seen:
-                            seen.add(e)
-                            result.append(e)
-                    break
-        return result if result else self._email_config['receivers']
 
-    def get_all_email_receivers(self) -> List[str]:
-        """
-        Return union of all configured email receivers (all groups + default).
-        Used for market review which should go to everyone.
-        """
-        seen: set = set()
-        result: List[str] = []
-        for _, emails in self._stock_email_groups:
-            for e in emails:
-                if e not in seen:
-                    seen.add(e)
-                    result.append(e)
-        for e in self._email_config['receivers']:
-            if e not in seen:
-                seen.add(e)
-                result.append(e)
-        return result
+    async def _run_sync_detached(self, func, *args, **kwargs):
+        """在线程中运行同步函数避免阻塞事件循环，超时则返回 False。"""
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(func, *args, **kwargs),
+                timeout=self._timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("邮件发送超时（%s秒），已取消", self._timeout)
+            return False
 
     def _format_sender_address(self, sender: str) -> str:
         """Encode display name safely so non-ASCII sender names work across SMTP providers."""
         sender_name = self._email_config.get('sender_name') or '股票分析助手'
         return formataddr((str(Header(str(sender_name), 'utf-8')), sender))
 
-    async def _run_sync_detached(self, fn, *args):
-        """Run a blocking SMTP call in a daemon thread so shutdown is not tied to the default executor."""
-        loop = asyncio.get_running_loop()
-        result_future = loop.create_future()
-        timeout = max(float(self._timeout) + 0.05, 0.05)
-
-        def _publish_result(result=None, error: Optional[BaseException] = None) -> None:
-            if loop.is_closed():
-                return
-
-            def _apply() -> None:
-                if result_future.done():
-                    return
-                if error is not None:
-                    result_future.set_exception(error)
-                else:
-                    result_future.set_result(result)
-
-            try:
-                loop.call_soon_threadsafe(_apply)
-            except RuntimeError:
-                # Event loop may already be tearing down.
-                return
-
-        def _worker() -> None:
-            try:
-                _publish_result(result=fn(*args))
-            except BaseException as exc:  # pragma: no cover - defensive, covered via await path
-                _publish_result(error=exc)
-
-        worker = threading.Thread(
-            target=_worker,
-            name="notification-email-sender",
-            daemon=True,
-        )
-        worker.start()
-
-        try:
-            return await asyncio.wait_for(result_future, timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.error("邮件发送超时（>%.1fs），后台线程已分离，不再阻塞主流程退出", timeout)
-            return False
-        except Exception:
-            logger.exception("邮件发送线程执行失败")
-            return False
-
     @staticmethod
     def _close_server(server: Optional[smtplib.SMTP]) -> None:
-        """Best-effort SMTP cleanup to avoid leaving sockets open on header/build errors.
-
-        Exceptions from quit()/close() are intentionally silenced — connection may already
-        be in a broken state, and there is nothing useful to do at this point.
-        """
+        """Best-effort SMTP cleanup to avoid leaving sockets open on header/build errors."""
         if server is None:
             return
         try:
@@ -180,7 +105,22 @@ class EmailSender:
                 server.close()
             except Exception:
                 pass
-    
+
+    @property
+    def name(self) -> str:
+        return "邮件"
+
+    async def send(self, content: str, image_bytes: Optional[bytes] = None, **kwargs) -> bool:
+        """统一发送接口"""
+        if not self.enabled:
+            return False
+            
+        receivers = kwargs.get('receivers')
+        if image_bytes:
+            return await self._send_email_with_inline_image(image_bytes, receivers=receivers)
+        
+        return await self.send_to_email(content, receivers=receivers)
+
     async def send_to_email(
         self, content: str, subject: Optional[str] = None, receivers: Optional[List[str]] = None
     ) -> bool:
@@ -195,7 +135,7 @@ class EmailSender:
         Returns:
             是否发送成功
         """
-        if not self._is_email_configured():
+        if not self._check_enabled():
             logger.warning("邮件配置不完整，跳过推送")
             return False
         
@@ -279,7 +219,7 @@ class EmailSender:
         self, image_bytes: bytes, receivers: Optional[List[str]] = None
     ) -> bool:
         """Send email with inline image attachment (Issue #289)."""
-        if not self._is_email_configured():
+        if not self._check_enabled():
             return False
         
         return await self._run_sync_detached(
