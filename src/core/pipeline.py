@@ -1339,7 +1339,7 @@ class StockAnalysisPipeline:
         result.query_id = query_id
         result.model_used = model_used
         result.report_language = report_language
-        result.data_sources = "hybrid" + (f":{','.join(route_reasons)}" if route_reasons else "")
+        result.data_sources = f"hybrid:{model_used or 'unknown'}" + (f"({','.join(route_reasons)})" if route_reasons else "")
         result.analysis_metadata = {
             "agent_route": {
                 "used_agent": True,
@@ -1380,7 +1380,7 @@ class StockAnalysisPipeline:
         self._emit_progress(94, f"{stock_name}：正在保存分析结果")
         await self.db.save_analysis_history_async(
             result, query_id, getattr(report_type, 'value', str(report_type)),
-            news_context, {}, getattr(self, 'save_context_snapshot', False),
+            news_context, {}, getattr(self.config, 'save_context_snapshot', False),
         )
 
         # News persistence for hybrid-analyzed stocks
@@ -1408,147 +1408,3 @@ class StockAnalysisPipeline:
         logger.info("[%s] 混合 Agent 分析完成，评分: %s", code, result.sentiment_score)
         return result
 
-    def _agent_result_to_analysis_result(
-        self,
-        agent_result: Any,
-        code: str,
-        stock_name: str,
-        report_type: ReportType,
-        query_id: str,
-        route_reasons: Optional[List[str]] = None,
-    ) -> AnalysisResult:
-        dashboard_payload = agent_result.dashboard or {}
-        if not dashboard_payload and getattr(agent_result, "content", ""):
-            try:
-                parsed = json.loads(agent_result.content)
-                if isinstance(parsed, dict):
-                    dashboard_payload = parsed
-            except Exception:
-                dashboard_payload = {}
-
-        provider_tag = f"agent:{getattr(agent_result, 'provider', '')}".rstrip(":")
-        dashboard_name = str(dashboard_payload.get("stock_name") or "").strip() if isinstance(dashboard_payload, dict) else ""
-        resolved_name = dashboard_name if self._is_placeholder_stock_name(stock_name, code) and dashboard_name else stock_name
-        analysis_metadata = self._build_agent_analysis_metadata(
-            agent_result,
-            route_reasons=route_reasons,
-        )
-
-        if not getattr(agent_result, "success", False):
-            error_message = getattr(agent_result, "error", None) or getattr(agent_result, "content", "") or "Agent 分析失败"
-            return AnalysisResult(
-                code=code,
-                name=resolved_name or code,
-                sentiment_score=50,
-                trend_prediction="震荡",
-                operation_advice="观望",
-                decision_type="hold",
-                confidence_level="中",
-                analysis_summary=error_message,
-                data_sources=provider_tag,
-                success=False,
-                error_message=error_message,
-                query_id=query_id,
-                model_used=getattr(agent_result, "model", None) or getattr(agent_result, "provider", None),
-                analysis_metadata=analysis_metadata,
-            )
-
-        return AnalysisResult(
-            code=code,
-            name=resolved_name or code,
-            sentiment_score=self._extract_agent_score(dashboard_payload, getattr(agent_result, "content", "")),
-            trend_prediction=dashboard_payload.get("trend_prediction") or "震荡",
-            operation_advice=dashboard_payload.get("operation_advice") or "观望",
-            decision_type=dashboard_payload.get("decision_type") or "hold",
-            confidence_level=dashboard_payload.get("confidence_level") or "中",
-            dashboard=dashboard_payload.get("dashboard") or dashboard_payload,
-            analysis_summary=dashboard_payload.get("analysis_summary") or getattr(agent_result, "content", ""),
-            data_sources=provider_tag,
-            success=True,
-            query_id=query_id,
-            model_used=getattr(agent_result, "model", None) or getattr(agent_result, "provider", None),
-            analysis_metadata=analysis_metadata,
-        )
-
-    def _build_agent_analysis_metadata(
-        self,
-        agent_result: Any,
-        *,
-        route_reasons: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        raw_metadata = getattr(agent_result, "metadata", None)
-        metadata: Dict[str, Any] = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-
-        configured_arch = getattr(self.config, "agent_arch", "single")
-        agent_arch = configured_arch if isinstance(configured_arch, str) and configured_arch.strip() else "single"
-        configured_mode = getattr(self.config, "agent_orchestrator_mode", "standard")
-        orchestrator_mode = configured_mode if isinstance(configured_mode, str) and configured_mode.strip() else "standard"
-        reasons = [reason for reason in (route_reasons or []) if isinstance(reason, str) and reason.strip()]
-
-        selection_source = "auto"
-        if any(reason.startswith("config:") for reason in reasons):
-            selection_source = "forced"
-
-        metadata["agent_route"] = {
-            "used_agent": True,
-            "selection_source": selection_source,
-            "reasons": reasons,
-            "arch": agent_arch,
-            "mode": orchestrator_mode if agent_arch == "multi" else "single",
-        }
-
-        runtime = metadata.get("agent_runtime")
-        if not isinstance(runtime, dict):
-            runtime = {}
-        runtime.setdefault("arch", agent_arch)
-        runtime.setdefault("success", bool(getattr(agent_result, "success", False)))
-        runtime.setdefault("provider", getattr(agent_result, "provider", "") or "")
-        runtime.setdefault("model", getattr(agent_result, "model", "") or "")
-        runtime.setdefault("total_steps", int(getattr(agent_result, "total_steps", 0) or 0))
-        runtime.setdefault("total_tokens", int(getattr(agent_result, "total_tokens", 0) or 0))
-        runtime.setdefault("tool_call_count", len(getattr(agent_result, "tool_calls_log", []) or []))
-        if getattr(agent_result, "error", None):
-            runtime.setdefault("error", agent_result.error)
-        runtime.setdefault(
-            "timed_out",
-            bool(runtime.get("error") and "timed out" in str(runtime.get("error")).lower()),
-        )
-        if getattr(agent_result, "tool_calls_log", None) and "tool_calls_log" not in runtime:
-            runtime["tool_calls_log"] = list(agent_result.tool_calls_log)
-        metadata["agent_runtime"] = runtime
-        return metadata
-
-    @staticmethod
-    def _safe_int(value: Any, default: int = 50) -> int:
-        try:
-            if value is None: return default
-            if isinstance(value, (int, float)): return int(value)
-            match = re.search(r"-?\d+", str(value))
-            return int(match.group(0)) if match else default
-        except Exception:
-            logger.debug("_safe_int failed for value=%r", value)
-            return default
-
-    @staticmethod
-    def _is_placeholder_stock_name(name: Optional[str], code: str) -> bool:
-        text = (name or "").strip()
-        if not text:
-            return True
-        lowered = text.lower()
-        return text == code or text.startswith("股票") or lowered in {"unknown", "未知", "n/a"}
-
-    @staticmethod
-    def _extract_agent_score(dashboard_payload: Dict[str, Any], raw_text: str = "") -> int:
-        try:
-            from src.analyzer.core import GeminiAnalyzer as AnalyzerCore
-
-            return AnalyzerCore._extract_sentiment_score(
-                dashboard_payload if isinstance(dashboard_payload, dict) else {},
-                dashboard_payload if isinstance(dashboard_payload, dict) else {},
-                raw_text=raw_text,
-            )
-        except Exception:
-            return StockAnalysisPipeline._safe_int(
-                dashboard_payload.get("sentiment_score") if isinstance(dashboard_payload, dict) else None,
-                50,
-            )
