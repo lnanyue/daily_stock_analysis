@@ -23,7 +23,7 @@ import logging
 import os
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -31,7 +31,7 @@ import pandas as pd
 
 from .base import BaseFetcher, STANDARD_COLUMNS
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
-from .us_index_mapping import is_us_stock_code, is_us_index_code
+from .utils import _is_us_market, _is_hk_market
 
 logger = logging.getLogger(__name__)
 
@@ -200,23 +200,6 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
     return kw
 
 
-def _is_us_code(stock_code: str) -> bool:
-    normalized = stock_code.strip().upper()
-    return is_us_stock_code(normalized) or is_us_index_code(normalized)
-
-
-def _is_hk_code(stock_code: str) -> bool:
-    normalized = (stock_code or "").strip().upper()
-    if normalized.startswith("HK"):
-        digits = normalized[2:]
-        return digits.isdigit() and 1 <= len(digits) <= 5
-    if normalized.endswith(".HK"):
-        return True
-    if normalized.isdigit() and len(normalized) == 5:
-        return True
-    return False
-
-
 def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
     """Convert internal stock code to Longbridge symbol format.
 
@@ -233,10 +216,10 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
     if upper.endswith(".HK"):
         return upper
 
-    if _is_us_code(code):
+    if _is_us_market(code):
         return f"{upper}.US"
 
-    if _is_hk_code(code):
+    if _is_hk_market(code):
         upper = code.upper()
         if upper.startswith("HK"):
             digits = upper[2:]
@@ -268,9 +251,9 @@ class LongbridgeFetcher(BaseFetcher):
 
     def __init__(self):
         self._ctx = None
-        self._config = None
         self._ctx_lock = threading.Lock()
         self._available = None
+        self._static_info_ttl = _static_info_ttl_seconds()
         # {symbol: (StaticInfo, timestamp)}
         self._static_cache: Dict[str, Any] = {}
         self._static_cache_lock = threading.Lock()
@@ -283,7 +266,6 @@ class LongbridgeFetcher(BaseFetcher):
         """Reset cached context so the next call rebuilds the connection."""
         with self._ctx_lock:
             self._ctx = None
-            self._config = None
 
     def _is_available(self) -> bool:
         """Check if Longbridge credentials are configured."""
@@ -380,13 +362,11 @@ class LongbridgeFetcher(BaseFetcher):
                     os.getenv("LONGBRIDGE_QUOTE_WS_URL", "(default)"),
                 )
 
-                self._config = lb_config
                 self._ctx = QuoteContext(lb_config)
                 logger.info("[Longbridge] QuoteContext 初始化成功")
                 return self._ctx
             except Exception as e:
                 logger.warning("[Longbridge] QuoteContext 初始化失败: %s", e)
-                self._available = False
                 return None
 
     # ------------------------------------------------------------------
@@ -395,9 +375,9 @@ class LongbridgeFetcher(BaseFetcher):
 
     def _get_static_info(self, symbol: str) -> Optional[Any]:
         """Fetch static info (shares, EPS, BPS, name) with optional in-process TTL cache."""
-        ttl = _static_info_ttl_seconds()
-        now = time.time()
+        ttl = self._static_info_ttl
         if ttl > 0:
+            now = time.time()
             with self._static_cache_lock:
                 cached = self._static_cache.get(symbol)
                 if cached and (now - cached[1]) < ttl:
@@ -412,10 +392,10 @@ class LongbridgeFetcher(BaseFetcher):
                 info = infos[0]
                 if ttl > 0:
                     with self._static_cache_lock:
-                        self._static_cache[symbol] = (info, now)
+                        self._static_cache[symbol] = (info, time.time())
                 return info
         except Exception as e:
-            logger.debug(f"[Longbridge] static_info({symbol}) 失败: {e}")
+            logger.debug("[Longbridge] static_info(%s) 失败: %s", symbol, e)
             if self._is_connection_error(e):
                 self._invalidate_ctx()
         return None

@@ -133,8 +133,7 @@ class DataFetcherManager:
         fetchers = list(self._fetchers)
         self._last_source_chain = []
         
-        if is_us:
-            source_order = ["LongbridgeFetcher", "YfinanceFetcher"]
+        async def _try_chain(source_order: List[str]) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
             for src_name in source_order:
                 fetcher = next((f for f in fetchers if f.name == src_name), None)
                 if not fetcher: continue
@@ -142,70 +141,36 @@ class DataFetcherManager:
                 logger.info("[数据源尝试] [%s] 获取 %s...", fetcher.name, stock_code)
                 try:
                     df = await fetcher.get_daily_data_async(stock_code, start_date, end_date, days)
+                    duration_ms = int((time.time() - start) * 1000)
                     if df is not None and not df.empty:
-                        duration_ms = int((time.time() - start) * 1000)
                         self._last_source_chain.append({
-                            "provider": fetcher.name,
-                            "result": "ok",
-                            "duration_ms": duration_ms,
+                            "provider": fetcher.name, "result": "ok", "duration_ms": duration_ms,
                         })
                         logger.info("[数据源完成] %s 使用 [%s] 获取成功: rows=%d", stock_code, fetcher.name, len(df))
                         return df, fetcher.name
-                    duration_ms = int((time.time() - start) * 1000)
                     self._last_source_chain.append({
-                        "provider": fetcher.name,
-                        "result": "empty",
-                        "duration_ms": duration_ms,
+                        "provider": fetcher.name, "result": "empty", "duration_ms": duration_ms,
                     })
                     logger.info("[数据源为空] [%s] %s 未返回有效日线数据", fetcher.name, stock_code)
                 except Exception as e:
                     duration_ms = int((time.time() - start) * 1000)
                     _, error_reason = summarize_exception(e)
                     self._last_source_chain.append({
-                        "provider": fetcher.name,
-                        "result": "failed",
-                        "duration_ms": duration_ms,
-                        "error": error_reason,
+                        "provider": fetcher.name, "result": "failed",
+                        "duration_ms": duration_ms, "error": error_reason,
                     })
                     logger.warning("[数据源失败] [%s] %s: %s", fetcher.name, stock_code, error_reason)
-                    continue
+            return None, None
+
+        if is_us:
+            df, src = await _try_chain(["LongbridgeFetcher", "YfinanceFetcher"])
+            if df is not None:
+                return df, src
 
         if _is_hk_market(stock_code):
-            source_order = ["LongbridgeFetcher", "AkshareFetcher"]
-            for src_name in source_order:
-                fetcher = next((f for f in fetchers if f.name == src_name), None)
-                if not fetcher: continue
-                start = time.time()
-                logger.info("[数据源尝试] [%s] 获取 %s...", fetcher.name, stock_code)
-                try:
-                    df = await fetcher.get_daily_data_async(stock_code, start_date, end_date, days)
-                    if df is not None and not df.empty:
-                        duration_ms = int((time.time() - start) * 1000)
-                        self._last_source_chain.append({
-                            "provider": fetcher.name,
-                            "result": "ok",
-                            "duration_ms": duration_ms,
-                        })
-                        logger.info("[数据源完成] %s 使用 [%s] 获取成功: rows=%d", stock_code, fetcher.name, len(df))
-                        return df, fetcher.name
-                    duration_ms = int((time.time() - start) * 1000)
-                    self._last_source_chain.append({
-                        "provider": fetcher.name,
-                        "result": "empty",
-                        "duration_ms": duration_ms,
-                    })
-                    logger.info("[数据源为空] [%s] %s 未返回有效日线数据", fetcher.name, stock_code)
-                except Exception as e:
-                    duration_ms = int((time.time() - start) * 1000)
-                    _, error_reason = summarize_exception(e)
-                    self._last_source_chain.append({
-                        "provider": fetcher.name,
-                        "result": "failed",
-                        "duration_ms": duration_ms,
-                        "error": error_reason,
-                    })
-                    logger.warning("[数据源失败] [%s] %s: %s", fetcher.name, stock_code, error_reason)
-                    continue
+            df, src = await _try_chain(["LongbridgeFetcher", "AkshareFetcher"])
+            if df is not None:
+                return df, src
 
         total_fetchers = len(fetchers)
         for index, fetcher in enumerate(fetchers, 1):
@@ -254,8 +219,8 @@ class DataFetcherManager:
                 try:
                     quote = await self._maybe_await(lb.get_realtime_quote(stock_code))
                     if quote: return quote
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("[Longbridge] HK实时行情失败: %s", e)
             ak = next((f for f in self._fetchers if f.name == "AkshareFetcher"), None)
             if ak and hasattr(ak, "get_realtime_quote"):
                 return await self._maybe_await(ak.get_realtime_quote(stock_code, source="hk"))
