@@ -1,21 +1,24 @@
-# A股自选股智能分析系统 - 股票配置文件
+# A股自选股智能分析 system - 股票配置文件
 # 优先级说明：stocks.yaml > .env (STOCK_LIST)
 
-# 自动同步自 .env 的股票列表
 groups:
-  # 核心蓝筹与白马
-  blue_chips:
+  # A股 (China A-shares)
+  a_shares:
     - "000333" # 美的集团
     - "600900" # 长江电力
-  
-  # 科技与先进制造
-  tech_manufacturing:
     - "300750" # 宁德时代
     - "002594" # 比亚迪
     - "300502" # 新易盛
     - "002475" # 立讯精密
   
-  # 美股与中概
-  us_market:
+  # 港股 (Hong Kong Stocks)
+  hk_stocks:
+    - "hk00700" # 腾讯控股
+    - "hk09988" # 阿里巴巴-SW
+  
+  # 美股 (US Stocks)
+  us_stocks:
     - "BABA"   # 阿里巴巴
     - "MSFT"   # 微软
+    - "AAPL"   # 苹果
+    - "NVDA"   # 英伟达
