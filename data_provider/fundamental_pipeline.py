@@ -146,7 +146,7 @@ class FundamentalPipeline:
         ctx.status = "ok" if all(v == "ok" for v in ctx.coverage.values()) else "partial"
         ctx.elapsed_ms = int((time.time() - start_ts) * 1000)
         
-        return ctx.model_dump()
+        return ctx.model_dump(warnings=False)
 
     def _inject_dividend_yield(self, dividend_payload: Dict, price: Optional[float]) -> List[str]:
         ttm_cash = dividend_payload.get("ttm_cash_dividend_per_share")
