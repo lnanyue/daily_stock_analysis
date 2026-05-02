@@ -24,6 +24,9 @@ from data_provider import DataFetcherManager
 from data_provider.base import normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
 from src.analyzer import GeminiAnalyzer, AnalysisResult, fill_chip_structure_if_needed, fill_price_position_if_needed
+from src.analyzer.prompt_builder import format_analysis_prompt
+from src.analyzer.utils import build_market_snapshot
+from src.schemas.analysis_result import check_content_integrity, apply_placeholder_fill
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.notification import NotificationService, NotificationChannel
 from src.report_language import (
@@ -1265,69 +1268,92 @@ class StockAnalysisPipeline:
         news_context: str = "",
         route_reasons: Optional[List[str]] = None,
     ) -> Optional[AnalysisResult]:
-        from src.agent.factory import build_agent_executor
         route_suffix = f" ({', '.join(route_reasons)})" if route_reasons else ""
-        logger.info(f"[{code}] 正在启动智能 Agent 深度分析{route_suffix}...")
-        
-        executor = build_agent_executor(self.config, skills=getattr(self.config, "agent_skills", None))
+        logger.info(f"[{code}] 正在执行混合 Agent 分析（单 LLM 调用）{route_suffix}...")
+        self._emit_progress(62, f"{stock_name}：正在生成分析 Prompt")
+
         prompt_name = stock_name or code
-        agent_context: Dict[str, Any] = {
-            "stock_code": code,
-            "stock_name": prompt_name,
-            "report_type": getattr(report_type, "value", str(report_type)),
-            "report_language": normalize_report_language(getattr(self.config, "report_language", "zh")),
+        report_language = normalize_report_language(getattr(self.config, "report_language", "zh"))
+
+        # Step 1: Reuse analyze_stock()'s already-collected data to build the prompt
+        base_context = {
+            'code': code,
+            'stock_name': prompt_name,
+            'date': date.today().isoformat(),
         }
-        quote_payload = self._extract_quote_payload(realtime_quote)
-        if quote_payload:
-            agent_context["realtime_quote"] = quote_payload
-        chip_payload = self._extract_chip_payload(chip_data)
-        if chip_payload:
-            agent_context["chip_distribution"] = chip_payload
-        trend_payload = self._extract_trend_payload(trend_result)
-        if trend_payload:
-            agent_context["trend_result"] = trend_payload
-        if news_context:
-            agent_context["news_context"] = news_context
-
-        # Issue #1066: ensure deep history is in DB before agent tools run
-        await self._ensure_agent_history(code)
-
-        agent_result = executor.run(
-            f"深度分析股票 {code} ({prompt_name})，请结合最新技术面、筹码面、新闻情报和基本面给出决策仪表盘。",
-            context=agent_context,
+        enhanced_context = self._enhance_context(
+            base_context, realtime_quote, chip_data, trend_result, prompt_name,
+            fundamental_context, None,
         )
-        
-        result = self._agent_result_to_analysis_result(
-            agent_result,
-            code,
-            prompt_name,
-            report_type,
-            query_id,
-            route_reasons=route_reasons,
-        )
-        logger.info(f"[{code}] Agent 分析完成，评分: {result.sentiment_score}")
 
-        if result and getattr(self.search_service, "is_available", False):
-            try:
-                news_response = self.search_service.search_stock_news(
+        # Step 2: Build prompt with dashboard output schema
+        prompt = format_analysis_prompt(
+            context=enhanced_context,
+            name=prompt_name,
+            news_context=news_context,
+            report_language=report_language,
+            use_legacy_default_prompt=False,
+            news_window_days_config=getattr(self.config, "news_window_days", None),
+            output_format="dashboard",
+        )
+
+        # Step 3: Single LLM call (reuse the existing analyzer's LLM client)
+        self._emit_progress(74, f"{stock_name}：正在调用 LLM 分析")
+        try:
+            response_text, model_used, _ = await self.analyzer._call_litellm_async(
+                prompt,
+                {"max_tokens": 8192, "temperature": getattr(self.config, "llm_temperature", 0.7)},
+                system_prompt=self.analyzer._get_analysis_system_prompt(
+                    report_language,
                     stock_code=code,
-                    stock_name=result.name,
-                    max_results=5,
-                )
-                news_items = getattr(news_response, "results", None) or []
-                if news_items:
-                    try:
-                        self.db.save_news_intel(
-                            news_items=news_items,
-                            code=code,
-                            name=result.name,
-                            query_id=query_id,
-                        )
-                    except TypeError:
-                        self.db.save_news_intel(news_items)
-            except Exception:
-                logger.debug("[%s] Agent 新闻持久化跳过", code, exc_info=True)
+                ),
+            )
+        except Exception as e:
+            logger.error("[%s] 混合 Agent LLM 调用失败: %s", code, e)
+            err = AnalysisResult(
+                code=code, name=prompt_name or code,
+                sentiment_score=50, trend_prediction="震荡",
+                operation_advice="观望", decision_type="hold",
+                confidence_level="中",
+                analysis_summary=f"分析失败: {e}",
+                success=False, error_message=str(e),
+                query_id=query_id,
+                data_sources="hybrid",
+            )
+            return err
 
+        # Step 4: Parse response into AnalysisResult
+        self._emit_progress(86, f"{stock_name}：正在解析分析结果")
+        result = self.analyzer._parse_response(response_text, code, prompt_name)
+        result.query_id = query_id
+        result.model_used = model_used
+        result.report_language = report_language
+        result.data_sources = "hybrid" + (f":{','.join(route_reasons)}" if route_reasons else "")
+
+        # Step 5: Override deterministic fields from code-collected data
+        if realtime_quote:
+            price = getattr(realtime_quote, 'price', None) or (realtime_quote.get('price') if isinstance(realtime_quote, dict) else None)
+            change_pct = getattr(realtime_quote, 'change_pct', None) or (realtime_quote.get('change_pct') if isinstance(realtime_quote, dict) else None)
+            if price is not None:
+                result.current_price = price
+            if change_pct is not None:
+                result.change_pct = change_pct
+        result.market_snapshot = build_market_snapshot(enhanced_context)
+
+        # Step 6: Integrity check + placeholder fill
+        passed, missing_fields = check_content_integrity(result)
+        if not passed:
+            logger.warning("[%s] 混合 Agent 结果完整性检查未通过，不足字段: %s", code, missing_fields)
+            apply_placeholder_fill(result, missing_fields)
+
+        # Step 7: Persist (same as standard pipeline)
+        self._emit_progress(94, f"{stock_name}：正在保存分析结果")
+        await self.db.save_analysis_history_async(
+            result, query_id, getattr(report_type, 'value', str(report_type)),
+            news_context, {}, getattr(self, 'save_context_snapshot', False),
+        )
+
+        logger.info("[%s] 混合 Agent 分析完成，评分: %s", code, result.sentiment_score)
         return result
 
     def _agent_result_to_analysis_result(
