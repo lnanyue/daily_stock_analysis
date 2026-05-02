@@ -94,13 +94,15 @@ class DataFetcherManager:
             from .tushare_fetcher import TushareFetcher
             from .baostock_fetcher import BaostockFetcher
             from .yfinance_fetcher import YfinanceFetcher
-            
+            from .longbridge_fetcher import LongbridgeFetcher
+
             fetchers.extend([
                 EfinanceFetcher(),
                 AkshareFetcher(),
                 TushareFetcher(config=config),
                 BaostockFetcher(),
-                YfinanceFetcher()
+                YfinanceFetcher(),
+                LongbridgeFetcher(),
             ])
         except Exception as e:
             logger.error(f"创建默认数据源失败: {e}")
@@ -132,7 +134,44 @@ class DataFetcherManager:
         self._last_source_chain = []
         
         if is_us:
-            source_order = ["YfinanceFetcher", "LongbridgeFetcher"]
+            source_order = ["LongbridgeFetcher", "YfinanceFetcher"]
+            for src_name in source_order:
+                fetcher = next((f for f in fetchers if f.name == src_name), None)
+                if not fetcher: continue
+                start = time.time()
+                logger.info("[数据源尝试] [%s] 获取 %s...", fetcher.name, stock_code)
+                try:
+                    df = await fetcher.get_daily_data_async(stock_code, start_date, end_date, days)
+                    if df is not None and not df.empty:
+                        duration_ms = int((time.time() - start) * 1000)
+                        self._last_source_chain.append({
+                            "provider": fetcher.name,
+                            "result": "ok",
+                            "duration_ms": duration_ms,
+                        })
+                        logger.info("[数据源完成] %s 使用 [%s] 获取成功: rows=%d", stock_code, fetcher.name, len(df))
+                        return df, fetcher.name
+                    duration_ms = int((time.time() - start) * 1000)
+                    self._last_source_chain.append({
+                        "provider": fetcher.name,
+                        "result": "empty",
+                        "duration_ms": duration_ms,
+                    })
+                    logger.info("[数据源为空] [%s] %s 未返回有效日线数据", fetcher.name, stock_code)
+                except Exception as e:
+                    duration_ms = int((time.time() - start) * 1000)
+                    _, error_reason = summarize_exception(e)
+                    self._last_source_chain.append({
+                        "provider": fetcher.name,
+                        "result": "failed",
+                        "duration_ms": duration_ms,
+                        "error": error_reason,
+                    })
+                    logger.warning("[数据源失败] [%s] %s: %s", fetcher.name, stock_code, error_reason)
+                    continue
+
+        if _is_hk_market(stock_code):
+            source_order = ["LongbridgeFetcher", "AkshareFetcher"]
             for src_name in source_order:
                 fetcher = next((f for f in fetchers if f.name == src_name), None)
                 if not fetcher: continue
@@ -210,6 +249,13 @@ class DataFetcherManager:
     async def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         stock_code = normalize_stock_code(stock_code)
         if _is_hk_market(stock_code):
+            lb = next((f for f in self._fetchers if f.name == "LongbridgeFetcher"), None)
+            if lb and hasattr(lb, "get_realtime_quote"):
+                try:
+                    quote = await self._maybe_await(lb.get_realtime_quote(stock_code))
+                    if quote: return quote
+                except Exception:
+                    pass
             ak = next((f for f in self._fetchers if f.name == "AkshareFetcher"), None)
             if ak and hasattr(ak, "get_realtime_quote"):
                 return await self._maybe_await(ak.get_realtime_quote(stock_code, source="hk"))

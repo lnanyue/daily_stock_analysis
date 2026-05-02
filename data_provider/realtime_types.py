@@ -24,6 +24,7 @@ class RealtimeSource(str, Enum):
     SINA = "sina"                   # 新浪直连
     STOOQ = "stooq"                 # Stooq 美股兜底
     FUTU = "futu"                   # 富途牛牛
+    LONGBRIDGE = "longbridge"       # 长桥
     FALLBACK = "fallback"           # 降级兜底
 
 class UnifiedRealtimeQuote(BaseModel):
