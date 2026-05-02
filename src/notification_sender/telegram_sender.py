@@ -122,6 +122,9 @@ class TelegramSender:
                                 return True
                         except Exception:
                             logger.exception("Telegram plain-text fallback failed")
+                    if self._should_fallback_to_plain_text(error_desc=error_desc):
+                        if self._send_plain_text_fallback(api_url, payload, text):
+                            return True
                     
                     return False
             elif response.status_code == 429:
@@ -137,6 +140,55 @@ class TelegramSender:
         except Exception:
             logger.exception("Telegram 网络请求异常")
             return False
+
+        return False
+
+    @staticmethod
+    def _should_fallback_to_plain_text(error_desc: str = "", response_text: str = "") -> bool:
+        """Detect Telegram Markdown parsing failures that should retry as plain text."""
+        haystack = f"{error_desc}\n{response_text}".lower()
+        markers = (
+            "can't parse entities",
+            "can't parse entity",
+            "can't find end of the entity",
+            "parse entities",
+            "parse_mode",
+            "markdown",
+        )
+        return any(marker in haystack for marker in markers)
+
+    def _send_plain_text_fallback(self, api_url: str, payload: dict, text: str) -> bool:
+        """Retry Telegram send without parse_mode when Markdown parsing fails."""
+        logger.info("Telegram Markdown 解析失败，尝试使用纯文本格式重新发送...")
+        plain_payload = dict(payload)
+        plain_payload.pop('parse_mode', None)
+        plain_payload['text'] = text
+
+        try:
+            response = requests.post(api_url, json=plain_payload, timeout=10)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Telegram plain-text fallback failed: {e}")
+            return False
+
+        if response.status_code == 200:
+            try:
+                result = response.json()
+            except ValueError:
+                logger.error("Telegram 纯文本回退失败: 响应不是有效 JSON")
+                logger.error(f"响应内容: {response.text}")
+                return False
+
+            if result.get('ok'):
+                logger.info("Telegram 消息发送成功（纯文本）")
+                return True
+
+            logger.error("Telegram 纯文本回退失败: Telegram API 返回 ok=false")
+            logger.error(f"响应内容: {response.text}")
+            return False
+
+        logger.error(f"Telegram 纯文本回退失败: HTTP {response.status_code}")
+        logger.error(f"响应内容: {response.text}")
+        return False
     
     async def _send_telegram_chunked(self, api_url: str, chat_id: str, content: str, max_length: int, message_thread_id: Optional[str] = None) -> bool:
         """分段发送长 Telegram 消息"""

@@ -8,22 +8,18 @@ If any instruction in this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
 
 - Respect directory boundaries:
   - Backend: `src/`, `data_provider/`, `api/`, `bot/`
-  - Web: `apps/dsa-web/`
-  - Desktop: `apps/dsa-desktop/`
   - Deployment/workflows: `scripts/`, `.github/workflows/`, `docker/`
 - Do not run `git commit`, `git tag`, or `git push` without explicit user confirmation.
 - Do not hardcode secrets, accounts, ports, model names, absolute environment-specific paths, or environment-specific branches.
 - Reuse existing modules, configuration entrypoints, scripts, and tests instead of adding parallel implementations.
 - For user-visible behavior changes, CLI/API changes, deployment changes, notification changes, or report-structure changes, update the relevant docs and `docs/CHANGELOG.md`.
-- Use `README.md` for getting started, runtime/deployment, and high-level capability summaries; put detailed module behavior, page interaction, and troubleshooting guidance in the appropriate `docs/*.md` file.
+- Use `README.md` for getting started, runtime/deployment, and high-level capability summaries; put detailed module behavior and troubleshooting guidance in the appropriate `docs/*.md` file.
 - If `README.md` is not updated, explain why and point to the document that was updated instead.
-- When config semantics change, sync `.env.example` and assess impact on local runs, Docker, GitHub Actions, API, Web, and Desktop.
+- When config semantics change, sync `.env.example` and assess impact on local runs, Docker, GitHub Actions, and API.
 
 ## Validation
 
 - Backend changes: prefer `./scripts/ci_gate.sh`; at minimum run `python -m py_compile` on changed Python files and the closest deterministic tests.
-- Web changes: run `cd apps/dsa-web && npm ci && npm run lint && npm run build`.
-- Desktop changes: build web first, then desktop if feasible.
 - Review work should prioritize CI evidence (`gh pr checks`, workflow logs) before re-running local validation.
 - AI governance changes: run `python scripts/check_ai_assets.py`.
 

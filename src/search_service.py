@@ -19,25 +19,3 @@ from src.search import (  # noqa: F401 – re-export
     reset_search_service,
     fetch_url_content,
 )
-import time  # noqa: F401 - legacy tests/callers patch src.search_service.time.sleep
-import requests  # noqa: F401 - legacy tests/callers patch src.search_service.requests
-
-# Legacy private names used by some callers
-from src.search.http_utils import (  # noqa: F401
-    post_with_retry as _post_with_retry,
-    get_with_retry as _get_with_retry,
-    SEARCH_TRANSIENT_EXCEPTIONS as _SEARCH_TRANSIENT_EXCEPTIONS,
-)
-
-__all__ = [
-    "SearchResult",
-    "SearchResponse",
-    "BaseSearchProvider",
-    "SearchService",
-    "TavilySearchProvider",
-    "OpenBBNewsProvider",
-    "AkshareNewsProvider",
-    "get_search_service",
-    "reset_search_service",
-    "fetch_url_content",
-]

@@ -82,7 +82,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
         config = self._make_config(schedule_enabled=False)
         scheduled_call = {}
 
-        def fake_run_with_schedule(task, schedule_time, run_immediately):
+        def fake_run_with_schedule(task, schedule_time, run_immediately, **kwargs):
             scheduled_call["schedule_time"] = schedule_time
             scheduled_call["run_immediately"] = run_immediately
             task()

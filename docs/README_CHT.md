@@ -41,10 +41,10 @@
 | AI | 決策儀表盤 | 一句話核心結論 + 精確買賣點位 + 操作檢查清單 |
 | 分析 | 多維度分析 | 技術面 + 籌碼分布 + 輿情情報 + 實時行情 |
 | 市場 | 全球市場 | 支援 A股、港股、美股 |
-| 補全 | 智慧補全 (MVP) | **[測試階段]** 首頁搜尋框支援代碼 / 名稱 / 拼音 / 別名聯想；本地索引已覆蓋 A股、港股、美股，並可透過 Tushare 或 AkShare 重新生成 |
+| 補全 | 智慧補全 (MVP) | **[測試階段]** 本地索引已覆蓋 A股、港股、美股，並可透過 Tushare 或 AkShare 重新生成 |
 | 復盤 | 大盤復盤 | 每日市場概覽、板塊漲跌、北向資金 |
 | 回測 | AI 回測驗證 | 自動評估歷史分析準確率，方向勝率、止盈止損命中率 |
-| **Agent 問股** | **策略對話** | **多輪策略問答，支援 11 種內建策略（Web/Bot/API）** |
+| **Agent 問股** | **策略對話** | **多輪策略問答，支援 11 種內建策略（Bot/API）** |
 | 推送 | 多渠道通知 | Telegram、Discord、Slack、郵件、企業微信、飛書等 |
 | 自動化 | 定時運行 | GitHub Actions 定時執行，無需伺服器 |
 
@@ -115,7 +115,7 @@
 | `CUSTOM_WEBHOOK_BEARER_TOKEN` | 自定義 Webhook 的 Bearer Token（用於需要認證的 Webhook） | 可選 |
 | `SINGLE_STOCK_NOTIFY` | 單股推送模式：設為 `true` 則每分析完一隻股票立即推送 | 可選 |
 | `REPORT_TYPE` | 報告類型：`simple`(精簡) 或 `full`(完整)，推薦設為 `full` | 可選 |
-| `REPORT_LANGUAGE` | 報告輸出語言：`zh`(預設中文) / `en`(英文)；會同步影響 Prompt、Markdown 模板、通知 fallback 與 Web 報告頁固定文案 | 可選 |
+| `REPORT_LANGUAGE` | 報告輸出語言：`zh`(預設中文) / `en`(英文)；會同步影響 Prompt、Markdown 模板、通知 fallback 與固定文案 | 可選 |
 | `ANALYSIS_DELAY` | 個股分析和大盤分析之間的延遲（秒），避免API限流，如 `10` | 可選 |
 
 > 至少配置一個渠道，配置多個則同時推送。更多配置請參考 [完整指南](full-guide.md)
@@ -242,13 +242,10 @@
 
 ## 🔎 智慧搜尋補全 (MVP)
 
-首頁分析輸入框現已升級為類搜尋引擎的補全框，降低手動記憶股票代碼的負擔。
+搜尋功能（透過 Bot/API 提供）現已支援多維匹配，降低手動記憶股票代碼的負擔。
 
 - **多維匹配**：支援股票代碼、公司名稱、拼音縮寫與別名（例如 `gzmt` -> 貴州茅台、`tencent` -> 騰訊控股、`aapl` -> Apple Inc.）。
 - **多市場覆蓋**：本地索引已覆蓋 **A股、港股、美股** 三個市場；需要時可基於 Tushare 或 AkShare 資料重新生成。
-- **自動降級**：
-  - 若索引尚未更新、缺少新上市標的，或載入失敗，介面會自動退回一般手動輸入模式，不阻斷分析流程。
-  - 若補全未命中，直接按 Enter 仍會送出原始輸入。
 
 > 提示：如需更新索引，可先執行 `python3 scripts/fetch_tushare_stock_list.py` 更新股票列表 CSV，再執行 `python3 scripts/generate_index_from_csv.py` 重新生成靜態索引。
 
@@ -301,7 +298,6 @@ daily_stock_analysis/
 - [x] 定時推送
 - [x] GitHub Actions
 - [x] 港股支持
-- [x] Web 管理界面 (簡易版)
 - [x] 美股支持
 - [ ] 歷史分析回測
 

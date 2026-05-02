@@ -17,6 +17,7 @@ from email.header import Header
 from email.utils import formataddr
 import smtplib
 
+from data_provider.base import normalize_stock_code
 from src.config import Config
 from src.formatters import markdown_to_html_document
 from src.notification_constants import NOTIFICATION_DEFAULT_TIMEOUT_SEC
@@ -76,13 +77,16 @@ class EmailSender:
         """
         Look up email receivers for given stock codes based on stock_email_groups.
         Returns union of receivers for all matching groups; falls back to default if none match.
+        Stock codes are canonicalized before comparison so that equivalent
+        formats (e.g. SH600519 vs 600519) match correctly.
         """
         if not stock_codes or not self._stock_email_groups:
             return self._email_config['receivers']
+        normalized_codes = [normalize_stock_code(c) for c in stock_codes]
         seen: set = set()
         result: List[str] = []
         for stocks, emails in self._stock_email_groups:
-            for code in stock_codes:
+            for code in normalized_codes:
                 if code in stocks:
                     for e in emails:
                         if e not in seen:

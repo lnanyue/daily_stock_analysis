@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from .manager import Config, get_config, get_api_keys_for_model, extra_litellm_params
 from .models import ConfigIssue, LLMChannelConfig
 from .utils import (
+    AGENT_MAX_STEPS_DEFAULT,
     SUPPORTED_LLM_CHANNEL_PROTOCOLS,
     _get_litellm_provider,
     _uses_direct_env_provider,
@@ -29,6 +30,7 @@ from .utils import (
     legacy_keys_to_model_list,
     normalize_agent_litellm_model,
     normalize_llm_channel_model,
+    normalize_litellm_temperature,
     resolve_unified_llm_temperature,
     resolve_news_window_days,
     resolve_llm_channel_protocol,
@@ -44,6 +46,7 @@ __all__ = [
     "extra_litellm_params",
     "ConfigIssue",
     "LLMChannelConfig",
+    "AGENT_MAX_STEPS_DEFAULT",
     "SUPPORTED_LLM_CHANNEL_PROTOCOLS",
     "_get_litellm_provider",
     "_uses_direct_env_provider",
@@ -65,6 +68,7 @@ __all__ = [
     "legacy_keys_to_model_list",
     "normalize_agent_litellm_model",
     "normalize_llm_channel_model",
+    "normalize_litellm_temperature",
     "resolve_unified_llm_temperature",
     "resolve_news_window_days",
     "resolve_llm_channel_protocol",

@@ -6,10 +6,13 @@
 import logging
 import os
 import json
+import re
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
+
+AGENT_MAX_STEPS_DEFAULT = 10
 
 _FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
 SUPPORTED_LLM_CHANNEL_PROTOCOLS = ("openai", "anthropic", "gemini", "vertex_ai", "deepseek", "ollama")
@@ -19,6 +22,145 @@ NEWS_STRATEGY_WINDOWS: Dict[str, int] = {
     "medium": 7,
     "long": 30,
 }
+
+# Models that require specific temperature values (provider-mandated).
+_FIXED_TEMPERATURE_LITELLM_MODELS: Dict[str, Dict[str, float]] = {
+    "kimi-k2.6": {
+        "thinking": 1.0,
+        "non_thinking": 0.6,
+    },
+}
+
+
+def _parse_thinking_enabled(value: Any) -> Optional[bool]:
+    """Parse thinking-mode config into True/False/unknown."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"enabled", "enable", "true", "1", "on", "thinking"}:
+            return True
+        if normalized in {"disabled", "disable", "false", "0", "off", "none", "non-thinking", "non_thinking"}:
+            return False
+        return None
+    if isinstance(value, dict):
+        if "enabled" in value:
+            return _parse_thinking_enabled(value.get("enabled"))
+        if "type" in value:
+            return _parse_thinking_enabled(value.get("type"))
+    return None
+
+
+def _extract_thinking_config(payload: Optional[Dict[str, Any]]) -> Any:
+    """Extract a thinking-mode flag from LiteLLM-style request kwargs."""
+    if not payload:
+        return None
+    return payload.get("thinking", None)
+
+
+def _resolve_litellm_model_list_entry(
+    model: str,
+    model_list: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the Router model_list entry matching the configured alias."""
+    normalized_model = (model or "").strip()
+    if not normalized_model or not model_list:
+        return None
+    for entry in model_list:
+        model_name = str(entry.get("model_name") or "").strip()
+        if not model_name:
+            params = entry.get("litellm_params", {}) or {}
+            model_name = str(params.get("model") or "").strip()
+        if model_name == normalized_model:
+            return entry
+    return None
+
+
+def resolve_litellm_wire_model(
+    model: str,
+    model_list: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """Resolve a router alias to its underlying LiteLLM wire model."""
+    normalized_model = (model or "").strip()
+    if not normalized_model or not model_list:
+        return normalized_model
+    model_entry = _resolve_litellm_model_list_entry(normalized_model, model_list)
+    if not model_entry:
+        return normalized_model
+    params = model_entry.get("litellm_params", {}) or {}
+    wire_model = str(params.get("model") or "").strip()
+    if wire_model:
+        return wire_model
+    return normalized_model
+
+
+def resolve_litellm_thinking_enabled(
+    model: str,
+    model_list: Optional[List[Dict[str, Any]]] = None,
+    request_overrides: Optional[Dict[str, Any]] = None,
+) -> Optional[bool]:
+    """Resolve whether the outgoing LiteLLM request explicitly enables thinking."""
+    thinking_config = None
+    model_entry = _resolve_litellm_model_list_entry(model, model_list)
+    if model_entry:
+        thinking_config = _extract_thinking_config(model_entry)
+        entry_params = model_entry.get("litellm_params", {}) or {}
+        entry_thinking_config = _extract_thinking_config(entry_params)
+        if entry_thinking_config is not None:
+            thinking_config = entry_thinking_config
+    override_thinking_config = _extract_thinking_config(request_overrides)
+    if override_thinking_config is not None:
+        thinking_config = override_thinking_config
+    return _parse_thinking_enabled(thinking_config)
+
+
+def get_fixed_litellm_temperature(
+    model: str,
+    model_list: Optional[List[Dict[str, Any]]] = None,
+    request_overrides: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    """Return a provider-mandated temperature for known strict models."""
+    normalized_model = resolve_litellm_wire_model(model, model_list).lower()
+    if not normalized_model:
+        return None
+    thinking_enabled = resolve_litellm_thinking_enabled(
+        model,
+        model_list=model_list,
+        request_overrides=request_overrides,
+    )
+    model_parts = [part for part in re.split(r"[/:\s]+", normalized_model) if part]
+    for model_name, temperatures in _FIXED_TEMPERATURE_LITELLM_MODELS.items():
+        if any(part == model_name or part.startswith(f"{model_name}-") for part in model_parts):
+            if thinking_enabled is False and temperatures.get("non_thinking") is not None:
+                return temperatures["non_thinking"]
+            if temperatures.get("thinking") is not None:
+                return temperatures["thinking"]
+            if temperatures.get("non_thinking") is not None:
+                return temperatures["non_thinking"]
+    return None
+
+
+def normalize_litellm_temperature(
+    model: str,
+    temperature: Optional[float],
+    *,
+    default: float = 0.7,
+    model_list: Optional[List[Dict[str, Any]]] = None,
+    request_overrides: Optional[Dict[str, Any]] = None,
+) -> float:
+    """Normalize temperature before sending a LiteLLM request."""
+    fixed_temperature = get_fixed_litellm_temperature(
+        model,
+        model_list=model_list,
+        request_overrides=request_overrides,
+    )
+    if fixed_temperature is not None:
+        return fixed_temperature
+    if temperature is None:
+        return default
+    return float(temperature)
 
 
 def parse_env_bool(value: Any, default: bool = False) -> bool:

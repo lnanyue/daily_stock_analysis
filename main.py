@@ -24,7 +24,13 @@ warnings.filterwarnings("ignore", category=ResourceWarning)
 # Also set PYTHONWARNINGS for C-level warnings that bypass the Python filter stack
 os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning,ignore::ResourceWarning")
 
+from pathlib import Path
+from typing import Dict, Optional
+
+from dotenv import dotenv_values
 from src.config import setup_env
+
+_INITIAL_PROCESS_ENV = dict(os.environ)
 setup_env()
 
 # 代理配置
@@ -37,11 +43,10 @@ if os.getenv("GITHUB_ACTIONS") != "true" and os.getenv("USE_PROXY", "false").low
 
 import argparse
 import logging
-import sys
 import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from data_provider import canonical_stock_code
 from src.core.pipeline import StockAnalysisPipeline
@@ -51,6 +56,149 @@ from src.logging_config import setup_logging
 
 
 logger = logging.getLogger(__name__)
+_RUNTIME_ENV_FILE_KEYS = set()
+
+
+def _get_active_env_path() -> Path:
+    env_file = os.getenv("ENV_FILE")
+    if env_file:
+        return Path(env_file)
+    return Path(__file__).resolve().parent / ".env"
+
+
+def _read_active_env_values() -> Optional[Dict[str, str]]:
+    env_path = _get_active_env_path()
+    if not env_path.exists():
+        return {}
+
+    try:
+        values = dotenv_values(env_path)
+    except Exception as exc:  # pragma: no cover - defensive branch
+        logger.warning("读取配置文件 %s 失败，继续沿用当前环境变量: %s", env_path, exc)
+        return None
+
+    return {
+        str(key): "" if value is None else str(value)
+        for key, value in values.items()
+        if key is not None
+    }
+
+
+_ACTIVE_ENV_FILE_VALUES = _read_active_env_values() or {}
+_RUNTIME_ENV_FILE_KEYS = {
+    key for key in _ACTIVE_ENV_FILE_VALUES
+    if key not in _INITIAL_PROCESS_ENV
+}
+
+# setup_env() already ran at import time above.
+_env_bootstrapped = True
+
+
+def _bootstrap_environment() -> None:
+    """Load .env and apply optional local proxy settings.
+
+    Guarded to be idempotent so it can safely be called from lazy-import
+    paths used by API / bot consumers.
+    """
+    global _env_bootstrapped
+    if _env_bootstrapped:
+        return
+
+    from src.config import setup_env
+
+    setup_env()
+
+    if os.getenv("GITHUB_ACTIONS") != "true" and os.getenv("USE_PROXY", "false").lower() == "true":
+        proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
+        proxy_port = os.getenv("PROXY_PORT", "10809")
+        proxy_url = f"http://{proxy_host}:{proxy_port}"
+        os.environ["http_proxy"] = proxy_url
+        os.environ["https_proxy"] = proxy_url
+
+    _env_bootstrapped = True
+
+
+def _setup_bootstrap_logging(debug: bool = False) -> None:
+    """Initialize stderr-only logging before config is loaded.
+
+    File handlers are deferred until ``config.log_dir`` is known (via the
+    subsequent ``setup_logging()`` call) so that healthy runs never create
+    log files in a hard-coded directory.
+    """
+    level = logging.DEBUG if debug else logging.INFO
+    root = logging.getLogger()
+    root.setLevel(level)
+    if not any(
+        isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stderr
+        for h in root.handlers
+    ):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(level)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        )
+        root.addHandler(handler)
+
+
+def _get_stock_analysis_pipeline():
+    """Lazily import StockAnalysisPipeline for external consumers.
+
+    Also ensures env/proxy bootstrap has run so that API / bot consumers
+    that never call ``main()`` still get ``USE_PROXY`` applied.
+    """
+    _bootstrap_environment()
+    from src.core.pipeline import StockAnalysisPipeline as _Pipeline
+
+    return _Pipeline
+
+
+class _LazyPipelineDescriptor:
+    """Descriptor that resolves StockAnalysisPipeline on first attribute access."""
+
+    _resolved = None
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def __get__(self, obj, objtype=None):
+        if self._resolved is None:
+            self._resolved = _get_stock_analysis_pipeline()
+        return self._resolved
+
+
+class _ModuleExports:
+    StockAnalysisPipeline = _LazyPipelineDescriptor()
+
+
+_exports = _ModuleExports()
+
+
+def __getattr__(name: str):
+    if name == "StockAnalysisPipeline":
+        return _exports.StockAnalysisPipeline
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _reload_env_file_values_preserving_overrides() -> None:
+    """Refresh `.env`-managed env vars without clobbering process env overrides."""
+    global _RUNTIME_ENV_FILE_KEYS
+
+    latest_values = _read_active_env_values()
+    if latest_values is None:
+        return
+
+    managed_keys = {
+        key for key in latest_values
+        if key not in _INITIAL_PROCESS_ENV
+    }
+
+    for key in _RUNTIME_ENV_FILE_KEYS - managed_keys:
+        os.environ.pop(key, None)
+
+    for key in managed_keys:
+        os.environ[key] = latest_values[key]
+
+    _RUNTIME_ENV_FILE_KEYS = managed_keys
 
 
 def _parse_cli_stock_codes(args: argparse.Namespace) -> Optional[List[str]]:
@@ -124,8 +272,21 @@ def _compute_trading_day_filter(config: Config, args: argparse.Namespace, stock_
     return (filtered_codes, effective_region, should_skip_all)
 
 
-async def run_full_analysis(config: Config, args: argparse.Namespace, stock_codes: Optional[List[str]] = None):
-    """异步执行完整流程"""
+async def run_full_analysis(
+    config: Config,
+    args: argparse.Namespace,
+    stock_codes: Optional[List[str]] = None
+):
+    """
+    执行完整的分析流程（个股 + 大盘复盘）
+
+    这是定时任务调用的主函数
+    """
+    # Import pipeline modules outside the broad try/except so that import-time
+    # failures propagate to the caller instead of being silently swallowed.
+    from src.core.market_review import run_market_review
+    from src.core.pipeline import StockAnalysisPipeline
+
     try:
         if stock_codes is None: config.refresh_stock_list()
         effective_codes = stock_codes if stock_codes is not None else config.stock_list
@@ -218,6 +379,39 @@ async def run_full_analysis(config: Config, args: argparse.Namespace, stock_code
         logger.exception(f"分析流程执行失败: {e}")
 
 
+def start_api_server(host: str, port: int, config: Config) -> None:
+    """
+    在后台线程启动 FastAPI 服务
+
+    Args:
+        host: 监听地址
+        port: 监听端口
+        config: 配置对象
+    """
+    import threading
+    import uvicorn
+
+    def run_server():
+        level_name = (config.log_level or "INFO").lower()
+        uvicorn.run(
+            "api.app:app",
+            host=host,
+            port=port,
+            log_level=level_name,
+            log_config=None,
+        )
+
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+    logger.info(f"FastAPI 服务已启动: http://{host}:{port}")
+
+
+def _is_truthy_env(var_name: str, default: str = "true") -> bool:
+    """Parse common truthy / falsy environment values."""
+    value = os.getenv(var_name, default).strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
 def start_bot_stream_clients(config: Config) -> None:
     """启动 Stream 机器人 (Retained sync background tasks)"""
     if config.dingtalk_stream_enabled:
@@ -232,6 +426,83 @@ async def main_async() -> int:
     args = parse_arguments()
     config = get_config()
     setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
+def _resolve_scheduled_stock_codes(stock_codes: Optional[List[str]]) -> Optional[List[str]]:
+    """Scheduled runs should always read the latest persisted watchlist."""
+    if stock_codes is not None:
+        logger.warning(
+            "定时模式下检测到 --stocks 参数；计划执行将忽略启动时股票快照，并在每次运行前重新读取最新的 STOCK_LIST。"
+        )
+    return None
+
+
+def _reload_runtime_config() -> Config:
+    """Reload config from the latest persisted `.env` values for scheduled runs."""
+    _reload_env_file_values_preserving_overrides()
+    Config.reset_instance()
+    return get_config()
+
+
+def _build_schedule_time_provider(default_schedule_time: str):
+    """Read the latest schedule time directly from the active config file.
+
+    Fallback order:
+    1. Process-level env override (set before launch) → honour it.
+    2. Persisted config file value (written by WebUI) → use it.
+    3. Documented system default ``"18:00"`` → always fall back here so
+       that clearing SCHEDULE_TIME in WebUI correctly resets the schedule.
+    """
+    from src.core.config_manager import ConfigManager
+
+    _SYSTEM_DEFAULT_SCHEDULE_TIME = "18:00"
+    manager = ConfigManager()
+
+    def _provider() -> str:
+        if "SCHEDULE_TIME" in _INITIAL_PROCESS_ENV:
+            return os.getenv("SCHEDULE_TIME", default_schedule_time)
+
+        config_map = manager.read_config_map()
+        schedule_time = (config_map.get("SCHEDULE_TIME", "") or "").strip()
+        if schedule_time:
+            return schedule_time
+        return _SYSTEM_DEFAULT_SCHEDULE_TIME
+
+    return _provider
+
+
+async def main() -> int:
+    """
+    主入口函数
+
+    Returns:
+        退出码（0 表示成功）
+    """
+    # 解析命令行参数
+    args = parse_arguments()
+
+    # 在配置加载前先初始化 bootstrap 日志，确保早期失败也能落盘
+    try:
+        _setup_bootstrap_logging(debug=args.debug)
+    except Exception as exc:
+        logging.basicConfig(
+            level=logging.DEBUG if getattr(args, "debug", False) else logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            stream=sys.stderr,
+        )
+        logger.warning("Bootstrap 日志初始化失败，已回退到 stderr: %s", exc)
+
+    # 加载配置（在 bootstrap logging 之后执行，确保异常有日志）
+    try:
+        config = get_config()
+    except Exception as exc:
+        logger.exception("加载配置失败: %s", exc)
+        return 1
+
+    # 配置日志（输出到控制台和文件）
+    try:
+        setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
+    except Exception as exc:
+        logger.exception("切换到配置日志目录失败: %s", exc)
+        return 1
 
     logger.info("=" * 40 + " 系统启动 (Async) " + "=" * 40)
     config.validate()
@@ -255,6 +526,64 @@ async def main_async() -> int:
                 task=_build_schedule_task(config, args),
                 schedule_time=config.schedule_time,
                 run_immediately=_resolve_schedule_run_immediately(config, args)
+            )
+        # 模式1: 仅大盘复盘
+        if args.market_review:
+            from src.analyzer import GeminiAnalyzer
+            from src.core.market_review import run_market_review
+            from src.notification import NotificationService
+            from src.search_service import SearchService
+
+            # Issue #373: Trading day check for market-review-only mode.
+            # Do NOT use _compute_trading_day_filter here: that helper checks
+            # config.market_review_enabled, which would wrongly block an
+            # explicit --market-review invocation when the flag is disabled.
+            effective_region = None
+            if not getattr(args, 'force_run', False) and getattr(config, 'trading_day_check_enabled', True):
+                from src.core.trading_calendar import get_open_markets_today, compute_effective_region as _compute_region
+                open_markets = get_open_markets_today()
+                effective_region = _compute_region(
+                    getattr(config, 'market_review_region', 'cn') or 'cn', open_markets
+                )
+                if effective_region == '':
+                    logger.info("今日大盘复盘相关市场均为非交易日，跳过执行。可使用 --force-run 强制执行。")
+                    return 0
+
+            logger.info("模式: 仅大盘复盘")
+            notifier = NotificationService()
+
+            # 初始化搜索服务和分析器（如果有配置）
+            search_service = None
+            analyzer = None
+
+            if config.has_search_capability_enabled():
+                search_service = SearchService(
+                    bocha_keys=config.bocha_api_keys,
+                    tavily_keys=config.tavily_api_keys,
+                    anspire_keys=config.anspire_api_keys,
+                    brave_keys=config.brave_api_keys,
+                    serpapi_keys=config.serpapi_keys,
+                    minimax_keys=config.minimax_api_keys,
+                    searxng_base_urls=config.searxng_base_urls,
+                    searxng_public_instances_enabled=config.searxng_public_instances_enabled,
+                    news_max_age_days=config.news_max_age_days,
+                    news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
+                )
+
+            if config.gemini_api_key or config.openai_api_key:
+                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+                if not analyzer.is_available():
+                    logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
+                    analyzer = None
+            else:
+                logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
+
+            run_market_review(
+                notifier=notifier,
+                analyzer=analyzer,
+                search_service=search_service,
+                send_notification=not args.no_notify,
+                override_region=effective_region,
             )
             return 0
 
@@ -299,12 +628,53 @@ def main() -> int:
 
         if args.schedule or config.schedule_enabled:
             _warn_schedule_stock_override(args)
+            logger.info(f"每日执行时间: {config.schedule_time}")
+
+            # Determine whether to run immediately:
+            # Command line arg --no-run-immediately overrides config if present.
+            # Otherwise use config (defaults to True).
+            should_run_immediately = config.schedule_run_immediately
+            if getattr(args, 'no_run_immediately', False):
+                should_run_immediately = False
+
+            logger.info(f"启动时立即执行: {should_run_immediately}")
+
             from src.scheduler import run_with_schedule
+            scheduled_stock_codes = _resolve_scheduled_stock_codes(stock_codes)
+            schedule_time_provider = _build_schedule_time_provider(config.schedule_time)
+
+            def scheduled_task():
+                runtime_config = _reload_runtime_config()
+                run_full_analysis(runtime_config, args, scheduled_stock_codes)
+
+            background_tasks = []
+            if getattr(config, 'agent_event_monitor_enabled', False):
+                from src.agent.events import build_event_monitor_from_config, run_event_monitor_once
+
+                monitor = build_event_monitor_from_config(config)
+                if monitor is not None:
+                    interval_minutes = max(1, getattr(config, 'agent_event_monitor_interval_minutes', 5))
+
+                    def event_monitor_task():
+                        triggered = run_event_monitor_once(monitor)
+                        if triggered:
+                            logger.info("[EventMonitor] 本轮触发 %d 条提醒", len(triggered))
+
+                    background_tasks.append({
+                        "task": event_monitor_task,
+                        "interval_seconds": interval_minutes * 60,
+                        "run_immediately": True,
+                        "name": "agent_event_monitor",
+                    })
+                else:
+                    logger.info("EventMonitor 已启用，但未加载到有效规则，跳过后台提醒任务")
 
             run_with_schedule(
                 task=_build_schedule_task(config, args),
                 schedule_time=config.schedule_time,
-                run_immediately=_resolve_schedule_run_immediately(config, args),
+                run_immediately=should_run_immediately,
+                background_tasks=background_tasks,
+                schedule_time_provider=schedule_time_provider,
             )
             return 0
 
