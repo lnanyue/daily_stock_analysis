@@ -148,7 +148,7 @@ class CircuitBreaker:
             time_since_failure = current_time - state["last_failure_time"]
             if time_since_failure >= self.cooldown_seconds:
                 state["state"] = self.HALF_OPEN
-                state["half_open_calls"] = 0
+                state["half_open_calls"] = 1
                 logger.info("[熔断器] %s 冷却完成，进入半开状态", source)
                 return True
             remaining = self.cooldown_seconds - time_since_failure
@@ -157,6 +157,7 @@ class CircuitBreaker:
 
         if state["state"] == self.HALF_OPEN:
             if state["half_open_calls"] < self.half_open_max_calls:
+                state["half_open_calls"] += 1
                 return True
             return False
 

@@ -23,6 +23,7 @@ import logging
 import os
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -497,7 +498,7 @@ class LongbridgeFetcher(BaseFetcher):
                 return None
             q = quotes[0]
         except Exception as e:
-            logger.info(f"[Longbridge] quote({symbol}) 失败: {e}")
+            logger.info("[Longbridge] quote(%s) 失败: %s", symbol, e)
             if self._is_connection_error(e):
                 logger.warning("[Longbridge] 检测到连接已断开，将在下次调用时重建连接")
                 self._invalidate_ctx()
@@ -523,8 +524,20 @@ class LongbridgeFetcher(BaseFetcher):
             if high is not None and low is not None:
                 amplitude = round((high - low) / prev_close * 100, 2)
 
-        # Fetch static info for derived fields
-        static = self._get_static_info(symbol)
+        # Fetch static info and volume ratio concurrently
+        static = None
+        volume_ratio = None
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            static_future = executor.submit(self._get_static_info, symbol)
+            vol_future = executor.submit(self._compute_volume_ratio, symbol, volume)
+            try:
+                static = static_future.result()
+            except Exception:
+                pass
+            try:
+                volume_ratio = vol_future.result()
+            except Exception:
+                pass
 
         turnover_rate = None
         pe_ratio = None
@@ -568,8 +581,6 @@ class LongbridgeFetcher(BaseFetcher):
                 total_mv = round(price * total_shares, 2)
             if circulating > 0:
                 circ_mv = round(price * circulating, 2)
-
-        volume_ratio = self._compute_volume_ratio(symbol, volume)
 
         quote = UnifiedRealtimeQuote(
             code=stock_code,
