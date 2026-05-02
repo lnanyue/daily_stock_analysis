@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+# DEPRECATED: This module implements the multi-agent ReAct orchestrator.
+# It has been replaced by the hybrid analysis path in pipeline.py
+# (single LLM call over pre-collected data). This file is preserved
+# for reference and rollback only. New development should not depend on it.
 """
 AgentOrchestrator — multi-agent pipeline coordinator.
 

@@ -177,6 +177,10 @@ class Config:
     llm_models_source: str = "legacy_env"
     agent_litellm_model: str = ""
 
+    # DEPRECATED: Use the hybrid path (single LLM call) instead of the ReAct agent.
+    # The agent process-level config is preserved for rollback, but the default
+    # is now the hybrid approach. The AgentOrchestrator is still available
+    # for reference at src/agent/orchestrator.py.
     agent_mode: bool = False
     agent_auto_route_analysis: bool = False
     _agent_mode_explicit: bool = False
