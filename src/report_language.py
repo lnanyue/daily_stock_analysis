@@ -246,6 +246,9 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "operation_advice": "操作建议",
         "sniper_points_label": "狙击点位",
         "risk_warning": "风险警报",
+        "win_rate_label": "历史胜率",
+        "accuracy_heading": "胜率与准确率",
+        "total_eval_label": "评估样本数",
     },
     "en": {
         "dashboard_title": "Decision Dashboard",
@@ -335,9 +338,12 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "sentiment_score": "Sentiment Score",
         "trend_prediction": "Trend Prediction",
         "confidence_level": "Confidence",
-        "operation_advice": "Operation Advice",
+        "operation_advice": "Operation Operation Advice",
         "sniper_points_label": "Sniper Points",
         "risk_warning": "Risk Warning",
+        "win_rate_label": "Win Rate",
+        "accuracy_heading": "Historical Accuracy",
+        "total_eval_label": "Evaluations",
     },
 }
 

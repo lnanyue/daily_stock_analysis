@@ -326,7 +326,35 @@ def format_analysis_prompt(
 - 成交量较昨日变化：{volume_change}倍
 - 价格较昨日变化：{context.get('price_change_ratio', 'N/A')}%
 """
-    
+
+    # 添加历史胜率/表现 (Report Engine P1)
+    if 'historical_performance' in context:
+        perf = context['historical_performance']
+        stock_perf = perf.get('stock')
+        overall_perf = perf.get('overall')
+        
+        prompt += "\n---\n\n## 📊 历史分析准确率 (AI 自我复盘参考)\n"
+        
+        if stock_perf:
+            prompt += f"""
+### 本股历史表现 ({stock_name})
+- **胜率 (Win Rate)**: {stock_perf.get('win_rate_pct', 'N/A')}%
+- **方向准确率**: {stock_perf.get('direction_accuracy_pct', 'N/A')}%
+- **总评估样本**: {stock_perf.get('total_evaluations', 0)} 次
+"""
+        
+        if overall_perf:
+            prompt += f"""
+### 全局历史表现 (系统整体)
+- **平均胜率**: {overall_perf.get('win_rate_pct', 'N/A')}%
+- **平均方向准确率**: {overall_perf.get('direction_accuracy_pct', 'N/A')}%
+- **总分析次数**: {overall_perf.get('total_evaluations', 0)} 次分析
+"""
+        
+        prompt += """
+> **分析建议**：请结合历史表现校准你的信心。如果历史胜率较低，请更加谨慎地评估当前的信号，并在风险提示中增加对应说明。
+"""
+
     # 添加新闻搜索结果
     prompt += """
 ---

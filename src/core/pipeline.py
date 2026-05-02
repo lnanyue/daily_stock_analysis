@@ -472,6 +472,7 @@ class StockAnalysisPipeline:
             if result:
                 self._emit_progress(94, f"{stock_name}：正在校验并整理分析结果")
                 result.query_id = query_id
+                result.historical_performance = enhanced_context.get('historical_performance')
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 fill_chip_structure_if_needed(result, chip_data)
                 await self.db.save_analysis_history_async(result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
@@ -656,6 +657,20 @@ class StockAnalysisPipeline:
                 "invalid fundamental context",
             )
         )
+
+        # 历史胜率/表现 (Report Engine P1)
+        try:
+            from src.services.backtest_service import BacktestService
+            bt_service = BacktestService(self.db)
+            stock_perf = bt_service.get_stock_summary(code)
+            overall_perf = bt_service.get_global_summary()
+            
+            enhanced['historical_performance'] = {
+                'stock': stock_perf,
+                'overall': overall_perf
+            }
+        except Exception as e:
+            logger.debug(f"[{code}] 获取历史胜率失败: {e}")
 
         return enhanced
 
@@ -1339,6 +1354,7 @@ class StockAnalysisPipeline:
         result.query_id = query_id
         result.model_used = model_used
         result.report_language = report_language
+        result.historical_performance = enhanced_context.get('historical_performance')
         result.data_sources = f"hybrid:{model_used or 'unknown'}" + (f"({','.join(route_reasons)})" if route_reasons else "")
         result.analysis_metadata = {
             "agent_route": {

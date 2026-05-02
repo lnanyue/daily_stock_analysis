@@ -149,6 +149,9 @@ class AnalysisResult:
     # ========== 历史对比（Report Engine P0）==========
     query_id: Optional[str] = None  # 本次分析 query_id，用于历史对比时排除本次记录
 
+    # ========== 历史胜率/表现 (新增) ==========
+    historical_performance: Optional[Dict[str, Any]] = None  # 包含 win_rate_pct, total_evaluations 等
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
@@ -186,6 +189,7 @@ class AnalysisResult:
             'current_price': self.current_price,
             'change_pct': self.change_pct,
             'model_used': self.model_used,
+            'historical_performance': self.historical_performance,
         }
 
     def get_core_conclusion(self) -> str:

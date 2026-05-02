@@ -173,6 +173,7 @@ class ReportRenderer:
         self._append_market_snapshot(lines, result)
         self._append_data_perspective(lines, result)
         self._append_battle_plan(lines, result)
+        self._append_historical_performance(lines, result)
         self._append_analysis_sections(lines, result)
 
         if not is_nested:
@@ -425,6 +426,38 @@ class ReportRenderer:
             for item in normalized_items:
                 lines.append(f"- {item}")
             lines.append("")
+
+    def _append_historical_performance(self, lines: List[str], result: AnalysisResult) -> None:
+        perf = getattr(result, "historical_performance", None)
+        if not perf or not (perf.get("stock") or perf.get("overall")):
+            return
+
+        report_language = self._get_report_language(result)
+        labels = get_report_labels(report_language)
+        stock_perf = perf.get("stock")
+        overall_perf = perf.get("overall")
+
+        lines.extend([
+            f"### 📊 {labels['accuracy_heading']}",
+            "",
+            f"| {labels['stock_label']} | {labels['win_rate_label']} | {labels['change_pct_label']} | {labels['total_eval_label']} |",
+            "|:---|:---|:---|:---|",
+        ])
+
+        if stock_perf:
+            name = get_localized_stock_name(result.name, result.code, report_language)
+            lines.append(
+                f"| {name} | {stock_perf.get('win_rate_pct', 'N/A')}% | "
+                f"{stock_perf.get('direction_accuracy_pct', 'N/A')}% | {stock_perf.get('total_evaluations', 0)} |"
+            )
+
+        if overall_perf:
+            system_label = "System" if report_language == "en" else "全站平均"
+            lines.append(
+                f"| {system_label} | {overall_perf.get('win_rate_pct', 'N/A')}% | "
+                f"{overall_perf.get('direction_accuracy_pct', 'N/A')}% | {overall_perf.get('total_evaluations', 0)} |"
+            )
+        lines.append("")
 
     def _append_analysis_sections(self, lines: List[str], result: AnalysisResult) -> None:
         report_language = self._get_report_language(result)
