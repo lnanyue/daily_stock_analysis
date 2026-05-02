@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 
 import pandas as pd
 import numpy as np
+import akshare as ak
 
 from .utils import normalize_stock_code, _market_tag, _is_etf_code, summarize_exception
 from .exceptions import DataFetchError
@@ -229,8 +230,7 @@ class FundamentalPipeline:
         for fetcher in self.manager._fetchers:
             if fetcher.name == "AkshareFetcher":
                 try:
-                    import akshare as ak
-                    ak_spot = ak.stock_zh_a_spot_em()
+                    ak_spot = await asyncio.to_thread(ak.stock_zh_a_spot_em)
                     break
                 except Exception: continue
         

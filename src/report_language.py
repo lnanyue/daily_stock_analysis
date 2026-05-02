@@ -347,7 +347,7 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "sentiment_score": "Sentiment Score",
         "trend_prediction": "Trend Prediction",
         "confidence_level": "Confidence",
-        "operation_advice": "Operation Operation Advice",
+        "operation_advice": "Operation Advice",
         "sniper_points_label": "Sniper Points",
         "risk_warning": "Risk Warning",
         "win_rate_label": "Win Rate",

@@ -10,7 +10,12 @@ from src.schemas.analysis_result import (
     check_content_integrity,
     apply_placeholder_fill,
 )
-from .prompt_builder import format_analysis_prompt
+from .prompt_builder import (
+    format_analysis_prompt,
+    get_persona_system_prompt,
+    format_expert_instruction,
+    build_chief_synthesizer_prompt,
+)
 from .utils import (
     _is_value_placeholder,
     _derive_chip_health,
@@ -27,6 +32,9 @@ __all__ = [
     "check_content_integrity",
     "apply_placeholder_fill",
     "format_analysis_prompt",
+    "get_persona_system_prompt",
+    "format_expert_instruction",
+    "build_chief_synthesizer_prompt",
     "_is_value_placeholder",
     "_derive_chip_health",
     "_build_chip_structure_from_data",

@@ -57,8 +57,9 @@ class DataFetcherManager:
         self._stock_name_cache_lock = RLock()
         
         self._tickflow_fetcher = None
+        self._tickflow_api_key = None
         self._tickflow_lock = RLock()
-        
+
         # 属性补全，防止 legacy 方法报错
         self._stock_name_timeout_seconds = 3.0
         
@@ -217,7 +218,10 @@ class DataFetcherManager:
 
     @staticmethod
     def _infer_block_status(payload, fallback):
-        if payload and any(v is not None for v in payload.values() if isinstance(payload, dict)) : return "ok"
+        if isinstance(payload, dict) and any(v not in (None, "", [], {}) for v in payload.values()):
+            return "ok"
+        if payload:
+            return "ok"
         return fallback
 
     async def get_stock_name(self, stock_code: str, allow_realtime: bool = True) -> Optional[str]:
@@ -294,8 +298,120 @@ class DataFetcherManager:
         async def _wrap(): return value
         return _wrap()
 
+    @property
+    def fetchers(self) -> List[BaseFetcher]:
+        return self._fetchers
+
+    @staticmethod
+    def _normalize_market_stats(stats: Dict[str, Any], source: str) -> Dict[str, Any]:
+        normalized = {
+            "up": stats.get("up", stats.get("up_count", 0)),
+            "down": stats.get("down", stats.get("down_count", 0)),
+            "flat": stats.get("flat", stats.get("flat_count", 0)),
+            "limit_up": stats.get("limit_up", stats.get("limit_up_count", 0)),
+            "limit_down": stats.get("limit_down", stats.get("limit_down_count", 0)),
+            "volume_total": stats.get(
+                "volume_total",
+                stats.get("total_amount", stats.get("amount_total", 0)),
+            ),
+            "source": source,
+        }
+        normalized["up_count"] = normalized["up"]
+        normalized["down_count"] = normalized["down"]
+        normalized["flat_count"] = normalized["flat"]
+        normalized["limit_up_count"] = normalized["limit_up"]
+        normalized["limit_down_count"] = normalized["limit_down"]
+        normalized["total_amount"] = normalized["volume_total"]
+        return normalized
+
+    def _get_tickflow_fetcher(self):
+        self._ensure_runtime_state()
+        if self._tickflow_fetcher is not None:
+            return self._tickflow_fetcher
+        config = getattr(self, "_config", None)
+        if config is None:
+            try:
+                from src.config import get_config
+                config = get_config()
+            except Exception:
+                config = None
+        api_key = (getattr(config, "tickflow_api_key", None) or "").strip()
+        if not api_key:
+            return None
+        with self._tickflow_lock:
+            if self._tickflow_fetcher is None or self._tickflow_api_key != api_key:
+                from .tickflow_fetcher import TickFlowFetcher
+                self._tickflow_fetcher = TickFlowFetcher(api_key=api_key)
+                self._tickflow_api_key = api_key
+        return self._tickflow_fetcher
+
+    async def get_main_indices(self, region: str = "cn"):
+        self._ensure_runtime_state()
+        if region == "cn":
+            try:
+                tickflow_fetcher = self._get_tickflow_fetcher()
+                if tickflow_fetcher is not None:
+                    data = await self._maybe_await(tickflow_fetcher.get_main_indices(region=region))
+                    if data:
+                        return data
+            except Exception as exc:
+                logger.warning("[TickFlowFetcher] 获取指数失败，切换后续数据源: %s", exc)
+
+        for fetcher in self._fetchers:
+            if not hasattr(fetcher, "get_main_indices"):
+                continue
+            try:
+                data = await self._maybe_await(fetcher.get_main_indices(region=region))
+                if data:
+                    return data
+            except Exception:
+                continue
+        return []
+
+    def get_main_indices_sync(self, region: str = "cn"):
+        try:
+            return asyncio.run(self.get_main_indices(region=region))
+        except RuntimeError:
+            return asyncio.get_event_loop().run_until_complete(self.get_main_indices(region=region))
+
+    async def get_market_stats(self):
+        self._ensure_runtime_state()
+        try:
+            tickflow_fetcher = self._get_tickflow_fetcher()
+            if tickflow_fetcher is not None:
+                stats = await self._maybe_await(tickflow_fetcher.get_market_stats())
+                if stats:
+                    return self._normalize_market_stats(stats, "TickFlowFetcher")
+        except Exception as exc:
+            logger.warning("[TickFlowFetcher] 获取市场统计失败，切换后续数据源: %s", exc)
+
+        for fetcher in self._fetchers:
+            if not hasattr(fetcher, "get_market_stats"):
+                continue
+            try:
+                stats = await self._maybe_await(fetcher.get_market_stats())
+                if stats:
+                    return self._normalize_market_stats(stats, fetcher.name)
+            except Exception:
+                continue
+        return {}
+
+    def get_market_stats_sync(self):
+        try:
+            return asyncio.run(self.get_market_stats())
+        except RuntimeError:
+            return asyncio.get_event_loop().run_until_complete(self.get_market_stats())
+
     def close(self):
-        for f in self._fetchers:
+        for f in getattr(self, "_fetchers", []):
             if hasattr(f, "close"):
                 try: f.close()
                 except Exception: pass
+        tickflow_fetcher = getattr(self, "_tickflow_fetcher", None)
+        if tickflow_fetcher is not None and hasattr(tickflow_fetcher, "close"):
+            try:
+                tickflow_fetcher.close()
+            except Exception:
+                pass
+        self._tickflow_fetcher = None
+        self._tickflow_api_key = None

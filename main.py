@@ -433,10 +433,6 @@ def start_bot_stream_clients(config: Config) -> None:
         start_feishu_stream_background()
 
 
-async def main_async() -> int:
-    args = parse_arguments()
-    config = get_config()
-    setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
 def _resolve_scheduled_stock_codes(stock_codes: Optional[List[str]]) -> Optional[List[str]]:
     """Scheduled runs should always read the latest persisted watchlist."""
     if stock_codes is not None:
@@ -792,14 +788,6 @@ async def _cleanup():
 
     # 4. Give LiteLLM's background workers time to shut down gracefully
     await asyncio.sleep(0.5)
-
-
-async def _async_main_wrapper() -> int:
-    """Top-level entry with guaranteed cleanup."""
-    try:
-        return await main_async()
-    finally:
-        await _cleanup()
 
 
 if __name__ == "__main__":

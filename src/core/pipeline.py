@@ -466,6 +466,9 @@ class StockAnalysisPipeline:
                     chip_data,
                     fundamental_context,
                     trend_result,
+                    today_k=today_k,
+                    yesterday_k=yesterday_k,
+                    peer_comparison=peer_comparison,
                     news_context=final_news,
                     route_reasons=route_reasons,
                 ))
@@ -1292,6 +1295,9 @@ class StockAnalysisPipeline:
         fundamental_context: Optional[Dict[str, Any]] = None,
         trend_result: Any = None,
         *,
+        today_k: Optional[Dict[str, Any]] = None,
+        yesterday_k: Optional[Dict[str, Any]] = None,
+        peer_comparison: Optional[Dict[str, Any]] = None,
         news_context: str = "",
         route_reasons: Optional[List[str]] = None,
     ) -> Optional[AnalysisResult]:
@@ -1307,6 +1313,8 @@ class StockAnalysisPipeline:
             'code': code,
             'stock_name': prompt_name,
             'date': date.today().isoformat(),
+            'today': today_k or {},
+            'yesterday': yesterday_k or {},
         }
         enhanced_context = self._enhance_context(
             base_context, realtime_quote, chip_data, trend_result, stock_name,
