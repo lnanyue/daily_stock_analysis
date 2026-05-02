@@ -13,6 +13,7 @@ from src.report_language import (
     normalize_report_language,
 )
 from src.config import resolve_news_window_days
+from src.schemas.analysis_result import DASHBOARD_OUTPUT_SCHEMA, DASHBOARD_SCHEMA_INTRO
 
 logger = logging.getLogger(__name__)
 
@@ -121,12 +122,13 @@ def _build_output_language_requirements(report_language: str, no_data_text: str)
 """
 
 def format_analysis_prompt(
-    context: Dict[str, Any], 
+    context: Dict[str, Any],
     name: str,
     news_context: Optional[str] = None,
     report_language: str = "zh",
     use_legacy_default_prompt: bool = False,
     news_window_days_config: Optional[int] = None,
+    output_format: str = "standard",
 ) -> str:
     """
     格式化分析提示词（决策仪表盘 v2.0）
@@ -397,6 +399,19 @@ def format_analysis_prompt(
 
 请输出完整的 JSON 格式决策仪表盘。"""
     prompt += _build_output_language_requirements(report_language, no_data_text)
+
+    # Hybrid mode: inject explicit dashboard JSON schema
+    if output_format == "dashboard":
+        prompt += DASHBOARD_SCHEMA_INTRO + DASHBOARD_OUTPUT_SCHEMA + """
+
+### 输出规则（优先级最高）
+1. 所有 JSON 键名必须与上面 Schema 完全一致，不要翻译键名，不要添加额外顶层字段
+2. `decision_type` 必须为 `buy`、`hold`、`sell` 之一
+3. `sentiment_score` 必须是 0-100 的整数
+4. 当数据缺失时，字段值写 `"数据缺失，无法判断"`，不要编造
+5. 不要在 JSON 外额外输出解释文字
+6. 必须输出完整的 JSON 对象（包含所有顶层字段），不要省略任何字段
+"""
 
     return prompt
 
