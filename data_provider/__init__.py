@@ -12,7 +12,6 @@ from .base import BaseFetcher
 from .manager import (
     DataFetcherManager,
 )
-from .futu_fetcher import FutuFetcher
 from .utils import (
     canonical_stock_code,
     normalize_stock_code,
@@ -39,6 +38,14 @@ def is_hk_stock_code(code: str) -> bool:
     """判定是否为港股代码"""
     from .utils import _is_hk_market
     return _is_hk_market(code)
+
+
+def __getattr__(name: str):
+    """Lazily expose optional fetchers to avoid import-time SDK side effects."""
+    if name == "FutuFetcher":
+        from .futu_fetcher import FutuFetcher
+        return FutuFetcher
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "BaseFetcher",

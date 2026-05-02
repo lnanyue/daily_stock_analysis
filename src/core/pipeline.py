@@ -70,12 +70,7 @@ class StockAnalysisPipeline:
         
         self.db = get_db()
         self.search_service = SearchService(
-            bocha_keys=self.config.bocha_api_keys,
             tavily_keys=self.config.tavily_api_keys,
-            exa_keys=self.config.exa_api_keys,
-            brave_keys=self.config.brave_api_keys,
-            serpapi_keys=self.config.serpapi_keys,
-            minimax_keys=self.config.minimax_api_keys,
             news_max_age_days=self.config.news_max_age_days,
             news_strategy_profile=getattr(self.config, "news_strategy_profile", "short"),
         )
@@ -745,7 +740,14 @@ class StockAnalysisPipeline:
             context=agent_context,
         )
         
-        result = self._agent_result_to_analysis_result(agent_result, code, prompt_name, report_type, query_id)
+        result = self._agent_result_to_analysis_result(
+            agent_result,
+            code,
+            prompt_name,
+            report_type,
+            query_id,
+            route_reasons=route_reasons,
+        )
         logger.info(f"[{code}] Agent 分析完成，评分: {result.sentiment_score}")
 
         if result and getattr(self.search_service, "is_available", False):
@@ -778,6 +780,7 @@ class StockAnalysisPipeline:
         stock_name: str,
         report_type: ReportType,
         query_id: str,
+        route_reasons: Optional[List[str]] = None,
     ) -> AnalysisResult:
         dashboard_payload = agent_result.dashboard or {}
         if not dashboard_payload and getattr(agent_result, "content", ""):
@@ -791,6 +794,10 @@ class StockAnalysisPipeline:
         provider_tag = f"agent:{getattr(agent_result, 'provider', '')}".rstrip(":")
         dashboard_name = str(dashboard_payload.get("stock_name") or "").strip() if isinstance(dashboard_payload, dict) else ""
         resolved_name = dashboard_name if self._is_placeholder_stock_name(stock_name, code) and dashboard_name else stock_name
+        analysis_metadata = self._build_agent_analysis_metadata(
+            agent_result,
+            route_reasons=route_reasons,
+        )
 
         if not getattr(agent_result, "success", False):
             error_message = getattr(agent_result, "error", None) or getattr(agent_result, "content", "") or "Agent 分析失败"
@@ -808,6 +815,7 @@ class StockAnalysisPipeline:
                 error_message=error_message,
                 query_id=query_id,
                 model_used=getattr(agent_result, "model", None) or getattr(agent_result, "provider", None),
+                analysis_metadata=analysis_metadata,
             )
 
         return AnalysisResult(
@@ -824,7 +832,56 @@ class StockAnalysisPipeline:
             success=True,
             query_id=query_id,
             model_used=getattr(agent_result, "model", None) or getattr(agent_result, "provider", None),
+            analysis_metadata=analysis_metadata,
         )
+
+    def _build_agent_analysis_metadata(
+        self,
+        agent_result: Any,
+        *,
+        route_reasons: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        raw_metadata = getattr(agent_result, "metadata", None)
+        metadata: Dict[str, Any] = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+
+        configured_arch = getattr(self.config, "agent_arch", "single")
+        agent_arch = configured_arch if isinstance(configured_arch, str) and configured_arch.strip() else "single"
+        configured_mode = getattr(self.config, "agent_orchestrator_mode", "standard")
+        orchestrator_mode = configured_mode if isinstance(configured_mode, str) and configured_mode.strip() else "standard"
+        reasons = [reason for reason in (route_reasons or []) if isinstance(reason, str) and reason.strip()]
+
+        selection_source = "auto"
+        if any(reason.startswith("config:") for reason in reasons):
+            selection_source = "forced"
+
+        metadata["agent_route"] = {
+            "used_agent": True,
+            "selection_source": selection_source,
+            "reasons": reasons,
+            "arch": agent_arch,
+            "mode": orchestrator_mode if agent_arch == "multi" else "single",
+        }
+
+        runtime = metadata.get("agent_runtime")
+        if not isinstance(runtime, dict):
+            runtime = {}
+        runtime.setdefault("arch", agent_arch)
+        runtime.setdefault("success", bool(getattr(agent_result, "success", False)))
+        runtime.setdefault("provider", getattr(agent_result, "provider", "") or "")
+        runtime.setdefault("model", getattr(agent_result, "model", "") or "")
+        runtime.setdefault("total_steps", int(getattr(agent_result, "total_steps", 0) or 0))
+        runtime.setdefault("total_tokens", int(getattr(agent_result, "total_tokens", 0) or 0))
+        runtime.setdefault("tool_call_count", len(getattr(agent_result, "tool_calls_log", []) or []))
+        if getattr(agent_result, "error", None):
+            runtime.setdefault("error", agent_result.error)
+        runtime.setdefault(
+            "timed_out",
+            bool(runtime.get("error") and "timed out" in str(runtime.get("error")).lower()),
+        )
+        if getattr(agent_result, "tool_calls_log", None) and "tool_calls_log" not in runtime:
+            runtime["tool_calls_log"] = list(agent_result.tool_calls_log)
+        metadata["agent_runtime"] = runtime
+        return metadata
 
     @staticmethod
     def _safe_int(value: Any, default: int = 50) -> int:

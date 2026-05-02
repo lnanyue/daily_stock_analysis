@@ -17,13 +17,8 @@ from .http_utils import (
 from .base_provider import BaseSearchProvider
 from .providers import (
     TavilySearchProvider,
-    SerpAPISearchProvider,
-    BochaSearchProvider,
-    MiniMaxSearchProvider,
-    ExaSearchProvider,
-    BraveSearchProvider,
-    SearXNGSearchProvider,
     OpenBBNewsProvider,
+    AkshareNewsProvider,
 )
 from .service import SearchService, get_search_service, reset_search_service
 
@@ -41,13 +36,8 @@ __all__ = [
     "BaseSearchProvider",
     # Providers
     "TavilySearchProvider",
-    "SerpAPISearchProvider",
-    "BochaSearchProvider",
-    "MiniMaxSearchProvider",
-    "ExaSearchProvider",
-    "BraveSearchProvider",
-    "SearXNGSearchProvider",
     "OpenBBNewsProvider",
+    "AkshareNewsProvider",
     # Service
     "SearchService",
     "get_search_service",

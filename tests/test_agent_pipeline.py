@@ -339,12 +339,7 @@ class TestAgentResultConversion(unittest.TestCase):
             mock_cfg.agent_mode = True
             mock_cfg.agent_max_steps = 10
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -413,6 +408,60 @@ class TestAgentResultConversion(unittest.TestCase):
         self.assertEqual(result.decision_type, "hold")
         self.assertIn("agent:gemini", result.data_sources)
         self.assertIsNotNone(result.dashboard)
+
+    def test_convert_success_dashboard_attaches_route_and_runtime_metadata(self):
+        """Agent conversion should preserve route reasons and runtime audit metadata."""
+        pipeline = self._make_pipeline()
+
+        from src.agent.executor import AgentResult
+        from src.enums import ReportType
+
+        agent_result = AgentResult(
+            success=True,
+            content='{"stock_name":"贵州茅台","sentiment_score":80,"trend_prediction":"看多","operation_advice":"持有","decision_type":"hold"}',
+            dashboard={
+                "stock_name": "贵州茅台",
+                "sentiment_score": 80,
+                "trend_prediction": "看多",
+                "operation_advice": "持有",
+                "decision_type": "hold",
+            },
+            tool_calls_log=[{"step": 1, "tool": "search_stock_news", "success": True}],
+            total_steps=4,
+            total_tokens=640,
+            provider="gemini",
+            model="openai/gpt-4o-mini",
+            metadata={
+                "agent_runtime": {
+                    "arch": "multi",
+                    "mode": "standard",
+                    "stage_results": [
+                        {"stage_name": "technical", "status": "completed", "duration_s": 0.8},
+                        {"stage_name": "decision", "status": "completed", "duration_s": 0.4},
+                    ],
+                }
+            },
+        )
+
+        result = pipeline._agent_result_to_analysis_result(
+            agent_result,
+            "600519",
+            "贵州茅台",
+            ReportType.SIMPLE,
+            "q-meta",
+            route_reasons=["core_data_gap", "dense_news_flow:8"],
+        )
+
+        self.assertIsNotNone(result.analysis_metadata)
+        self.assertEqual(
+            result.analysis_metadata["agent_route"]["reasons"],
+            ["core_data_gap", "dense_news_flow:8"],
+        )
+        self.assertEqual(result.analysis_metadata["agent_runtime"]["total_tokens"], 640)
+        self.assertEqual(
+            result.analysis_metadata["agent_runtime"]["stage_results"][0]["stage_name"],
+            "technical",
+        )
 
     def test_convert_failed_dashboard(self):
         """Failed AgentResult should produce a minimal AnalysisResult."""
@@ -541,12 +590,7 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.agent_mode = True
             mock_cfg.agent_max_steps = 5
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -593,12 +637,7 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.agent_mode = False
             mock_cfg.agent_auto_route_analysis = True
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -643,12 +682,7 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.is_agent_available.return_value = False
             mock_cfg.agent_max_steps = 10
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -702,12 +736,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.agent_mode = True
             mock_cfg.agent_max_steps = 10
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -782,12 +811,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.agent_mode = True
             mock_cfg.agent_skills = []
             mock_cfg.report_language = "zh"
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -1022,12 +1046,7 @@ class TestSafeInt(unittest.TestCase):
             mock_cfg.agent_mode = False
             mock_cfg.agent_max_steps = 10
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -1165,12 +1184,7 @@ class TestSkillActivation(unittest.TestCase):
             mock_cfg.agent_mode = True
             mock_cfg.agent_max_steps = 10
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
@@ -1216,12 +1230,7 @@ class TestSkillActivation(unittest.TestCase):
             mock_cfg.agent_mode = True
             mock_cfg.agent_max_steps = 10
             mock_cfg.agent_skills = []
-            mock_cfg.bocha_api_keys = []
             mock_cfg.tavily_api_keys = []
-            mock_cfg.brave_api_keys = []
-            mock_cfg.serpapi_keys = []
-            mock_cfg.searxng_base_urls = []
-            mock_cfg.searxng_public_instances_enabled = False
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True

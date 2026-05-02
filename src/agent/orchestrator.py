@@ -229,6 +229,7 @@ class AgentOrchestrator:
             provider=orch_result.provider,
             model=orch_result.model,
             error=orch_result.error,
+            metadata=self._build_agent_result_metadata(orch_result),
         )
 
     def chat(
@@ -284,7 +285,53 @@ class AgentOrchestrator:
             provider=orch_result.provider,
             model=orch_result.model,
             error=orch_result.error,
+            metadata=self._build_agent_result_metadata(orch_result),
         )
+
+    @staticmethod
+    def _serialize_stage_result(result: StageResult) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "stage_name": result.stage_name,
+            "status": result.status.value if hasattr(result.status, "value") else str(result.status),
+            "duration_s": result.duration_s,
+            "tokens_used": result.tokens_used,
+            "tool_calls_count": result.tool_calls_count,
+        }
+        if result.error:
+            payload["error"] = result.error
+        if result.opinion is not None:
+            payload["signal"] = result.opinion.signal
+            payload["confidence"] = result.opinion.confidence
+        models_used = result.meta.get("models_used")
+        if isinstance(models_used, list) and models_used:
+            payload["models_used"] = list(models_used)
+        memory_calibration = result.meta.get("memory_calibration")
+        if isinstance(memory_calibration, dict) and memory_calibration:
+            payload["memory_calibration"] = dict(memory_calibration)
+        return payload
+
+    def _build_agent_result_metadata(self, orch_result: OrchestratorResult) -> Dict[str, Any]:
+        runtime: Dict[str, Any] = {
+            "arch": "multi",
+            "mode": self.mode,
+            "success": orch_result.success,
+            "provider": orch_result.provider,
+            "model": orch_result.model,
+            "total_steps": orch_result.total_steps,
+            "total_tokens": orch_result.total_tokens,
+            "tool_call_count": len(orch_result.tool_calls_log or []),
+            "timed_out": bool(orch_result.error and "timed out" in str(orch_result.error).lower()),
+        }
+        if orch_result.error:
+            runtime["error"] = orch_result.error
+        if orch_result.stats is not None:
+            runtime["stats"] = orch_result.stats.to_dict()
+            if orch_result.stats.stage_results:
+                runtime["stage_results"] = [
+                    self._serialize_stage_result(result)
+                    for result in orch_result.stats.stage_results
+                ]
+        return {"agent_runtime": runtime}
 
     # -----------------------------------------------------------------
     # Pipeline execution
@@ -1013,11 +1060,7 @@ class AgentOrchestrator:
             if not isinstance(values, list):
                 return
             for item in values:
-                text = ""
-                if isinstance(item, str):
-                    text = item.strip()
-                elif isinstance(item, dict):
-                    text = str(item.get("description") or item.get("title") or "").strip()
+                text = _extract_evidence_text(item)
                 if text and text not in alerts:
                     alerts.append(text)
 
@@ -1045,7 +1088,7 @@ class AgentOrchestrator:
             if not isinstance(values, list):
                 return
             for item in values:
-                text = str(item).strip()
+                text = _extract_evidence_text(item)
                 if text and text not in catalysts:
                     catalysts.append(text)
 
@@ -1431,6 +1474,14 @@ def _truncate_text(text: Any, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _extract_evidence_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        return str(item.get("description") or item.get("title") or "").strip()
+    return ""
 
 
 def _extract_latest_news_title(intelligence: Dict[str, Any]) -> str:

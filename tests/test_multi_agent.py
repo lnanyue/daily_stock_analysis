@@ -456,6 +456,83 @@ class TestIntelAgentPostProcess(unittest.TestCase):
         self.assertEqual(ctx.get_data("intel_opinion")["positive_catalysts"], ["行业复苏"])
         self.assertEqual(ctx.risk_flags[0]["description"], "股东减持")
 
+    def test_normalizes_structured_evidence_items(self):
+        from src.agent.agents.intel_agent import IntelAgent
+
+        agent = IntelAgent(tool_registry=MagicMock(), llm_adapter=MagicMock())
+        ctx = AgentContext(query="test", stock_code="600519")
+        raw = json.dumps({
+            "signal": "buy",
+            "confidence": 0.81,
+            "reasoning": "有增量催化",
+            "risk_alerts": [
+                {
+                    "description": "股东减持计划披露",
+                    "date": "2026-05-01",
+                    "source": "上交所公告",
+                    "severity": "medium",
+                }
+            ],
+            "positive_catalysts": [
+                {
+                    "description": "新品发布带动需求预期",
+                    "date": "2026-05-01",
+                    "source": "公司公告",
+                    "impact": "positive",
+                }
+            ],
+            "key_news": [
+                {
+                    "title": "公司发布新品",
+                    "impact": "positive",
+                    "date": "2026-05-01",
+                    "source": "公司公告",
+                }
+            ],
+        }, ensure_ascii=False)
+
+        opinion = agent.post_process(ctx, raw)
+
+        self.assertIsNotNone(opinion)
+        cached = ctx.get_data("intel_opinion")
+        self.assertEqual(cached["risk_alerts"][0]["source"], "上交所公告")
+        self.assertEqual(cached["positive_catalysts"][0]["impact"], "positive")
+        self.assertEqual(cached["key_news"][0]["date"], "2026-05-01")
+        self.assertEqual(ctx.risk_flags[0]["description"], "股东减持计划披露")
+
+
+class TestAgentPromptContracts(unittest.TestCase):
+    """Prompt contracts should guide agents toward source-backed structured evidence."""
+
+    def test_intel_prompt_requires_dated_source_backed_items(self):
+        from src.agent.agents.intel_agent import IntelAgent
+
+        agent = IntelAgent(tool_registry=MagicMock(), llm_adapter=MagicMock())
+        prompt = agent.system_prompt(AgentContext(query="分析 600519", stock_code="600519"))
+
+        self.assertIn('"date": "YYYY-MM-DD"', prompt)
+        self.assertIn('"source": "..."', prompt)
+        self.assertIn("stale, undated, or", prompt)
+        self.assertIn("unverifiable claims into those lists", prompt)
+
+    def test_risk_prompt_prefers_existing_intel_before_research(self):
+        from src.agent.agents.risk_agent import RiskAgent
+
+        agent = RiskAgent(tool_registry=MagicMock(), llm_adapter=MagicMock())
+        prompt = agent.system_prompt(AgentContext(query="分析 600519", stock_code="600519"))
+
+        self.assertIn("If structured Intel data is already provided", prompt)
+        self.assertIn("Only call `search_stock_news`", prompt)
+
+    def test_decision_prompt_allows_na_when_price_context_missing(self):
+        from src.agent.agents.decision_agent import DecisionAgent
+
+        agent = DecisionAgent(tool_registry=MagicMock(), llm_adapter=MagicMock())
+        prompt = agent.system_prompt(AgentContext(query="分析 600519", stock_code="600519"))
+
+        self.assertIn("output `N/A`", prompt)
+        self.assertIn("instead of inventing a price", prompt)
+
 
 # ============================================================
 # AgentOrchestrator (with mocked sub-agents)
@@ -678,15 +755,27 @@ class TestOrchestratorExecution(unittest.TestCase):
 
     def test_run_wraps_orchestrator_result(self):
         from src.agent.orchestrator import OrchestratorResult
+        from src.agent.protocols import AgentRunStats, StageResult, StageStatus
 
         orch = self._make_orchestrator()
-        fake_result = OrchestratorResult(success=True, content="done", total_steps=2, total_tokens=11, model="x")
+        stats = AgentRunStats()
+        stats.record_stage(StageResult(stage_name="technical", status=StageStatus.COMPLETED, duration_s=0.5))
+        fake_result = OrchestratorResult(
+            success=True,
+            content="done",
+            total_steps=2,
+            total_tokens=11,
+            model="x",
+            stats=stats,
+        )
         with patch.object(orch, "_execute_pipeline", return_value=fake_result):
             result = orch.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertEqual(result.content, "done")
         self.assertEqual(result.total_steps, 2)
+        self.assertEqual(result.metadata["agent_runtime"]["arch"], "multi")
+        self.assertEqual(result.metadata["agent_runtime"]["stage_results"][0]["stage_name"], "technical")
 
     def test_chat_loads_prior_history_into_context(self):
         from src.agent.orchestrator import OrchestratorResult

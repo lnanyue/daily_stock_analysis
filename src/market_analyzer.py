@@ -66,9 +66,7 @@ class MarketAnalyzer:
         self.config = get_config()
         self.data_manager = data_manager or DataFetcherManager(config=self.config)
         self.search_service = search_service or SearchService(
-            bocha_keys=self.config.bocha_api_keys,
             tavily_keys=self.config.tavily_api_keys,
-            exa_keys=self.config.exa_api_keys,
             news_max_age_days=self.config.news_max_age_days,
         )
         self.analyzer = analyzer  # GeminiAnalyzer instance
@@ -79,6 +77,169 @@ class MarketAnalyzer:
     def _get_market_name(self, region: str) -> str:
         names = {"cn": "A股", "us": "美股", "hk": "港股", "global": "全球联动"}
         return names.get(region, region)
+
+    def _pick_value(self, data: Any, *keys: str, default: Any = "N/A") -> Any:
+        """Return the first non-empty value from a provider payload."""
+        if not isinstance(data, dict):
+            return default
+        for key in keys:
+            value = data.get(key)
+            if value is not None and value != "":
+                return value
+        return default
+
+    def _as_float(self, value: Any) -> Optional[float]:
+        if value is None or value == "" or value == "N/A":
+            return None
+        try:
+            return float(str(value).replace(",", "").replace("%", ""))
+        except (TypeError, ValueError):
+            return None
+
+    def _format_number(self, value: Any, digits: int = 2) -> str:
+        number = self._as_float(value)
+        if number is None:
+            return str(value) if value not in (None, "") else "N/A"
+        if number.is_integer():
+            return str(int(number))
+        return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+    def _format_signed_pct(self, value: Any) -> str:
+        number = self._as_float(value)
+        if number is None:
+            return str(value) if value not in (None, "") else "N/A"
+        sign = "+" if number > 0 else ""
+        return f"{sign}{self._format_number(number)}%"
+
+    def _format_pct_with_direction(self, value: Any) -> str:
+        number = self._as_float(value)
+        if number is None:
+            return self._format_signed_pct(value)
+        icon = "🟢" if number > 0 else "🔴" if number < 0 else "⚪"
+        return f"{icon} {self._format_signed_pct(number)}"
+
+    def _format_index_amount_yi(self, value: Any) -> str:
+        number = self._as_float(value)
+        if number is None or number == 0:
+            return "N/A"
+        # 实时指数接口常返回“元”，表格统一展示为“亿元”。
+        if abs(number) > 1_000_000:
+            number = number / 100_000_000
+        return self._format_number(number, digits=0 if abs(number) >= 100 else 2)
+
+    def _iter_index_rows(self, context: MarketAnalysisContext) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        indices = context.indices
+        if isinstance(indices, dict):
+            iterable = indices.items()
+            for key, value in iterable:
+                if isinstance(value, dict):
+                    row = dict(value)
+                    row.setdefault("name", row.get("name") or key)
+                    rows.append(row)
+        elif isinstance(indices, list):
+            for item in indices:
+                if isinstance(item, dict):
+                    rows.append(dict(item))
+                elif hasattr(item, "__dict__"):
+                    rows.append(dict(item.__dict__))
+        return rows
+
+    def _build_index_table(self, context: MarketAnalysisContext) -> str:
+        rows = self._iter_index_rows(context)
+        if not rows:
+            return "暂无指数数据"
+
+        lines = [
+            "| 指数 | 最新 | 涨跌幅 | 成交额(亿) |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for row in rows:
+            name = self._pick_value(row, "name", "code", default="N/A")
+            current = self._pick_value(row, "current", "price", "close", default="N/A")
+            change_pct = self._pick_value(row, "change_pct", "pct_chg", "涨跌幅", default="N/A")
+            amount = self._pick_value(
+                row,
+                "amount",
+                "turnover",
+                "turnover_amount",
+                "total_amount",
+                "volume_total",
+                "成交额",
+                default="N/A",
+            )
+            lines.append(
+                f"| {name} | {self._format_number(current)} | "
+                f"{self._format_pct_with_direction(change_pct)} | {self._format_index_amount_yi(amount)} |"
+            )
+        return "\n".join(lines)
+
+    def _build_breadth_line(self, context: MarketAnalysisContext) -> str:
+        stats = context.stats if isinstance(context.stats, dict) else {}
+        up = self._pick_value(stats, "up", "up_count", "rise_count")
+        down = self._pick_value(stats, "down", "down_count", "fall_count")
+        flat = self._pick_value(stats, "flat", "flat_count", "unchanged_count", default="N/A")
+        limit_up = self._pick_value(stats, "limit_up", "limit_up_count")
+        limit_down = self._pick_value(stats, "limit_down", "limit_down_count")
+        turnover = self._pick_value(stats, "volume_total", "total_amount", "amount_total")
+
+        up_num = self._as_float(up)
+        down_num = self._as_float(down)
+        icon = "📊"
+        if up_num is not None and down_num is not None:
+            icon = "📈" if up_num >= down_num else "📉"
+
+        return (
+            f"{icon} 上涨 {self._format_number(up)} 家 / 下跌 {self._format_number(down)} 家 / "
+            f"平盘 {self._format_number(flat)} 家 | 涨停 {self._format_number(limit_up)} / "
+            f"跌停 {self._format_number(limit_down)} | 成交额 {self._format_number(turnover)} 亿"
+        )
+
+    def _format_sector_item(self, item: Any) -> Optional[str]:
+        if not isinstance(item, dict):
+            return None
+        name = self._pick_value(item, "name", "sector", "板块", default="未知")
+        change_pct = self._pick_value(item, "change_pct", "pct_chg", "涨跌幅", "change", default="N/A")
+        return f"{name}({self._format_signed_pct(change_pct)})"
+
+    def _build_sector_lines(self, context: MarketAnalysisContext) -> List[str]:
+        top_list: List[Any] = []
+        bottom_list: List[Any] = []
+        if isinstance(context.sector_rankings, dict):
+            top_list = context.sector_rankings.get("top") or context.sector_rankings.get("leaders") or []
+            bottom_list = context.sector_rankings.get("bottom") or context.sector_rankings.get("laggards") or []
+
+        top_items = [text for text in (self._format_sector_item(item) for item in top_list[:5]) if text]
+        bottom_items = [text for text in (self._format_sector_item(item) for item in bottom_list[:5]) if text]
+        return [
+            f"🔥 领涨: {' | '.join(top_items) if top_items else '暂无'}",
+            f"💧 领跌: {' | '.join(bottom_items) if bottom_items else '暂无'}",
+        ]
+
+    def _infer_market_state(self, context: MarketAnalysisContext) -> str:
+        stats = context.stats if isinstance(context.stats, dict) else {}
+        up = self._as_float(self._pick_value(stats, "up", "up_count", "rise_count", default=None))
+        down = self._as_float(self._pick_value(stats, "down", "down_count", "fall_count", default=None))
+        changes = [
+            value
+            for value in (
+                self._as_float(self._pick_value(row, "change_pct", "pct_chg", "涨跌幅", default=None))
+                for row in self._iter_index_rows(context)
+            )
+            if value is not None
+        ]
+        avg_change = sum(changes) / len(changes) if changes else 0
+
+        if up is not None and down is not None:
+            if up >= down * 1.4 and avg_change >= 0:
+                return "进攻"
+            if down >= up * 1.2 and avg_change <= 0:
+                return "防守"
+        if avg_change > 0.3:
+            return "进攻"
+        if avg_change < -0.3:
+            return "防守"
+        return "均衡"
 
     def _get_prompt_scaffold(self, context: MarketAnalysisContext) -> tuple[str, str, str]:
         """Return role, missing-data guidance, and output template by region."""
@@ -135,22 +296,32 @@ class MarketAnalyzer:
             "若市场数据（指数、成交额等）缺失或显示为 N/A，但提供了市场新闻，请务必以新闻和历史背景为主要依据进行推断性复盘；"
             "若当前日期为回溯的交易日，请在报告中明确说明；不要臆测全球市场或跨市场联动。"
         )
-        template = f"""## {context.date} A股市场复盘
+        template = f"""## {context.date} 大盘复盘
 
-### 一、市场总览
-（总结今日A股整体表现与核心特征，2-3句话）
+### 一、市场总结
+（2-3句话概括指数方向、赚钱效应、量能温度；必须保留提供的市场宽度行。）
 
-### 二、盘面结构点评
-（结合主要指数、量能、涨跌分布，分析市场强弱与风格切换）
+### 二、指数点评
+（围绕主要指数共振/分化、权重与成长风格强弱展开；必须输出提供的指数表。）
 
-### 三、行业映射与热点
-（重点解析强势板块及自身热点逻辑）
+### 三、资金动向
+（结合成交额、涨跌家数、涨跌停结构判断风险偏好和短线情绪。）
 
-### 四、后市展望
-（结合走势与背景，给出后续预判）
+### 四、热点解读
+（解读领涨/领跌板块及可能的调仓含义；必须输出“🔥 领涨”和“💧 领跌”两行。）
 
-### 五、策略建议
-（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
+### 五、后市展望
+（结合走势、量能和板块持续性，给出下一交易日观察重点。）
+
+### 六、风险提示
+（列出2-3条最关键风险，不要空泛。）
+
+### 七、策略计划
+市场状态：（进攻/均衡/防守之一，并说明原因）
+仓位建议：（给出可执行的仓位节奏）
+失效条件：（写清触发降级或转向的条件）
+
+> 建议仅供参考，不构成投资建议。"""
         return role, missing_data_guidance, template
 
     async def run_daily_review(self) -> str:
@@ -360,6 +531,9 @@ class MarketAnalyzer:
     def _build_prompt(self, context: MarketAnalysisContext) -> str:
         market_name = self._get_market_name(context.region)
         role, missing_data_guidance, output_template = self._get_prompt_scaffold(context)
+        index_table = self._build_index_table(context)
+        breadth_line = self._build_breadth_line(context)
+        sector_lines = self._build_sector_lines(context)
 
         # 检查是否为历史数据
         is_historical = context.date != date.today().isoformat()
@@ -393,14 +567,7 @@ class MarketAnalyzer:
         else:
             stats_text = "暂无统计数据\n"
 
-        sectors_text = "- 领涨: 暂无\n- 领跌: 暂无\n"
-        if isinstance(context.sector_rankings, dict):
-            top_list = context.sector_rankings.get('top', [])
-            bottom_list = context.sector_rankings.get('bottom', [])
-            if top_list:
-                t_str = ", ".join([f"{s.get('name', '未知')}({s.get('change_pct', 0)}%)" for s in top_list if isinstance(s, dict)])
-                b_str = ", ".join([f"{s.get('name', '未知')}({s.get('change_pct', 0)}%)" for s in bottom_list if isinstance(s, dict)])
-                sectors_text = f"- 领涨: {t_str}\n- 领跌: {b_str}\n"
+        sectors_text = "\n".join([f"- {line}" for line in sector_lines]) + "\n"
 
         news_text = "暂无相关新闻\n"
         if context.market_news:
@@ -420,6 +587,15 @@ class MarketAnalyzer:
             blueprint_desc = getattr(blueprint, 'description', '') if blueprint else ''
             strategy_text = f"{strategy_section_title}\n## Strategy Blueprint: {blueprint_name}\n{blueprint_desc}\n\n"
 
+        cn_requirements = ""
+        if context.region == "cn":
+            cn_requirements = """- A 股复盘必须严格使用模板中的七段标题，不要改写成“市场总览 / 盘面结构 / 策略建议”
+- A 股复盘的“一、市场总结”必须保留下方市场宽度行
+- A 股复盘的“二、指数点评”必须输出表头为“指数 / 最新 / 涨跌幅 / 成交额(亿)”的指数表
+- A 股复盘的“四、热点解读”必须保留“🔥 领涨”和“💧 领跌”两行
+- A 股复盘的“七、策略计划”必须包含“市场状态 / 仓位建议 / 失效条件”
+"""
+
         return f"""{role}，请根据以下数据生成一份简洁、深刻的大盘复盘报告。
 {historical_hint}
 
@@ -429,11 +605,18 @@ class MarketAnalyzer:
 - 标题处可少量使用 emoji
 - 逻辑清晰，重点突出
 - 只能基于已提供的数据进行判断，没有提供的信息不要扩写成确定性结论
+{cn_requirements.rstrip()}
 - {missing_data_guidance}
 
 ---
 
 # 今日市场数据 ({context.date})
+
+## 结构化快照
+{breadth_line}
+
+## 主要指数表
+{index_table}
 
 ## 主要指数
 {indices_text}
@@ -458,8 +641,92 @@ class MarketAnalyzer:
 """
 
     def _generate_fallback_report(self, context: MarketAnalysisContext) -> str:
+        if context.region == "cn":
+            return self._generate_cn_fallback_report(context)
+
         market_name = self._get_market_name(context.region)
         vol = context.stats.get('volume_total', context.stats.get('total_amount', 'N/A')) if isinstance(context.stats, dict) else 'N/A'
         up = context.stats.get('up', context.stats.get('up_count', 0)) if isinstance(context.stats, dict) else 0
         down = context.stats.get('down', context.stats.get('down_count', 0)) if isinstance(context.stats, dict) else 0
         return f"# {context.date} {market_name} 简要复盘\n\n> 提示：AI 分析服务暂时不可用，以下为基于原始数据的简报。\n\n- 成交统计: {vol} 亿\n- 涨跌分布: 上涨 {up} / 下跌 {down}"
+
+    def _generate_cn_fallback_report(self, context: MarketAnalysisContext) -> str:
+        """Generate a deterministic A-share recap when the LLM is unavailable."""
+        breadth_line = self._build_breadth_line(context)
+        index_table = self._build_index_table(context)
+        sector_lines = self._build_sector_lines(context)
+        stats = context.stats if isinstance(context.stats, dict) else {}
+        turnover = self._format_number(self._pick_value(stats, "volume_total", "total_amount", "amount_total"))
+        up = self._as_float(self._pick_value(stats, "up", "up_count", "rise_count", default=None))
+        down = self._as_float(self._pick_value(stats, "down", "down_count", "fall_count", default=None))
+        state = self._infer_market_state(context)
+
+        rows = self._iter_index_rows(context)
+        valid_rows = [
+            (row, self._as_float(self._pick_value(row, "change_pct", "pct_chg", "涨跌幅", default=None)))
+            for row in rows
+        ]
+        valid_rows = [(row, pct) for row, pct in valid_rows if pct is not None]
+        if valid_rows:
+            leader_row, leader_pct = max(valid_rows, key=lambda item: item[1])
+            laggard_row, laggard_pct = min(valid_rows, key=lambda item: item[1])
+            index_comment = (
+                f"{self._pick_value(leader_row, 'name', 'code', default='主要指数')}领涨"
+                f"（{self._format_signed_pct(leader_pct)}），"
+                f"{self._pick_value(laggard_row, 'name', 'code', default='弱势指数')}相对偏弱"
+                f"（{self._format_signed_pct(laggard_pct)}），指数间分化体现风格轮动节奏。"
+            )
+        else:
+            index_comment = "主要指数数据不足，指数点评以市场宽度、成交额与板块强弱为主。"
+
+        if up is not None and down is not None:
+            breadth_comment = "赚钱效应占优" if up >= down else "市场分化偏弱"
+            summary = f"今日A股市场呈现{breadth_comment}格局，量能与涨跌分布是判断后续延续性的核心线索。"
+        else:
+            summary = "今日A股复盘数据存在缺口，以下按已获取的指数、成交额与板块排序做结构化归纳。"
+
+        position_map = {
+            "进攻": "可维持积极仓位，但优先围绕强势主线分批参与，避免追高扩散不足的题材。",
+            "均衡": "保持中性仓位，等待指数方向、成交额和主线持续性进一步确认。",
+            "防守": "降低仓位并优先控制回撤，等待领跌扩散收敛或指数重新企稳。",
+        }
+        invalidation_map = {
+            "进攻": "若后续出现放量滞涨、缩量下跌，或领涨板块集体回落，应降至均衡策略。",
+            "均衡": "若指数共振放量上行且领涨板块延续，可上调风险偏好；若跌停与领跌扩散，应转为防守。",
+            "防守": "若主要指数重新收复关键位置、成交额回升且上涨家数明显修复，可逐步转回均衡。",
+        }
+
+        return f"""## {context.date} 大盘复盘
+
+> 提示：AI 分析服务暂时不可用，以下为基于原始数据的结构化复盘。
+
+### 一、市场总结
+{summary}
+{breadth_line}
+
+### 二、指数点评
+{index_comment}
+{index_table}
+
+### 三、资金动向
+两市成交额为 {turnover} 亿。结合上涨/下跌家数与涨跌停结构看，当前资金风险偏好处于“{state}”状态，后续需要观察成交额是否继续配合。
+
+### 四、热点解读
+领涨板块体现当日资金进攻方向，领跌板块反映调仓或防御压力。
+{sector_lines[0]}
+{sector_lines[1]}
+
+### 五、后市展望
+后续重点看三点：主要指数能否继续共振、成交额是否维持活跃、领涨板块能否形成持续主线。若量能回落或主线快速轮动，指数大概率转入震荡。
+
+### 六、风险提示
+- 热点轮动过快可能带来追高回撤风险。
+- 若成交额萎缩，指数上行动能会受到制约。
+- 领跌板块若继续扩散，可能削弱短线风险偏好。
+
+### 七、策略计划
+市场状态：{state}。判断依据为指数表现、成交额和涨跌分布的综合状态。
+仓位建议：{position_map[state]}
+失效条件：{invalidation_map[state]}
+
+> 建议仅供参考，不构成投资建议。"""

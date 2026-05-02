@@ -65,6 +65,7 @@ class AnalysisResult:
     buy_reason: str = ""  # 买入/卖出理由
 
     # ========== 元数据 ==========
+    analysis_metadata: Optional[Dict[str, Any]] = None  # Agent 路由/阶段审计信息
     market_snapshot: Optional[Dict[str, Any]] = None  # 当日行情快照（展示用）
     raw_response: Optional[str] = None  # 原始响应（调试用）
     search_performed: bool = False  # 是否执行了联网搜索
@@ -111,6 +112,7 @@ class AnalysisResult:
             'key_points': self.key_points,
             'risk_warning': self.risk_warning,
             'buy_reason': self.buy_reason,
+            'analysis_metadata': self.analysis_metadata,
             'market_snapshot': self.market_snapshot,
             'search_performed': self.search_performed,
             'success': self.success,

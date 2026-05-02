@@ -11,6 +11,7 @@
 """
 
 import logging
+import os
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -40,12 +41,37 @@ class RelativePathFormatter(logging.Formatter):
 
 
 
+def _suppress_logger_tree(name: str, level: int = logging.WARNING) -> None:
+    """将指定 logger 及其所有子 logger 设为指定级别。
+
+    litellm 的新版本会为每个子模块单独创建 logger，继承链可能因显式 setLevel 而中断，
+    因此需要遍历所有已注册的 logger 逐一设置。
+    """
+    logging.getLogger(name).setLevel(level)
+    for logger_name in list(logging.Logger.manager.loggerDict.keys()):
+        if logger_name.startswith(f"{name}."):
+            logging.getLogger(logger_name).setLevel(level)
+
+
 # 默认需要降低日志级别的第三方库
 DEFAULT_QUIET_LOGGERS = [
     'urllib3',
     'sqlalchemy',
     'google',
     'httpx',
+    'yfinance',
+    'yfinance.multi',
+    'yfinance_cache',
+    'peewee',
+    'futu',
+    'futu_api',
+    'httpx._client',
+    'httpx._config',
+    'httpx._transports',
+    'httpcore',
+    'httpcore._trace',
+    'httpx._dispatch',
+    'httpx._networking',
 ]
 
 
@@ -133,6 +159,18 @@ def setup_logging(
 
     for logger_name in quiet_loggers:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+    # urllib3.connectionpool 内部重试日志打到 WARNING，需进一步降级到 ERROR
+    for _noisy in ('urllib3.connectionpool', 'urllib3.connection', 'urllib3.util.retry'):
+        logging.getLogger(_noisy).setLevel(logging.ERROR)
+
+    # urllib3 默认连接重试 4 次，RemoteDisconnected 重试无意义，限制到 1 次
+    import urllib3
+    urllib3.Retry.DEFAULT = urllib3.Retry(total=1, read=0, connect=1, redirect=3)
+
+    # 抑制 LiteLLM 的 DEBUG 日志（LITELLM_LOG 环境变量在新版本中效果有限，直接控制 logger）
+    os.environ.setdefault("LITELLM_LOG", "WARNING")
+    _suppress_logger_tree("litellm", logging.WARNING)
 
     # 输出初始化完成信息（使用相对路径）
     try:

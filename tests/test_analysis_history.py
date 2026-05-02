@@ -170,6 +170,48 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             payload = json.loads(row.raw_result or "{}")
             self.assertEqual(payload.get("model_used"), "gemini/gemini-2.0-flash")
 
+    def test_save_analysis_history_persists_analysis_metadata(self) -> None:
+        """Agent route/runtime metadata should be kept in raw_result for later audit."""
+        result = self._build_result()
+        result.analysis_metadata = {
+            "agent_route": {
+                "used_agent": True,
+                "selection_source": "auto",
+                "reasons": ["core_data_gap"],
+                "arch": "multi",
+                "mode": "standard",
+            },
+            "agent_runtime": {
+                "total_steps": 4,
+                "total_tokens": 512,
+                "stage_results": [
+                    {"stage_name": "technical", "status": "completed"},
+                    {"stage_name": "decision", "status": "completed"},
+                ],
+            },
+        }
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="query_003_meta",
+            report_type="simple",
+            news_content="新闻摘要",
+            context_snapshot=None,
+            save_snapshot=False
+        )
+        self.assertEqual(saved, 1)
+
+        with self.db.get_session() as session:
+            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == "query_003_meta").first()
+            if row is None:
+                self.fail("未找到保存的历史记录")
+            payload = json.loads(row.raw_result or "{}")
+            self.assertEqual(payload.get("analysis_metadata", {}).get("agent_route", {}).get("reasons"), ["core_data_gap"])
+            self.assertEqual(
+                payload.get("analysis_metadata", {}).get("agent_runtime", {}).get("stage_results", [])[0].get("stage_name"),
+                "technical",
+            )
+
     def test_history_detail_hides_placeholder_model_used(self) -> None:
         """Placeholder model values should be normalized to None in detail response."""
         result = self._build_result()

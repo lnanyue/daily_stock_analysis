@@ -68,8 +68,7 @@ class PortfolioAgent(BaseAgent):
             "5. **Portfolio Risk Score** — 1-10 scale.\n"
             "6. **Rebalance Suggestions** — trim/add recommendations.\n\n"
             "## Output format\n"
-            "Return a single JSON object:\n"
-            "```json\n"
+            "Return a single JSON object (no markdown fences):\n"
             "{\n"
             '  "portfolio_risk_score": 6,\n'
             '  "total_stocks": 5,\n'
@@ -83,7 +82,6 @@ class PortfolioAgent(BaseAgent):
             '  "rebalance_suggestions": ["Trim 000858, add defensive sector exposure"],\n'
             '  "summary": "Portfolio is moderately concentrated ..."\n'
             "}\n"
-            "```\n"
         )
 
     def build_user_message(self, ctx: AgentContext) -> str:

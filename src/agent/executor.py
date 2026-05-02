@@ -48,6 +48,7 @@ class AgentResult:
     provider: str = ""
     model: str = ""                            # comma-separated models used (supports fallback)
     error: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -509,9 +510,29 @@ class AgentExecutor:
         )
 
         model_str = loop_result.model
+        runtime_metadata = {
+            "agent_runtime": {
+                "arch": "single",
+                "success": bool(loop_result.success),
+                "provider": loop_result.provider,
+                "model": model_str,
+                "total_steps": loop_result.total_steps,
+                "total_tokens": loop_result.total_tokens,
+                "tool_call_count": len(loop_result.tool_calls_log or []),
+                "max_steps": self.max_steps,
+                "timed_out": bool(loop_result.error and "timed out" in str(loop_result.error).lower()),
+            }
+        }
+        if self.timeout_seconds is not None:
+            runtime_metadata["agent_runtime"]["timeout_seconds"] = self.timeout_seconds
+        if loop_result.error:
+            runtime_metadata["agent_runtime"]["error"] = loop_result.error
 
         if parse_dashboard and loop_result.success:
             dashboard = parse_dashboard_json(loop_result.content)
+            runtime_metadata["agent_runtime"]["success"] = dashboard is not None
+            if dashboard is None:
+                runtime_metadata["agent_runtime"]["error"] = "Failed to parse dashboard JSON from agent response"
             return AgentResult(
                 success=dashboard is not None,
                 content=loop_result.content,
@@ -522,6 +543,7 @@ class AgentExecutor:
                 provider=loop_result.provider,
                 model=model_str,
                 error=None if dashboard else "Failed to parse dashboard JSON from agent response",
+                metadata=runtime_metadata,
             )
 
         return AgentResult(
@@ -534,6 +556,7 @@ class AgentExecutor:
             provider=loop_result.provider,
             model=model_str,
             error=loop_result.error,
+            metadata=runtime_metadata,
         )
 
     def _build_user_message(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:

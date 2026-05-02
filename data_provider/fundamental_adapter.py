@@ -261,6 +261,41 @@ def _extract_latest_row(df: pd.DataFrame, stock_code: str) -> Optional[pd.Series
     return df.iloc[0]
 
 
+def _pivot_financial_abstract(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transpose stock_financial_abstract format (indicators as rows, dates as columns)
+    into standard format (dates as rows, indicators as columns).
+
+    Input:
+        选项 | 指标        | 20260331   | 20251231   | ...
+        常用指标 | 归母净利润   | 1.26e10    | 4.39e10    | ...
+        常用指标 | 净资产收益率(ROE) | ...    | ...        | ...
+
+    Output:
+        报告期     | 归母净利润 | 净资产收益率(ROE) | ...
+        20260331  | 1.26e10  | ...            | ...
+    """
+    if df is None or df.empty or "指标" not in df.columns:
+        return df
+
+    skip_cols = {"选项", "指标"}
+    date_cols = [c for c in df.columns if c not in skip_cols]
+    if not date_cols:
+        return df
+
+    rows = []
+    for date_col in date_cols:
+        row = {"报告期": date_col}
+        for _, r in df.iterrows():
+            indicator = str(r.get("指标", ""))
+            row[indicator] = r.get(date_col)
+        rows.append(row)
+
+    result = pd.DataFrame(rows)
+    result = result.sort_values("报告期", ascending=False).reset_index(drop=True)
+    return result
+
+
 class AkshareFundamentalAdapter:
     """AkShare adapter for fundamentals, capital flow and dragon-tiger signals."""
 
@@ -401,6 +436,7 @@ class AkshareFundamentalAdapter:
             ("stock_financial_analysis_indicator", {}),
         ])
         result["errors"].extend(fin_errors)
+        fin_df = _pivot_financial_abstract(fin_df)
         if fin_df is not None:
             row = _extract_latest_row(fin_df, stock_code)
             if row is not None:

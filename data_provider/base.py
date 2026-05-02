@@ -83,12 +83,16 @@ class BaseFetcher(ABC):
             
         except Exception as e:
             _, error_reason = summarize_exception(e)
-            logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            # DataFetchError 通常是预期异常（不支持该市场、积分不足等），非系统错误
+            if isinstance(e, DataFetchError):
+                logger.warning(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            else:
+                logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
             raise DataFetchError(f"[{self.name}] {stock_code}: {error_reason}") from e
 
     def get_daily_data(
         self,
-        stock_code: str, 
+        stock_code: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         days: int = 30
@@ -115,9 +119,12 @@ class BaseFetcher(ABC):
             
         except Exception as e:
             _, error_reason = summarize_exception(e)
-            logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            if isinstance(e, DataFetchError):
+                logger.warning(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            else:
+                logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
             raise DataFetchError(f"[{self.name}] {stock_code}: {error_reason}") from e
-    
+
     def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """数据清洗"""
         df = df.copy()

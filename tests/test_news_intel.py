@@ -48,7 +48,7 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         return SearchResponse(
             query="贵州茅台 最新消息",
             results=results,
-            provider="Bocha",
+            provider="Tavily",
             success=True,
         )
 

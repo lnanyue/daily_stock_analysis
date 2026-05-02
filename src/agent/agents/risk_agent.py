@@ -37,25 +37,27 @@ class RiskAgent(BaseAgent):
 
     def system_prompt(self, ctx: AgentContext) -> str:
         return """\
-You are a **Risk Screening Agent** focused exclusively on identifying \
-risks and red flags for the given stock.
-
-Your task: search for and evaluate ALL potential risk factors, then \
-output a structured JSON risk assessment.
+You are a **Risk Screening Agent**. Identify all risk factors and output a JSON assessment.
 
 ## Mandatory Risk Checks
-1. **Insider / Major Shareholder Activity** — sell-downs (减持), pledges
-2. **Earnings Warnings** — pre-loss, downward revisions (业绩预亏, 业绩变脸)
-3. **Regulatory** — penalties, investigations, violations (监管处罚, 立案调查)
-4. **Industry Policy** — headwinds, sector crackdowns
-5. **Lock-up Expirations** — large block unlocks within 30 days (解禁)
-6. **Valuation Extremes** — PE > 100 or negative, PB > 10 (flag as anomaly)
-7. **Technical Warning Signs** — death crosses, breaking key supports
+1. Insider / Major Shareholder — sell-downs (减持), pledges
+2. Earnings — pre-loss, downward revisions (业绩预亏)
+3. Regulatory — penalties, investigations (监管处罚, 立案调查)
+4. Industry Policy — headwinds, sector crackdowns
+5. Lock-up Expirations — large unlocks within 30 days (解禁)
+6. Valuation Extremes — PE > 100 or negative, PB > 10
+7. Technical Warning Signs — death crosses, broken supports
 
-## Severity Levels
-- "high": existential or material risk (lawsuits, fraud, massive insider selling)
-- "medium": significant concern (earnings miss, lock-up, sector headwind)
-- "low": minor or informational (analyst downgrade, minor insider sale)
+## Severity
+- "high": existential or material (fraud, massive insider selling)
+- "medium": significant (earnings miss, lock-up, sector headwind)
+- "low": minor or informational
+
+## Evidence Policy
+- If structured Intel data is already provided, treat it as the primary evidence set.
+- Only call `search_stock_news` when one or more mandatory risk checks still lacks
+  dated, source-backed evidence, or when you need to confirm a very recent breaking risk.
+- Reuse dates and sources from upstream Intel items instead of paraphrasing them away.
 
 ## Output Format
 Return **only** a JSON object:
@@ -70,13 +72,8 @@ Return **only** a JSON object:
       "source": "Where this information came from"
     }
   ],
-  "veto_buy": true|false,
-  "reasoning": "2-3 sentence overall risk assessment",
-  "signal_adjustment": "none|downgrade_one|downgrade_two|veto"
+  "reasoning": "2-3 sentence overall risk assessment"
 }
-
-Important: be thorough but factual. Only flag risks backed by evidence \
-from your search results. Do NOT invent risks.
 """
 
     def build_user_message(self, ctx: AgentContext) -> str:
@@ -84,7 +81,10 @@ from your search results. Do NOT invent risks.
         if ctx.stock_name:
             parts[0] += f" ({ctx.stock_name})"
         parts.append("for ALL risk factors listed in your instructions.")
-        parts.append("Search for latest news if you haven't received intel data yet.")
+        parts.append(
+            "Use existing Intel evidence first. Only search for latest news when a mandatory"
+            " risk category is still missing dated, source-backed support."
+        )
 
         # Feed any existing intel data so the risk agent doesn't redo searches
         if ctx.get_data("intel_opinion"):
@@ -125,4 +125,3 @@ def _risk_to_signal(risk_level: str) -> str:
         "high": "strong_sell",
     }
     return mapping.get(risk_level, "hold")
-

@@ -54,6 +54,7 @@ from src.schemas.storage_models import (
     AnalysisHistory,
     BacktestResult,
     BacktestSummary,
+    ConversationMessage,
     LLMUsage,
     FundamentalSnapshot,
     NewsIntel,
@@ -220,6 +221,100 @@ class DatabaseManager:
                 select(StockDaily.date).order_by(desc(StockDaily.date)).limit(1)
             ).scalar()
             return result
+
+    def save_conversation_message(self, session_id: str, role: str, content: str) -> int:
+        """Persist a single Agent chat message."""
+        def _operation(session: Session) -> int:
+            record = ConversationMessage(
+                session_id=str(session_id or "").strip(),
+                role=str(role or "").strip() or "user",
+                content=str(content or ""),
+            )
+            session.add(record)
+            session.flush()
+            return int(record.id or 0)
+
+        return self._run_write_transaction("save_conversation_message", _operation)
+
+    def get_conversation_history(self, session_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Load a session's chat history ordered from oldest to newest."""
+        clean_session_id = str(session_id or "").strip()
+        if not clean_session_id:
+            return []
+
+        with self.get_session() as session:
+            query = (
+                select(ConversationMessage)
+                .where(ConversationMessage.session_id == clean_session_id)
+                .order_by(ConversationMessage.created_at.asc(), ConversationMessage.id.asc())
+            )
+            if limit and limit > 0:
+                query = query.limit(int(limit))
+            records = session.execute(query).scalars().all()
+            return [
+                {
+                    "role": record.role,
+                    "content": record.content,
+                }
+                for record in records
+            ]
+
+    def get_chat_sessions(
+        self,
+        session_prefix: str,
+        *,
+        extra_session_ids: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List recent chat sessions under a user/session prefix.
+
+        Matching keeps the prefix scoped by a colon boundary so ``abc`` does not
+        accidentally match ``abcd``.
+        """
+        normalized_prefix = str(session_prefix or "").strip()
+        if not normalized_prefix:
+            return []
+
+        exact_ids = {
+            session_id.strip()
+            for session_id in (extra_session_ids or [])
+            if isinstance(session_id, str) and session_id.strip()
+        }
+        if normalized_prefix.endswith(":"):
+            base_prefix = normalized_prefix[:-1]
+            like_pattern = normalized_prefix + "%"
+        else:
+            base_prefix = normalized_prefix
+            like_pattern = normalized_prefix + ":%"
+
+        conditions = [
+            ConversationMessage.session_id == base_prefix,
+            ConversationMessage.session_id.like(like_pattern),
+        ]
+        for session_id in exact_ids:
+            conditions.append(ConversationMessage.session_id == session_id)
+
+        with self.get_session() as session:
+            query = (
+                select(
+                    ConversationMessage.session_id.label("session_id"),
+                    func.max(ConversationMessage.created_at).label("last_message_at"),
+                )
+                .where(or_(*conditions))
+                .group_by(ConversationMessage.session_id)
+                .order_by(desc("last_message_at"))
+            )
+            if limit and limit > 0:
+                query = query.limit(int(limit))
+
+            rows = session.execute(query).all()
+            return [
+                {
+                    "session_id": row.session_id,
+                    "last_message_at": row.last_message_at,
+                }
+                for row in rows
+            ]
 
     def save_daily_data(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
         """批量保存日线数据；返回本次真正新增的行数。"""

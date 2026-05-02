@@ -203,16 +203,9 @@ class Config:
     anthropic_api_key: Optional[str] = None
     openai_api_keys: List[str] = field(default_factory=list)
     deepseek_api_keys: List[str] = field(default_factory=list)
-    bocha_api_keys: List[str] = field(default_factory=list)
-    minimax_api_keys: List[str] = field(default_factory=list)
     tavily_api_keys: List[str] = field(default_factory=list)
-    exa_api_keys: List[str] = field(default_factory=list)
-    serpapi_keys: List[str] = field(default_factory=list)
-    brave_api_keys: List[str] = field(default_factory=list)
     openbb_news_enabled: bool = False
     openbb_news_provider: str = "yfinance"
-    openbb_fetcher_enabled: bool = False
-    openbb_fetcher_provider: str = "yfinance"
 
     feishu_app_id: Optional[str] = None
     feishu_app_secret: Optional[str] = None
@@ -226,8 +219,6 @@ class Config:
     anthropic_model: str = "claude-3-5-sonnet-20241022"
     social_sentiment_api_key: Optional[str] = None
     social_sentiment_api_url: str = "https://api.adanos.org"
-    searxng_base_urls: List[str] = field(default_factory=list)
-    searxng_public_instances_enabled: bool = False
 
     _instance: Optional["Config"] = None
 
@@ -293,7 +284,7 @@ class Config:
             elif anthropic_keys:
                 litellm_model = f"anthropic/{(os.getenv('ANTHROPIC_MODEL') or 'claude-3-5-sonnet-20241022').strip()}"
             elif deepseek_keys:
-                litellm_model = "deepseek/deepseek-chat"
+                litellm_model = "deepseek/deepseek-v4-flash"
             elif openai_keys:
                 openai_model_name = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
                 litellm_model = openai_model_name if "/" in openai_model_name else f"openai/{openai_model_name}"
@@ -568,11 +559,6 @@ class Config:
                 field_name="SQLITE_WRITE_RETRY_BASE_DELAY",
                 minimum=0.0,
             ),
-            searxng_base_urls=[u.strip() for u in os.getenv("SEARXNG_BASE_URLS", "").split(",") if u.strip()],
-            searxng_public_instances_enabled=parse_env_bool(
-                os.getenv("SEARXNG_PUBLIC_INSTANCES_ENABLED"),
-                default=False,
-            ),
             litellm_model=litellm_model,
             litellm_fallback_models=litellm_fallback_models,
             litellm_config_path=litellm_config_path,
@@ -612,22 +598,12 @@ class Config:
             anthropic_api_key=anthropic_keys[0] if anthropic_keys else None,
             openai_api_keys=openai_keys,
             deepseek_api_keys=deepseek_keys,
-            bocha_api_keys=_get_keys("BOCHA_API_KEYS", "BOCHA_API_KEY"),
-            minimax_api_keys=_get_keys("MINIMAX_API_KEYS", "MINIMAX_API_KEY"),
             tavily_api_keys=_get_keys("TAVILY_API_KEYS", "TAVILY_API_KEY"),
-            exa_api_keys=_get_keys("EXA_API_KEYS", "EXA_API_KEY"),
-            serpapi_keys=_get_keys("SERPAPI_API_KEYS", "SERPAPI_API_KEY"),
-            brave_api_keys=_get_keys("BRAVE_API_KEYS", "BRAVE_API_KEY"),
             openbb_news_enabled=parse_env_bool(
                 os.getenv("OPENBB_NEWS_ENABLED"),
                 default=False,
             ),
             openbb_news_provider=(os.getenv("OPENBB_NEWS_PROVIDER") or "yfinance").strip() or "yfinance",
-            openbb_fetcher_enabled=parse_env_bool(
-                os.getenv("OPENBB_FETCHER_ENABLED"),
-                default=False,
-            ),
-            openbb_fetcher_provider=(os.getenv("OPENBB_FETCHER_PROVIDER") or "yfinance").strip() or "yfinance",
             feishu_app_id=os.getenv("FEISHU_APP_ID"),
             feishu_app_secret=os.getenv("FEISHU_APP_SECRET"),
             feishu_folder_token=os.getenv("FEISHU_FOLDER_TOKEN"),
@@ -924,17 +900,11 @@ class Config:
             issues.append(ConfigIssue("warning", "未配置通知渠道，分析结果将不会自动推送。", field="WECHAT_WEBHOOK_URL"))
 
         has_search = bool(
-            self.bocha_api_keys
-            or self.minimax_api_keys
-            or self.tavily_api_keys
-            or self.exa_api_keys
-            or self.brave_api_keys
-            or self.serpapi_keys
+            self.tavily_api_keys
             or self.openbb_news_enabled
-            or self.has_searxng_enabled()
         )
         if not has_search:
-            issues.append(ConfigIssue("info", "搜索引擎未配置，新闻检索能力将受限。", field="BOCHA_API_KEYS"))
+            issues.append(ConfigIssue("info", "搜索引擎未配置，新闻检索能力将受限。", field="TAVILY_API_KEYS"))
 
         return issues
 
@@ -945,19 +915,10 @@ class Config:
     def reset_instance(cls) -> None:
         cls._instance = None
 
-    def has_searxng_enabled(self) -> bool:
-        return bool(self.searxng_base_urls or self.searxng_public_instances_enabled)
-
     def has_search_capability_enabled(self) -> bool:
         return bool(
-            self.bocha_api_keys
-            or self.minimax_api_keys
-            or self.tavily_api_keys
-            or self.exa_api_keys
-            or self.brave_api_keys
-            or self.serpapi_keys
+            self.tavily_api_keys
             or self.openbb_news_enabled
-            or self.has_searxng_enabled()
         )
 
     def is_agent_available(self) -> bool:

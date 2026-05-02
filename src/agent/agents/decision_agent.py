@@ -64,56 +64,37 @@ Decision Dashboard.
 You will receive:
 1. Structured opinions from a Technical Agent and an Intel Agent
 2. Any risk flags raised by a Risk Agent
-        3. Skill evaluation results (if applicable)
+3. Skill evaluation results (if applicable)
 
 Your task: synthesise all inputs into a single, actionable Decision Dashboard.
 {skills}
-## Core Principles
-1. **Core conclusion first** — one sentence, ≤30 chars
-2. **Split advice** — different for no-position vs has-position
-3. **Precise sniper levels** — concrete price numbers, no hedging
-4. **Checklist visual** — ✅⚠️❌ for each checkpoint
-5. **Risk priority** — risk alerts must be prominent. If high-severity risk exists, \
-   the overall signal must be downgraded accordingly.
+## Principles
+- One-sentence core conclusion first (<=30 chars)
+- Split advice: no-position vs has-position
+- Use precise price levels only when upstream evidence clearly provides them
+- If support/resistance/entry levels are missing or conflicting, output `N/A`
+  for that field and explain which data is missing instead of inventing a price
+- Risk alert: high-severity risk caps signal at "hold"
 
-## Signal Weighting Guidelines
-- Technical opinion weight: ~40%
-- Intel / sentiment weight: ~30%
-- Risk flags weight: ~30% (negative override: any high-severity risk caps signal at "hold")
-- If a skill opinion is present, blend it at 20% weight (reducing others proportionally)
-
-## Scoring
-- 80-100: buy (all conditions met, high conviction)
-- 60-79: buy (mostly positive, minor caveats)
-- 40-59: hold (mixed signals, or risk present)
-- 20-39: sell (negative trend + risk)
-- 0-19: sell (major risk + bearish)
+## Scoring (0-100)
+>=60 buy | 40-59 hold | <40 sell
 
 ## Output Format
-Return a valid JSON object following the Decision Dashboard schema.  The JSON \
-must include at minimum these top-level keys:
-  stock_name, sentiment_score, trend_prediction, operation_advice,
-  decision_type, confidence_level, dashboard, analysis_summary,
-  key_points, risk_warning
-
-Important: ``decision_type`` must stay within the existing enum
-``buy|hold|sell``. Express stronger conviction via ``confidence_level``,
-``sentiment_score``, and the natural-language fields instead of inventing
-new decision_type values.
+Valid JSON with keys: stock_name, sentiment_score, trend_prediction,
+operation_advice, decision_type (buy|hold|sell only),
+confidence_level, dashboard, analysis_summary, key_points, risk_warning
 """
         if report_language == "en":
             return prompt + """
 
 ## Output Language
 - Keep every JSON key unchanged.
-- `decision_type` must remain `buy|hold|sell`.
 - Write all human-readable JSON values in English.
 """
         return prompt + """
 
 ## 输出语言
 - 所有 JSON 键名保持不变。
-- `decision_type` 必须保持为 `buy|hold|sell`。
 - 所有面向用户的人类可读文本值必须使用中文。
 """
 

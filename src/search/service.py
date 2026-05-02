@@ -20,14 +20,9 @@ from src.config import (
 from .types import SearchResult, SearchResponse
 from .base_provider import BaseSearchProvider
 from .providers import (
-    BochaSearchProvider,
     TavilySearchProvider,
-    ExaSearchProvider,
-    BraveSearchProvider,
-    SerpAPISearchProvider,
-    MiniMaxSearchProvider,
-    SearXNGSearchProvider,
     OpenBBNewsProvider,
+    AkshareNewsProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,14 +63,7 @@ class SearchService:
     
     def __init__(
         self,
-        bocha_keys: Optional[List[str]] = None,
         tavily_keys: Optional[List[str]] = None,
-        exa_keys: Optional[List[str]] = None,
-        brave_keys: Optional[List[str]] = None,
-        serpapi_keys: Optional[List[str]] = None,
-        minimax_keys: Optional[List[str]] = None,
-        searxng_base_urls: Optional[List[str]] = None,
-        searxng_public_instances_enabled: bool = False,
         openbb_news_enabled: bool = False,
         openbb_news_provider: str = "yfinance",
         news_max_age_days: int = 3,
@@ -99,39 +87,18 @@ class SearchService:
             NEWS_STRATEGY_WINDOWS["short"],
         )
 
-        if bocha_keys:
-            self._providers.append(BochaSearchProvider(bocha_keys))
-            logger.info(f"已配置 Bocha 搜索，共 {len(bocha_keys)} 个 API Key")
-        if exa_keys:
-            self._providers.append(ExaSearchProvider(exa_keys))
-            logger.info(f"已配置 Exa 搜索，共 {len(exa_keys)} 个 API Key")
         if tavily_keys:
             self._providers.append(TavilySearchProvider(tavily_keys))
             logger.info(f"已配置 Tavily 搜索，共 {len(tavily_keys)} 个 API Key")
-        if brave_keys:
-            self._providers.append(BraveSearchProvider(brave_keys))
-            logger.info(f"已配置 Brave 搜索，共 {len(brave_keys)} 个 API Key")
-        if serpapi_keys:
-            self._providers.append(SerpAPISearchProvider(serpapi_keys))
-            logger.info(f"已配置 SerpAPI 搜索，共 {len(serpapi_keys)} 个 API Key")
-        if minimax_keys:
-            self._providers.append(MiniMaxSearchProvider(minimax_keys))
-            logger.info(f"已配置 MiniMax 搜索，共 {len(minimax_keys)} 个 API Key")
         if openbb_news_enabled:
             self._providers.append(OpenBBNewsProvider(provider=openbb_news_provider))
             logger.info("已启用 OpenBB 公司新闻源，provider=%s", openbb_news_provider or "yfinance")
-        if searxng_base_urls or searxng_public_instances_enabled:
-            self._providers.append(
-                SearXNGSearchProvider(
-                    base_urls=searxng_base_urls or [],
-                    use_public_instances=searxng_public_instances_enabled,
-                )
-            )
-            logger.info(
-                "已配置 SearXNG 搜索，自建实例=%s，公共实例=%s",
-                len(searxng_base_urls or []),
-                searxng_public_instances_enabled,
-            )
+        try:
+            import akshare  # noqa: F401
+            self._providers.append(AkshareNewsProvider(enabled=True))
+            logger.info("已启用 AkShare 东方财富新闻源")
+        except ImportError:
+            logger.debug("AkShare 未安装，跳过东方财富新闻源")
 
         if not self._providers:
             logger.warning("未配置任何搜索能力，新闻搜索功能将不可用")
@@ -178,13 +145,6 @@ class SearchService:
     @property
     def is_available(self) -> bool:
         return any(p.is_available for p in self._providers)
-
-    def _has_multiple_searxng_calls(self, dimensions: List[Dict], max_searches: int) -> bool:
-        available_providers = [p for p in self._providers if p.is_available]
-        if not available_providers:
-            return False
-        has_searxng = any(p.name == "SearXNG" for p in available_providers)
-        return has_searxng and min(len(dimensions), max_searches) > 1
 
     def _cache_key(self, query: str, max_results: int, days: int) -> str:
         return f"{query}|{max_results}|{days}"
@@ -803,12 +763,6 @@ class SearchService:
             
             provider = available_providers[provider_index % len(available_providers)]
             provider_index += 1
-            
-            if provider.name == "SearXNG" and self._has_multiple_searxng_calls(search_dimensions, max_searches):
-                import random
-                delay = random.uniform(1.5, 3.5)
-                logger.debug(f"[SearXNG] 为避免频率限制，搜索前休眠 {delay:.1f} 秒...")
-                time.sleep(delay)
 
             logger.info(f"[情报搜索] {dim['desc']}: 使用 {provider.name}")
 
@@ -1017,14 +971,7 @@ def get_search_service() -> SearchService:
         config = get_config()
         
         _search_service = SearchService(
-            bocha_keys=config.bocha_api_keys,
-            exa_keys=config.exa_api_keys,
             tavily_keys=config.tavily_api_keys,
-            brave_keys=config.brave_api_keys,
-            serpapi_keys=config.serpapi_keys,
-            minimax_keys=config.minimax_api_keys,
-            searxng_base_urls=getattr(config, "searxng_base_urls", []),
-            searxng_public_instances_enabled=getattr(config, "searxng_public_instances_enabled", False),
             openbb_news_enabled=getattr(config, "openbb_news_enabled", False),
             openbb_news_provider=getattr(config, "openbb_news_provider", "yfinance"),
             news_max_age_days=config.news_max_age_days,

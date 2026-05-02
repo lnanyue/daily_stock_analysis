@@ -190,3 +190,119 @@ class TestMarketAnalyzerBypassFix:
         assert "下跌: 1900" in prompt
         assert "涨停: 72" in prompt
         assert "成交额: 11234.56 亿元" in prompt
+
+    def test_cn_prompt_uses_seven_section_market_review_contract(self):
+        """A-share market review prompt should preserve the main-branch report shape."""
+        from src.market_analyzer import MarketAnalyzer, MarketAnalysisContext
+        from src.core.market_strategy import get_market_strategy_blueprint
+
+        ma = MarketAnalyzer.__new__(MarketAnalyzer)
+        ma.region = "cn"
+        context = MarketAnalysisContext(
+            region="cn",
+            date="2026-03-28",
+            indices=[
+                {
+                    "name": "上证指数",
+                    "current": 3913.72,
+                    "change_pct": 0.63,
+                    "amount": 7997 * 100_000_000,
+                },
+                {
+                    "name": "深证成指",
+                    "current": 13760.37,
+                    "change_pct": 1.13,
+                    "amount": 10536 * 100_000_000,
+                },
+            ],
+            stats={
+                "up_count": 4337,
+                "down_count": 1073,
+                "flat_count": 70,
+                "limit_up_count": 94,
+                "limit_down_count": 5,
+                "total_amount": 18638,
+            },
+            sector_rankings={
+                "top": [{"name": "锂", "change_pct": 8.88}],
+                "bottom": [{"name": "风力发电", "change_pct": -2.13}],
+            },
+            strategy_blueprint=get_market_strategy_blueprint("cn"),
+        )
+
+        prompt = ma._build_prompt(context)
+
+        for title in [
+            "### 一、市场总结",
+            "### 二、指数点评",
+            "### 三、资金动向",
+            "### 四、热点解读",
+            "### 五、后市展望",
+            "### 六、风险提示",
+            "### 七、策略计划",
+        ]:
+            assert title in prompt
+
+        assert "📈 上涨 4337 家 / 下跌 1073 家 / 平盘 70 家 | 涨停 94 / 跌停 5 | 成交额 18638 亿" in prompt
+        assert "| 指数 | 最新 | 涨跌幅 | 成交额(亿) |" in prompt
+        assert "| 上证指数 | 3913.72 | 🟢 +0.63% | 7997 |" in prompt
+        assert "🔥 领涨: 锂(+8.88%)" in prompt
+        assert "💧 领跌: 风力发电(-2.13%)" in prompt
+        assert "市场状态" in prompt
+        assert "仓位建议" in prompt
+        assert "失效条件" in prompt
+        assert "> 建议仅供参考，不构成投资建议。" in prompt
+
+    def test_cn_fallback_report_uses_structured_market_review_contract(self):
+        """Fallback report should still look like the desired A-share recap."""
+        from src.market_analyzer import MarketAnalyzer, MarketAnalysisContext
+
+        ma = MarketAnalyzer.__new__(MarketAnalyzer)
+        ma.region = "cn"
+        context = MarketAnalysisContext(
+            region="cn",
+            date="2026-03-28",
+            indices=[
+                {
+                    "name": "创业板指",
+                    "current": 3295.88,
+                    "change_pct": 0.71,
+                    "amount": 4636 * 100_000_000,
+                }
+            ],
+            stats={
+                "up": 4337,
+                "down": 1073,
+                "flat": 70,
+                "limit_up": 94,
+                "limit_down": 5,
+                "volume_total": 18638,
+            },
+            sector_rankings={
+                "top": [{"name": "能源金属", "change_pct": 7.36}],
+                "bottom": [{"name": "水力发电", "change_pct": -1.37}],
+            },
+        )
+
+        report = ma._generate_fallback_report(context)
+
+        for title in [
+            "### 一、市场总结",
+            "### 二、指数点评",
+            "### 三、资金动向",
+            "### 四、热点解读",
+            "### 五、后市展望",
+            "### 六、风险提示",
+            "### 七、策略计划",
+        ]:
+            assert title in report
+
+        assert "## 2026-03-28 大盘复盘" in report
+        assert "📈 上涨 4337 家 / 下跌 1073 家 / 平盘 70 家 | 涨停 94 / 跌停 5 | 成交额 18638 亿" in report
+        assert "| 指数 | 最新 | 涨跌幅 | 成交额(亿) |" in report
+        assert "🔥 领涨: 能源金属(+7.36%)" in report
+        assert "💧 领跌: 水力发电(-1.37%)" in report
+        assert "市场状态：" in report
+        assert "仓位建议：" in report
+        assert "失效条件：" in report
+        assert "> 建议仅供参考，不构成投资建议。" in report

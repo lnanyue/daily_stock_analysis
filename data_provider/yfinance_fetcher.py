@@ -16,6 +16,7 @@ YfinanceFetcher - 兜底数据源 (Priority 4)
 
 import csv
 import logging
+import time
 from datetime import datetime
 from io import StringIO
 from typing import Optional, List, Dict, Any
@@ -52,6 +53,40 @@ except (ImportError, ModuleNotFoundError):
 import os
 
 logger = logging.getLogger(__name__)
+
+# 模块级 rate-limit 控制
+# -----------------------
+# 1. 请求间隔控制：主动降低频率，避免触发限流
+# 2. 熔断机制：一旦检测到限流，同进程后续请求直接跳过 yfinance
+_yf_last_request: float = 0.0
+YF_REQUEST_INTERVAL = float(os.getenv("YF_REQUEST_INTERVAL", "1.5"))  # 最小请求间隔（秒）
+_yf_rate_limited: bool = False
+
+
+def _yf_throttle() -> None:
+    """在每次 yfinance API 调用前执行，确保请求间隔不低于 YF_REQUEST_INTERVAL。"""
+    global _yf_last_request
+    elapsed = time.time() - _yf_last_request
+    if elapsed < YF_REQUEST_INTERVAL:
+        time.sleep(YF_REQUEST_INTERVAL - elapsed)
+    _yf_last_request = time.time()
+
+
+def _is_yf_rate_limited() -> bool:
+    return _yf_rate_limited
+
+
+def _set_yf_rate_limited() -> None:
+    global _yf_rate_limited
+    if not _yf_rate_limited:
+        _yf_rate_limited = True
+        logger.info("[Yfinance] 检测到 API 限流，本轮后续请求跳过 yfinance")
+
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    """判断异常是否为 Yahoo Finance 限流/封禁。"""
+    msg = str(e).lower()
+    return any(kw in msg for kw in ["rate limited", "too many requests", "429", "yf_ratelimiterror"])
 
 
 class YfinanceFetcher(BaseFetcher):
@@ -148,14 +183,14 @@ class YfinanceFetcher(BaseFetcher):
         elif code.startswith(('000', '002', '300')):
             return f"{code}.SZ"
         else:
-            logger.warning("无法确定股票 %s 的市场，默认使用深市", code)
+            logger.info("无法确定股票 %s 的市场，默认使用深市", code)
             return f"{code}.SZ"
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
+        before_sleep=before_sleep_log(logger, logging.DEBUG),
     )
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -168,6 +203,9 @@ class YfinanceFetcher(BaseFetcher):
         2. 调用 yfinance API
         3. 处理返回数据
         """
+        if _is_yf_rate_limited():
+            raise DataFetchError("Yfinance 已被限流，跳过")
+
         import yfinance as yf
 
         # 转换代码格式
@@ -175,6 +213,7 @@ class YfinanceFetcher(BaseFetcher):
 
         logger.debug("调用 yfinance.download(%s, %s, %s)", yf_code, start_date, end_date)
 
+        _yf_throttle()
         try:
             # 使用 yfinance 下载数据
             df = yf.download(
@@ -198,9 +237,12 @@ class YfinanceFetcher(BaseFetcher):
 
             return df
 
+        except DataFetchError:
+            raise
         except Exception as e:
-            if isinstance(e, DataFetchError):
-                raise
+            # YFRateLimitError 从国内访问必现（Yahoo 被墙），设置熔断并抛异常
+            if _is_rate_limit_error(e):
+                _set_yf_rate_limited()
             raise DataFetchError(f"Yahoo Finance 获取数据失败: {e}") from e
 
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
@@ -275,6 +317,7 @@ class YfinanceFetcher(BaseFetcher):
         Returns:
             行情字典，失败时返回 None
         """
+        _yf_throttle()
         ticker = yf.Ticker(yf_code)
         # 取近两日数据以计算涨跌幅
         hist = ticker.history(period='2d')
@@ -334,14 +377,14 @@ class YfinanceFetcher(BaseFetcher):
                         results.append(item)
                         logger.debug("[Yfinance] 获取指数 %s 成功", name)
                 except Exception as e:
-                    logger.warning("[Yfinance] 获取指数 %s 失败: %s", name, e)
+                    logger.debug("[Yfinance] 获取指数 %s 失败: %s", name, e)
 
             if results:
                 logger.info("[Yfinance] 成功获取 %s 个 A 股指数行情", len(results))
                 return results
 
         except Exception as e:
-            logger.error("[Yfinance] 获取 A 股指数行情失败: %s", e)
+            logger.info("[Yfinance] 获取 A 股指数行情失败: %s", e)
 
         return None
 
@@ -361,14 +404,14 @@ class YfinanceFetcher(BaseFetcher):
                         results.append(item)
                         logger.debug("[Yfinance] 获取美股指数 %s 成功", name)
                 except Exception as e:
-                    logger.warning("[Yfinance] 获取美股指数 %s 失败: %s", name, e)
+                    logger.debug("[Yfinance] 获取美股指数 %s 失败: %s", name, e)
 
             if results:
                 logger.info("[Yfinance] 成功获取 %s 个美股指数行情", len(results))
                 return results
 
         except Exception as e:
-            logger.error("[Yfinance] 获取美股指数行情失败: %s", e)
+            logger.info("[Yfinance] 获取美股指数行情失败: %s", e)
 
         return None
 
@@ -548,8 +591,12 @@ class YfinanceFetcher(BaseFetcher):
         Returns:
             UnifiedRealtimeQuote or None
         """
+        if _is_yf_rate_limited():
+            return None
+
         import yfinance as yf
 
+        _yf_throttle()
         try:
             logger.debug("[Yfinance] 获取美股指数 %s (%s) 实时行情", user_code, yf_symbol)
             ticker = yf.Ticker(yf_symbol)
@@ -568,7 +615,7 @@ class YfinanceFetcher(BaseFetcher):
                 logger.debug("[Yfinance] fast_info 失败，尝试 history 方法")
                 hist = ticker.history(period='2d')
                 if hist.empty:
-                    logger.warning("[Yfinance] 无法获取 %s 的数据", yf_symbol)
+                    logger.debug("[Yfinance] 无法获取 %s 的数据", yf_symbol)
                     return None
                 today = hist.iloc[-1]
                 prev = hist.iloc[-2] if len(hist) > 1 else today
@@ -613,7 +660,9 @@ class YfinanceFetcher(BaseFetcher):
             logger.info("[Yfinance] 获取美股指数 %s 实时行情成功: 价格=%s", user_code, price)
             return quote
         except Exception as e:
-            logger.warning("[Yfinance] 获取美股指数 %s 实时行情失败: %s", user_code, e)
+            if _is_rate_limit_error(e):
+                _set_yf_rate_limited()
+            logger.debug("[Yfinance] 获取美股指数 %s 实时行情失败: %s", user_code, e)
             return None
 
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
@@ -645,6 +694,10 @@ class YfinanceFetcher(BaseFetcher):
             logger.debug("[Yfinance] %s 不是美股，跳过", stock_code)
             return None
 
+        if _is_yf_rate_limited():
+            return None
+
+        _yf_throttle()
         try:
             symbol = stock_code.strip().upper()
             logger.debug("[Yfinance] 获取美股 %s 实时行情", symbol)
@@ -670,7 +723,7 @@ class YfinanceFetcher(BaseFetcher):
                 logger.debug("[Yfinance] fast_info 失败，尝试 history 方法")
                 hist = ticker.history(period='2d')
                 if hist.empty:
-                    logger.warning("[Yfinance] 无法获取 %s 的数据，尝试 Stooq 兜底", symbol)
+                    logger.debug("[Yfinance] 无法获取 %s 的数据，尝试 Stooq 兜底", symbol)
                     return self._get_us_stock_quote_from_stooq(symbol)
 
                 today = hist.iloc[-1]
@@ -729,7 +782,9 @@ class YfinanceFetcher(BaseFetcher):
             return quote
 
         except Exception as e:
-            logger.warning("[Yfinance] 获取美股 %s 实时行情失败: %s，尝试 Stooq 兜底", stock_code, e)
+            if _is_rate_limit_error(e):
+                _set_yf_rate_limited()
+            logger.debug("[Yfinance] 获取美股 %s 实时行情失败: %s，尝试 Stooq 兜底", stock_code, e)
             return self._get_us_stock_quote_from_stooq(stock_code)
 
 

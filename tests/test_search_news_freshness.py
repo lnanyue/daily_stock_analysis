@@ -49,8 +49,6 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         response: SearchResponse | None = None,
     ):
         service = SearchService(
-            bocha_keys=["dummy_key"],
-            searxng_public_instances_enabled=False,
             news_max_age_days=news_max_age_days,
             news_strategy_profile=news_strategy_profile,
         )
@@ -129,8 +127,6 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         fresh = today.isoformat()
 
         service = SearchService(
-            bocha_keys=["dummy_key"],
-            searxng_public_instances_enabled=False,
             news_max_age_days=3,
             news_strategy_profile="short",
         )

@@ -113,6 +113,7 @@ class TushareFetcher(BaseFetcher):
         self._api: Optional[object] = None  # Tushare API 实例
         self.date_list: Optional[List[str]] = None  # 交易日列表缓存（倒序，最新日期在前）
         self._date_list_end: Optional[str] = None  # 缓存对应的截止日期，用于跨日刷新
+        self._quota_exhausted = False  # 积分不足标记，置位后跳过后续所有调用
 
         # 尝试初始化 API
         self._init_api()
@@ -181,7 +182,12 @@ class TushareFetcher(BaseFetcher):
             items = data['items']
             return pd.DataFrame(items, columns=columns)
         except Exception as e:
-            logger.error(f"Tushare API 调用失败 ({api_name}): {e}")
+            # 权限不足/接口名错误是预期错误，调用方会降级处理
+            msg = str(e)
+            if "请指定正确的接口名" in msg or "积分配额" in msg or "权限" in msg or "Event loop is closed" in msg:
+                logger.debug(f"Tushare API 调用失败 ({api_name}): {e}")
+            else:
+                logger.error(f"Tushare API 调用失败 ({api_name}): {e}")
             raise
 
     def _patch_api_endpoint(self, token: str) -> None:
@@ -225,6 +231,11 @@ class TushareFetcher(BaseFetcher):
         text = str(error or "").lower()
         quota_keywords = ("quota", "配额", "权限", "积分", "频率超限", "rate limit")
         return any(keyword in text for keyword in quota_keywords)
+
+    def _check_quota_exhausted(self) -> None:
+        """积分已耗尽则直接跳过，不再发起请求"""
+        if self._quota_exhausted:
+            raise InsufficientQuotaError("Tushare 积分已耗尽，跳过本次请求")
 
     def _query_api_with_timeout(
         self,
@@ -524,6 +535,7 @@ class TushareFetcher(BaseFetcher):
         except Exception as e:
             error_msg = str(e).lower()
             if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                self._quota_exhausted = True
                 logger.warning(f"Tushare 积分配额不足: {e}")
                 raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             raise DataFetchError(f"Tushare 获取数据失败: {e}") from e
@@ -598,6 +610,7 @@ class TushareFetcher(BaseFetcher):
             # 检测积分配额
             if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
                 logger.warning(f"Tushare 积分配额不足: {e}")
+                self._quota_exhausted = True
                 raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
 
             raise DataFetchError(f"Tushare 获取数据失败: {e}") from e
@@ -657,6 +670,7 @@ class TushareFetcher(BaseFetcher):
         Returns:
             股票名称，失败返回 None
         """
+        self._check_quota_exhausted()
         if self._api is None:
             logger.warning("Tushare API 未初始化，无法获取股票名称")
             return None
@@ -709,10 +723,11 @@ class TushareFetcher(BaseFetcher):
         Returns:
             包含 code, name 列的 DataFrame，失败返回 None
         """
+        self._check_quota_exhausted()
         if self._api is None:
             logger.warning("Tushare API 未初始化，无法获取股票列表")
             return None
-        
+
         try:
             # 速率限制检查
             self._check_rate_limit()
@@ -756,6 +771,7 @@ class TushareFetcher(BaseFetcher):
         Returns:
             UnifiedRealtimeQuote 对象，失败返回 None
         """
+        self._check_quota_exhausted()
         if self._api is None:
             return None
 
@@ -863,83 +879,14 @@ class TushareFetcher(BaseFetcher):
         except Exception as e:
             error_msg = str(e).lower()
             if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                self._quota_exhausted = True
                 logger.warning(f"Tushare (旧版) 获取实时行情由于积分配额限制失败: {e}")
                 raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             logger.warning(f"Tushare (旧版) 获取实时行情失败 {stock_code}: {e}")
             return None
 
     def get_main_indices(self, region: str = "cn") -> Optional[List[dict]]:
-        """
-        获取主要指数实时行情 (Tushare Pro)，仅支持 A 股
-        """
-        if region != "cn":
-            return None
-        if self._api is None:
-            return None
-
-        from .realtime_types import safe_float
-
-        # 指数映射：Tushare代码 -> 名称
-        indices_map = {
-            '000001.SH': '上证指数',
-            '399001.SZ': '深证成指',
-            '399006.SZ': '创业板指',
-            '000688.SH': '科创50',
-            '000016.SH': '上证50',
-            '000300.SH': '沪深300',
-        }
-
-        try:
-            self._check_rate_limit()
-
-            # Tushare index_daily 获取历史数据，实时数据需用其他接口或估算
-            # 由于 Tushare 免费用户可能无法获取指数实时行情，这里作为备选
-            # 使用 index_daily 获取最近交易日数据
-
-            end_date = datetime.now().strftime('%Y%m%d')
-            start_date = (datetime.now() - pd.Timedelta(days=5)).strftime('%Y%m%d')
-
-            results = []
-
-            # 批量获取所有指数数据
-            for ts_code, name in indices_map.items():
-                try:
-                    df = self._api.index_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
-                    if df is not None and not df.empty:
-                        row = df.iloc[0] # 最新一天
-
-                        current = safe_float(row['close'])
-                        prev_close = safe_float(row['pre_close'])
-
-                        results.append({
-                            'code': ts_code.split('.')[0], # 兼容 sh000001 格式需转换，这里保持纯数字
-                            'name': name,
-                            'current': current,
-                            'change': safe_float(row['change']),
-                            'change_pct': safe_float(row['pct_chg']),
-                            'open': safe_float(row['open']),
-                            'high': safe_float(row['high']),
-                            'low': safe_float(row['low']),
-                            'prev_close': prev_close,
-                            'volume': safe_float(row['vol']),
-                            'amount': safe_float(row['amount']) * 1000, # 千元转元
-                            'amplitude': 0.0 # Tushare index_daily 不直接返回振幅
-                        })
-                except Exception as e:
-                    logger.debug(f"Tushare 获取指数 {name} 失败: {e}")
-                    continue
-
-            if results:
-                return results
-            else:
-                logger.warning("[Tushare] 未获取到指数行情数据")
-
-        except Exception as e:
-            error_msg = str(e).lower()
-            if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
-                raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
-            logger.error(f"[Tushare] 获取指数行情失败: {e}")
-
+        # Tushare index_daily 接口对指数支持不佳，直接跳过
         return None
 
     def get_market_stats(self) -> Optional[dict]:
@@ -948,6 +895,7 @@ class TushareFetcher(BaseFetcher):
         2000积分 每天访问该接口 ts.pro_api().rt_k 两次
         接口限制见：https://tushare.pro/document/1?doc_id=108
         """
+        self._check_quota_exhausted()
         if self._api is None:
             return None
 
@@ -979,7 +927,7 @@ class TushareFetcher(BaseFetcher):
                         return self._calc_market_stats(df)
                     
                 except Exception as e:
-                    logger.error(f"[Tushare] ts.pro_api().rt_k 尝试获取实时数据失败: {e}")
+                    logger.warning(f"[Tushare] ts.pro_api().rt_k 尝试获取实时数据失败: {e}")
                     return None
             else:
 
@@ -1014,15 +962,16 @@ class TushareFetcher(BaseFetcher):
                     if df is not None and not df.empty:
                         return self._calc_market_stats(df)
                 except Exception as e:
-                    logger.error(f"[Tushare] ts.pro_api().daily 获取数据失败: {e}")
+                    logger.warning(f"[Tushare] ts.pro_api().daily 获取数据失败: {e}")
                     
 
             
         except Exception as e:
             error_msg = str(e).lower()
             if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                self._quota_exhausted = True
                 raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
-            logger.error(f"[Tushare] 获取市场统计失败: {e}")
+            logger.warning(f"[Tushare] 获取市场统计失败: {e}")
 
         return None
     
@@ -1179,6 +1128,7 @@ class TushareFetcher(BaseFetcher):
             return top_sectors, bottom_sectors
 
         # 15:30之后才有当天数据
+        self._check_quota_exhausted()
         start_date = self.get_trade_time(early_time='00:00', late_time='15:30')
         if not start_date:
             return None
@@ -1232,6 +1182,7 @@ class TushareFetcher(BaseFetcher):
             ChipDistribution 对象（最新交易日的数据），获取失败返回 None
 
         """
+        self._check_quota_exhausted()
         if _is_us_code(stock_code):
             logger.warning(f"[Tushare] TushareFetcher 不支持美股 {stock_code} 的筹码分布")
             return None
@@ -1287,6 +1238,7 @@ class TushareFetcher(BaseFetcher):
         except Exception as e:
             error_msg = str(e).lower()
             if any(keyword in error_msg for keyword in ['quota', '配额', 'limit', '权限', '积分']):
+                self._quota_exhausted = True
                 logger.warning(f"Tushare 获取筹码分布由于积分配额限制失败: {e}")
                 raise InsufficientQuotaError(f"Tushare 积分配额不足: {e}") from e
             logger.warning(f"[Tushare] 获取筹码分布失败 {stock_code}: {e}")

@@ -400,19 +400,25 @@ class DataFetcherManager:
                     continue
             return None
 
+        fallback = None
         for fetcher in self._fetchers:
             try:
                 if hasattr(fetcher, "get_realtime_quote"):
                     result = fetcher.get_realtime_quote(stock_code)
                     quote = await self._maybe_await(result)
-                    if quote:
+                    if not quote:
+                        continue
+                    # 优先使用含换手率的行情数据，否则保留作为兜底
+                    if quote.turnover_rate is not None:
                         return quote
+                    if fallback is None:
+                        fallback = quote
             except InsufficientQuotaError as exc:
                 logger.warning("[%s] 积分配额不足，尝试下一个数据源: %s", fetcher.name, exc)
                 continue
             except Exception:
                 continue
-        return None
+        return fallback
 
     def get_realtime_quote_sync(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         return self._run_awaitable_sync(self.get_realtime_quote(stock_code))
@@ -842,7 +848,7 @@ class DataFetcherManager:
         )
 
     async def get_main_indices(self, region: str = "cn") -> Optional[List[dict]]:
-        """异步获取主要指数。"""
+        """异步获取主要指数，供大盘复盘和市场概览使用。"""
         self._ensure_runtime_state()
         tickflow_fetcher = None
         if region == "cn":

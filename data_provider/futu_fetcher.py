@@ -23,6 +23,7 @@ FutuFetcher - 富途牛牛数据源 (Priority 3)
 
 import logging
 import os
+import socket
 from datetime import datetime
 from typing import Optional, Any, List
 from dataclasses import dataclass
@@ -81,6 +82,7 @@ class FutuFetcher(BaseFetcher):
         self._futu_config = self._load_config()
         self._quote_ctx: Optional[Any] = None
         self._initialized = False
+        self._connection_failed = False
 
         if not FUTU_AVAILABLE:
             logger.warning("[%s] futu-api not installed, fetcher unavailable", self.name)
@@ -95,6 +97,15 @@ class FutuFetcher(BaseFetcher):
             unlock_password=getattr(cfg, "futu_unlock_password", os.getenv("FUTU_UNLOCK_PASSWORD")),
         )
 
+    @staticmethod
+    def _check_port(host: str, port: int, timeout: float = 1.0) -> bool:
+        """快速检查端口是否开放，失败时不会触发 futu SDK 内部重试循环。"""
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except (OSError, socket.timeout):
+            return False
+
     def _ensure_connection(self) -> bool:
         """确保 OpenD 连接可用"""
         if not FUTU_AVAILABLE:
@@ -102,6 +113,16 @@ class FutuFetcher(BaseFetcher):
 
         if self._initialized and self._quote_ctx is not None:
             return True
+
+        # 连接失败过就不再重试，避免 futu SDK 内部无限重试刷屏
+        if self._connection_failed:
+            return False
+
+        # 先做 TCP 端口检查，避免触发 futu SDK 内部 ECONNREFUSED 重试循环
+        if not self._check_port(self._futu_config.host, self._futu_config.port):
+            logger.warning("[%s] OpenD %s:%s 未启动，跳过", self.name, self._futu_config.host, self._futu_config.port)
+            self._connection_failed = True
+            return False
 
         try:
             self._quote_ctx = OpenQuoteContext(
@@ -121,6 +142,7 @@ class FutuFetcher(BaseFetcher):
 
         except Exception as e:
             logger.error("[%s] 连接 OpenD 失败: %s", self.name, e)
+            self._connection_failed = True
             return False
 
     def _convert_code_to_futu(self, stock_code: str) -> Optional[str]:

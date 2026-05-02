@@ -370,7 +370,7 @@ class AkshareFetcher(BaseFetcher):
                     return df
             except Exception as e:
                 last_error = e
-                logger.warning(f"[数据源] {source_name} 获取失败: {e}")
+                logger.debug(f"[数据源] {source_name} 获取失败: {e}")
                 # 继续尝试下一个
 
         # 所有都失败
@@ -409,7 +409,7 @@ class AkshareFetcher(BaseFetcher):
                 logger.info(f"[API返回] ak.stock_zh_a_hist 成功: {len(df)} 行, 耗时 {api_elapsed:.2f}s")
                 return df
             else:
-                logger.warning(f"[API返回] ak.stock_zh_a_hist 返回空数据")
+                logger.debug(f"[API返回] ak.stock_zh_a_hist 返回空数据")
                 return pd.DataFrame()
 
         except Exception as e:
@@ -554,7 +554,7 @@ class AkshareFetcher(BaseFetcher):
                 logger.info(f"[API返回] 日期范围: {df['日期'].iloc[0]} ~ {df['日期'].iloc[-1]}")
                 logger.debug(f"[API返回] 最新3条数据:\n{df.tail(3).to_string()}")
             else:
-                logger.warning(f"[API返回] ak.fund_etf_hist_em 返回空数据, 耗时 {api_elapsed:.2f}s")
+                logger.debug(f"[API返回] ak.fund_etf_hist_em 返回空数据, 耗时 {api_elapsed:.2f}s")
             
             return df
             
@@ -623,7 +623,7 @@ class AkshareFetcher(BaseFetcher):
                     logger.info(f"[API返回] 过滤后日期范围: {df['date'].iloc[0].strftime('%Y-%m-%d')} ~ {df['date'].iloc[-1].strftime('%Y-%m-%d')}")
                     logger.debug(f"[API返回] 最新3条数据:\n{df.tail(3).to_string()}")
                 else:
-                    logger.warning(f"[API返回] 过滤后数据为空，日期范围 {start_date} ~ {end_date} 无数据")
+                    logger.debug(f"[API返回] 过滤后数据为空，日期范围 {start_date} ~ {end_date} 无数据")
                 
                 # 转换列名为中文格式以匹配 _normalize_data
                 # stock_us_daily 返回: date, open, high, low, close, volume
@@ -650,7 +650,7 @@ class AkshareFetcher(BaseFetcher):
                 
                 return df
             else:
-                logger.warning(f"[API返回] ak.stock_us_daily 返回空数据, 耗时 {api_elapsed:.2f}s")
+                logger.debug(f"[API返回] ak.stock_us_daily 返回空数据, 耗时 {api_elapsed:.2f}s")
                 return pd.DataFrame()
             
         except Exception as e:
@@ -713,7 +713,7 @@ class AkshareFetcher(BaseFetcher):
                 logger.info(f"[API返回] 日期范围: {df['日期'].iloc[0]} ~ {df['日期'].iloc[-1]}")
                 logger.debug(f"[API返回] 最新3条数据:\n{df.tail(3).to_string()}")
             else:
-                logger.warning(f"[API返回] ak.stock_hk_hist 返回空数据, 耗时 {api_elapsed:.2f}s")
+                logger.debug(f"[API返回] ak.stock_hk_hist 返回空数据, 耗时 {api_elapsed:.2f}s")
             
             return df
             
@@ -792,13 +792,13 @@ class AkshareFetcher(BaseFetcher):
         elif _is_etf_code(stock_code):
             source_key = "akshare_etf"
             if not circuit_breaker.is_available(source_key):
-                logger.warning(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
+                logger.debug(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
                 return None
             return await asyncio.to_thread(self._get_etf_realtime_quote, stock_code)
         else:
             source_key = f"akshare_{source}"
             if not circuit_breaker.is_available(source_key):
-                logger.warning(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
+                logger.debug(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
                 return None
             # 普通 A 股：根据 source 选择数据源
             if source == "sina":
@@ -863,12 +863,12 @@ class AkshareFetcher(BaseFetcher):
                         break
                     except Exception as e:
                         last_error = e
-                        logger.warning(f"[API错误] ak.stock_zh_a_spot_em 获取失败 (attempt {attempt}/2): {e}")
+                        logger.debug(f"[API错误] ak.stock_zh_a_spot_em 获取失败 (attempt {attempt}/2): {e}")
                         time.sleep(min(2 ** attempt, 5))
 
                 # 更新缓存：成功缓存数据；失败也缓存空数据，避免同一轮任务对同一接口反复请求
                 if df is None:
-                    logger.error(f"[API错误] ak.stock_zh_a_spot_em 最终失败: {last_error}")
+                    logger.warning(f"[API错误] ak.stock_zh_a_spot_em 最终失败: {last_error}")
                     circuit_breaker.record_failure(source_key, str(last_error))
                     df = pd.DataFrame()
                 _realtime_cache['data'] = df
@@ -876,13 +876,13 @@ class AkshareFetcher(BaseFetcher):
                 logger.info(f"[缓存更新] A股实时行情(东财) 缓存已刷新，TTL={_realtime_cache['ttl']}s")
 
             if df is None or df.empty:
-                logger.warning(f"[实时行情] A股实时行情数据为空，跳过 {stock_code}")
+                logger.debug(f"[实时行情] A股实时行情数据为空，跳过 {stock_code}")
                 return None
             
             # 查找指定股票
             row = df[df['代码'] == stock_code]
             if row.empty:
-                logger.warning(f"[API返回] 未找到股票 {stock_code} 的实时行情")
+                logger.debug(f"[API返回] 未找到股票 {stock_code} 的实时行情")
                 return None
             
             row = row.iloc[0]
@@ -917,10 +917,10 @@ class AkshareFetcher(BaseFetcher):
             return quote
             
         except Exception as e:
-            logger.error(f"[API错误] 获取 {stock_code} 实时行情(东财)失败: {e}")
+            logger.warning(f"[API错误] 获取 {stock_code} 实时行情(东财)失败: {e}")
             circuit_breaker.record_failure(source_key, str(e))
             return None
-    
+
     def _get_stock_realtime_quote_sina(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         try:
             asyncio.get_running_loop()
@@ -954,7 +954,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=http_status detail=HTTP {response.status_code} "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -965,7 +965,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=empty_response detail=empty quote payload "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -977,7 +977,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=malformed_payload detail=quote payload missing quotes "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -988,7 +988,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=malformed_payload detail=expected >=32 fields, got {len(fields)} "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -1018,7 +1018,7 @@ class AkshareFetcher(BaseFetcher):
                 f"symbol={symbol} category={category} detail={detail} elapsed={api_elapsed:.2f}s "
                 f"error_type={type(e).__name__}"
             )
-            logger.error(failure_message)
+            logger.warning(failure_message)
             circuit_breaker.record_failure(source_key, failure_message)
             return None
 
@@ -1090,14 +1090,14 @@ class AkshareFetcher(BaseFetcher):
 
             if response.status_code != 200:
                 err_msg = f"[HTTPStatus] {source_name}行情 {stock_code}({symbol}) HTTP {response.status_code} | 耗时={api_elapsed:.2f}s"
-                logger.warning(err_msg)
+                logger.debug(err_msg)
                 circuit_breaker.record_failure(source_key, err_msg)
                 return None
 
             content = content.strip()
             if '=""' in content or not content:
                 err_msg = f"[EmptyResponse] {source_name}行情 {stock_code}({symbol}) 返回空数据 | 耗时={api_elapsed:.2f}s"
-                logger.warning(err_msg)
+                logger.debug(err_msg)
                 circuit_breaker.record_failure(source_key, err_msg)
                 return None
 
@@ -1105,7 +1105,7 @@ class AkshareFetcher(BaseFetcher):
             data_end = content.rfind('"')
             if data_start == -1 or data_end == -1:
                 err_msg = f"[MalformedPayload] {source_name}行情 {stock_code}({symbol}) 数据格式异常 | 耗时={api_elapsed:.2f}s"
-                logger.warning(err_msg)
+                logger.debug(err_msg)
                 circuit_breaker.record_failure(source_key, err_msg)
                 return None
 
@@ -1114,7 +1114,7 @@ class AkshareFetcher(BaseFetcher):
 
             if len(fields) < min_fields:
                 err_msg = f"[InsufficientFields] {source_name}行情 {stock_code}({symbol}) 字段数不足: {len(fields)}<{min_fields} | 耗时={api_elapsed:.2f}s"
-                logger.warning(err_msg)
+                logger.debug(err_msg)
                 circuit_breaker.record_failure(source_key, err_msg)
                 return None
 
@@ -1127,7 +1127,7 @@ class AkshareFetcher(BaseFetcher):
             api_elapsed = time.time() - api_start
             cat, reason = classify_http_error(e)
             err_msg = f"[{cat}] {source_name}行情 {stock_code}({symbol}) 获取失败 | 耗时={api_elapsed:.2f}s | 原因={reason}"
-            logger.error(err_msg)
+            logger.warning(err_msg)
             circuit_breaker.record_failure(source_key, err_msg)
             return None
 
@@ -1164,7 +1164,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=http_status detail=HTTP {response.status_code} "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -1175,7 +1175,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=empty_response detail=empty quote payload "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -1187,7 +1187,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=malformed_payload detail=quote payload missing quotes "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -1198,7 +1198,7 @@ class AkshareFetcher(BaseFetcher):
                     f"symbol={symbol} category=malformed_payload detail=expected >=45 fields, got {len(fields)} "
                     f"elapsed={api_elapsed:.2f}s"
                 )
-                logger.warning(failure_message)
+                logger.debug(failure_message)
                 circuit_breaker.record_failure(source_key, failure_message)
                 return None
 
@@ -1229,11 +1229,11 @@ class AkshareFetcher(BaseFetcher):
                 f"symbol={symbol} category={category} detail={detail} elapsed={api_elapsed:.2f}s "
                 f"error_type={type(e).__name__}"
             )
-            logger.error(failure_message)
+            logger.warning(failure_message)
             circuit_breaker.record_failure(source_key, failure_message)
             return None
 
-    
+
     def _get_etf_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取 ETF 基金实时行情数据
@@ -1279,24 +1279,24 @@ class AkshareFetcher(BaseFetcher):
                         break
                     except Exception as e:
                         last_error = e
-                        logger.warning(f"[API错误] ak.fund_etf_spot_em 获取失败 (attempt {attempt}/2): {e}")
+                        logger.debug(f"[API错误] ak.fund_etf_spot_em 获取失败 (attempt {attempt}/2): {e}")
                         time.sleep(min(2 ** attempt, 5))
 
                 if df is None:
-                    logger.error(f"[API错误] ak.fund_etf_spot_em 最终失败: {last_error}")
+                    logger.warning(f"[API错误] ak.fund_etf_spot_em 最终失败: {last_error}")
                     circuit_breaker.record_failure(source_key, str(last_error))
                     df = pd.DataFrame()
                 _etf_realtime_cache['data'] = df
                 _etf_realtime_cache['timestamp'] = current_time
 
             if df is None or df.empty:
-                logger.warning(f"[实时行情] ETF实时行情数据为空，跳过 {stock_code}")
+                logger.debug(f"[实时行情] ETF实时行情数据为空，跳过 {stock_code}")
                 return None
             
             # 查找指定 ETF
             row = df[df['代码'] == stock_code]
             if row.empty:
-                logger.warning(f"[API返回] 未找到 ETF {stock_code} 的实时行情")
+                logger.debug(f"[API返回] 未找到 ETF {stock_code} 的实时行情")
                 return None
             
             row = row.iloc[0]
@@ -1329,7 +1329,7 @@ class AkshareFetcher(BaseFetcher):
             return quote
             
         except Exception as e:
-            logger.error(f"[API错误] 获取 ETF {stock_code} 实时行情失败: {e}")
+            logger.warning(f"[API错误] 获取 ETF {stock_code} 实时行情失败: {e}")
             circuit_breaker.record_failure(source_key, str(e))
             return None
     
@@ -1351,7 +1351,7 @@ class AkshareFetcher(BaseFetcher):
         source_key = "akshare_hk"
 
         if not circuit_breaker.is_available(source_key):
-            logger.warning(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
+            logger.debug(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
             return None
         
         try:
@@ -1380,7 +1380,7 @@ class AkshareFetcher(BaseFetcher):
             # 查找指定港股
             row = df[df['代码'] == code]
             if row.empty:
-                logger.warning(f"[API返回] 未找到港股 {code} 的实时行情")
+                logger.debug(f"[API返回] 未找到港股 {code} 的实时行情")
                 return None
             
             row = row.iloc[0]
@@ -1412,7 +1412,7 @@ class AkshareFetcher(BaseFetcher):
             return quote
             
         except Exception as e:
-            logger.error(f"[API错误] 获取港股 {stock_code} 实时行情失败: {e}")
+            logger.warning(f"[API错误] 获取港股 {stock_code} 实时行情失败: {e}")
             circuit_breaker.record_failure(source_key, str(e))
             return None
     
@@ -1462,7 +1462,7 @@ class AkshareFetcher(BaseFetcher):
             api_elapsed = _time.time() - api_start
             
             if df.empty:
-                logger.warning(f"[API返回] ak.stock_cyq_em 返回空数据, 耗时 {api_elapsed:.2f}s")
+                logger.debug(f"[API返回] ak.stock_cyq_em 返回空数据, 耗时 {api_elapsed:.2f}s")
                 return None
             
             logger.info(f"[API返回] ak.stock_cyq_em 成功: 返回 {len(df)} 天数据, 耗时 {api_elapsed:.2f}s")
@@ -1491,7 +1491,7 @@ class AkshareFetcher(BaseFetcher):
             return chip
             
         except Exception as e:
-            logger.error(f"[API错误] 获取 {stock_code} 筹码分布失败: {e}")
+            logger.warning(f"[API错误] 获取 {stock_code} 筹码分布失败: {e}")
             return None
     
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
@@ -1517,7 +1517,7 @@ class AkshareFetcher(BaseFetcher):
             df = self.get_daily_data(stock_code, days=days)
             result['daily_data'] = df
         except Exception as e:
-            logger.error(f"获取 {stock_code} 日线数据失败: {e}")
+            logger.warning(f"获取 {stock_code} 日线数据失败: {e}")
         
         # 获取实时行情
         result['realtime_quote'] = self.get_realtime_quote(stock_code)
@@ -1590,7 +1590,7 @@ class AkshareFetcher(BaseFetcher):
             return results
 
         except Exception as e:
-            logger.error(f"[Akshare] 获取指数行情失败: {e}")
+            logger.warning(f"[Akshare] 获取指数行情失败: {e}")
             return None
 
     def get_market_stats(self) -> Optional[Dict[str, Any]]:
@@ -1613,7 +1613,7 @@ class AkshareFetcher(BaseFetcher):
             if df is not None and not df.empty:
                 return self._calc_market_stats(df)
         except Exception as e:
-            logger.warning(f"[Akshare] 东财接口获取市场统计失败: {e}，尝试新浪接口")
+                logger.debug(f"[Akshare] 东财接口获取市场统计失败: {e}，尝试新浪接口")
 
         # 东财失败后，尝试新浪接口
         try:
@@ -1759,7 +1759,7 @@ class AkshareFetcher(BaseFetcher):
                 return _get_rank_top_n(df, change_col, name, n)
             
         except Exception as e:
-            logger.warning(f"[Akshare] 东财接口获取行业板块排行失败: {e}，尝试新浪接口")
+                logger.debug(f"[Akshare] 东财接口获取行业板块排行失败: {e}，尝试新浪接口")
 
         # 东财失败后，尝试新浪接口
         try:

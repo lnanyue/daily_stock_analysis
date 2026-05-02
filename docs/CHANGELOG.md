@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [修复] Agent 运行时隔离 `futu` 导入副作用，并收紧 Intel / Risk / Decision 契约；`data_provider` 包初始化不再 eager import `FutuFetcher`，避免仅导入 pipeline/Agent 测试时触发 FutuOpenD 日志文件写入权限错误；同时要求 Intel 输出带日期与来源的结构化证据，Risk 优先复用上游情报再补搜，Decision 在缺少价格依据时明确输出 `N/A` 而不是编造点位。
+- [改进] Agent 分析历史新增运行审计元数据；自动分流的 `route_reasons`、Agent 架构/模式、token/step 统计、工具调用概览以及多 Agent 阶段摘要现在会一并写入 `analysis_history.raw_result.analysis_metadata`，便于后续排查、调参和效果复盘。
 - [修复] **MiniMax-M2.7 模型连接测试支持** — 修复 LLM 通道连接测试在 MiniMax-M2.7 模型下返回 "Empty response" 的问题；增加了 `max_tokens` 上限（8→256）以容纳 MiniMax 思考过程，并添加 `content_blocks` 格式解析逻辑统一处理 MiniMax 响应格式差异。
 - [修复] 经典个股分析 prompt 恢复技术面数据插值，并补齐稳定规则层；`format_analysis_prompt()` 的技术面表格改回真正的 f-string，收盘价、成交量、成交额、均线形态等字段不再把占位表达式原样透传给模型，同时新增独立分析规则块并为新闻窗口缺省值兜底，避免 prompt 出现 `近None日`。
 - [改进] 决策仪表盘 JSON schema 收口为共享 prompt 资产；Agent 运行时 prompt 与 `src/prompts/trading_dashboard*.md` 模板改为注入同一份 `trading_dashboard_schema.md`，移除多处重复内联 schema，避免字段示例在运行时与模板文档之间继续漂移。
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 个股分析链路恢复 `fundamental_context` 兼容封装与 prompt 透传；修复 `AkshareFundamentalAdapter` 缺少旧版基本面上下文入口导致个股 CLI 在基本面阶段直接中断的问题，并让个股 prompt 重新读到结构化财报/分红字段。
 - [修复] 恢复数据源、历史详情、回测与报告渲染的兼容契约：`DataFetcherManager` 重新提供同步公共入口并补充异步 wrapper，补齐历史详情/回测 ORM 字段、Vision legacy 模型配置、Jinja 报告模板默认目录与报告输出忽略规则。
 - [修复] 股票名称 fallback 遇到 Tushare `stock_basic` 超时或“频率超限”时会更快切换后续数据源；名称查询改用独立超时线程与短超时 HTTP 调用，避免阻塞默认 asyncio 执行器导致分析尾延迟过长。
+- [修复] A 股大盘复盘恢复稳定七段式报告结构；Prompt 和 AI 不可用兜底报告都会输出“市场总结 / 指数点评 / 资金动向 / 热点解读 / 后市展望 / 风险提示 / 策略计划”，并保留市场宽度行、指数表、领涨领跌板块与策略失效条件；同时恢复 `DataFetcherManager.get_main_indices()` 的指数数据源 fallback，避免指数点评天然缺失。
 - [新功能] 新增 `AGENT_AUTO_ROUTE_ANALYSIS` 条件式 Agent 分流：经典单股分析仍为默认，但在数据缺口、密集/高风险情报或较丰富的 A 股情报场景会自动升级到 Agent；同时把已预取的行情、筹码、趋势与新闻上下文注入 Agent，减少重复取数。
 - [新功能] 新增可选 `OpenBBFetcher` 数据源；配置 `OPENBB_FETCHER_ENABLED=true` 后可通过 OpenBB provider 获取历史价格、实时行情与股票名称 fallback，未安装 OpenBB 时保持静默降级。
 - [改进] 下线 `PytdxFetcher`：移除 pytdx 依赖与默认数据源注册，避免通达信服务器频繁超时/握手失败拖慢股票名称与行情 fallback 链路。
