@@ -27,6 +27,8 @@ DEFAULT_USER_AGENTS = [
 ]
 
 import time
+import inspect
+import asyncio
 from threading import RLock
 
 class RealtimeCache:
@@ -180,3 +182,18 @@ def is_kc_cy_stock(code: str) -> bool:
     """判断是否为科创板或创业板代码"""
     normalized = normalize_stock_code(code)
     return normalized.startswith(('688', '300'))
+
+
+async def maybe_await(value):
+    """Await value if it is awaitable, otherwise return it directly."""
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+def run_async_sync(async_method, *args, **kwargs):
+    """Run an async method synchronously with nested event-loop fallback."""
+    try:
+        return asyncio.run(async_method(*args, **kwargs))
+    except RuntimeError:
+        return asyncio.get_event_loop().run_until_complete(async_method(*args, **kwargs))

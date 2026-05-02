@@ -18,6 +18,8 @@ from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
 from .utils import (
     normalize_stock_code,
     _is_hk_market,
+    maybe_await,
+    run_async_sync,
     summarize_exception,
 )
 from .us_index_mapping import is_us_index_code, is_us_stock_code
@@ -228,10 +230,7 @@ class DataFetcherManager:
         return await self._fundamental_pipeline.get_fundamental_context(stock_code, budget_seconds)
 
     def get_fundamental_context_sync(self, *args, **kwargs):
-        try:
-            return asyncio.run(self.get_fundamental_context(*args, **kwargs))
-        except RuntimeError:
-            return asyncio.get_event_loop().run_until_complete(self.get_fundamental_context(*args, **kwargs))
+        return run_async_sync(self.get_fundamental_context, *args, **kwargs)
 
     def build_failed_fundamental_context(self, stock_code: str, reason: str) -> Dict[str, Any]:
         return self._fundamental_pipeline._build_failed_context(stock_code, reason)
@@ -244,6 +243,9 @@ class DataFetcherManager:
 
     def get_board_context(self, stock_code: str, budget_seconds: Optional[float] = None) -> Dict[str, Any]:
         return self._fundamental_pipeline.get_board_context(stock_code, budget_seconds)
+
+    async def get_peer_comparison_context(self, stock_code: str) -> Dict[str, Any]:
+        return await self._fundamental_pipeline.get_peer_comparison_context(stock_code)
 
     async def get_belong_boards(self, stock_code: str) -> List[Dict[str, Any]]:
         self._ensure_runtime_state()
@@ -262,10 +264,7 @@ class DataFetcherManager:
         return []
 
     def get_belong_boards_sync(self, stock_code: str) -> List[Dict[str, Any]]:
-        try:
-            return asyncio.run(self.get_belong_boards(stock_code))
-        except RuntimeError:
-            return asyncio.get_event_loop().run_until_complete(self.get_belong_boards(stock_code))
+        return run_async_sync(self.get_belong_boards, stock_code)
 
     def _get_sector_rankings_with_meta(self, n: int = 5):
         return self._fundamental_pipeline._get_sector_rankings_with_meta(n)
@@ -289,29 +288,9 @@ class DataFetcherManager:
             slots = getattr(self, slots_attr, None)
         if slots is None:
             slots = getattr(self, "_fundamental_timeout_slots", None)
-        if slots is None:
-            slots = getattr(self._fundamental_pipeline, "_timeout_slots", None)
-        start = time.time()
-        if slots is not None and not slots.acquire(blocking=False):
-            return None, "worker pool exhausted", 0
-        outcome: Dict[str, Any] = {}
-
-        def _target():
-            try:
-                outcome["res"] = func()
-            except Exception as exc:
-                outcome["err"] = str(exc)
-            finally:
-                if slots is not None:
-                    slots.release()
-
-        thread = Thread(target=_target, daemon=True)
-        thread.start()
-        thread.join(timeout)
-        elapsed_ms = int((time.time() - start) * 1000)
-        if thread.is_alive():
-            return None, f"{label} timeout", elapsed_ms
-        return outcome.get("res"), outcome.get("err"), elapsed_ms
+        if slots is not None:
+            return self._fundamental_pipeline._run_with_timeout(func, timeout, label, slots=slots)
+        return self._fundamental_pipeline._run_with_timeout(func, timeout, label)
 
     @staticmethod
     def _infer_block_status(payload, fallback):
@@ -369,10 +348,7 @@ class DataFetcherManager:
         return outcome.get("value")
 
     def get_stock_name_sync(self, stock_code: str, allow_realtime: bool = True) -> Optional[str]:
-        try:
-            return asyncio.run(self.get_stock_name(stock_code, allow_realtime))
-        except RuntimeError:
-            return asyncio.get_event_loop().run_until_complete(self.get_stock_name(stock_code, allow_realtime))
+        return run_async_sync(self.get_stock_name, stock_code, allow_realtime)
 
     def prefetch_stock_names(self, stock_codes: Iterable[str], use_bulk: bool = True):
         for code in stock_codes: self.get_stock_name_sync(normalize_stock_code(code), allow_realtime=False)
@@ -385,17 +361,13 @@ class DataFetcherManager:
         return None
 
     def get_daily_data_sync(self, *args, **kwargs):
-        try: return asyncio.run(self.get_daily_data(*args, **kwargs))
-        except RuntimeError: return asyncio.get_event_loop().run_until_complete(self.get_daily_data(*args, **kwargs))
+        return run_async_sync(self.get_daily_data, *args, **kwargs)
 
     def get_realtime_quote_sync(self, stock_code: str):
-        try: return asyncio.run(self.get_realtime_quote(stock_code))
-        except RuntimeError: return asyncio.get_event_loop().run_until_complete(self.get_realtime_quote(stock_code))
+        return run_async_sync(self.get_realtime_quote, stock_code)
 
     async def _maybe_await(self, value):
-        if inspect.isawaitable(value):
-            return await value
-        return value
+        return await maybe_await(value)
 
     def get_last_source_chain(self) -> List[Dict[str, Any]]:
         return list(getattr(self, "_last_source_chain", []))
@@ -467,10 +439,7 @@ class DataFetcherManager:
         return []
 
     def get_main_indices_sync(self, region: str = "cn"):
-        try:
-            return asyncio.run(self.get_main_indices(region=region))
-        except RuntimeError:
-            return asyncio.get_event_loop().run_until_complete(self.get_main_indices(region=region))
+        return run_async_sync(self.get_main_indices, region=region)
 
     async def get_market_stats(self):
         self._ensure_runtime_state()
@@ -495,10 +464,7 @@ class DataFetcherManager:
         return {}
 
     def get_market_stats_sync(self):
-        try:
-            return asyncio.run(self.get_market_stats())
-        except RuntimeError:
-            return asyncio.get_event_loop().run_until_complete(self.get_market_stats())
+        return run_async_sync(self.get_market_stats)
 
     def close(self):
         for f in getattr(self, "_fetchers", []):

@@ -704,14 +704,6 @@ class DatabaseManager:
         self._sqlite_write_retry_max = config.sqlite_write_retry_max
         self._sqlite_write_retry_base_delay = config.sqlite_write_retry_base_delay
 
-        engine_kwargs = {"echo": False, "pool_pre_ping": True}
-        if str(db_url).startswith("sqlite:") and self._sqlite_busy_timeout_ms > 0:
-            engine_kwargs["connect_args"] = {"timeout": self._sqlite_busy_timeout_ms / 1000}
-
-        self._engine = create_engine(db_url, **engine_kwargs)
-        self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
-        self._install_sqlite_pragma_handler()
-        
         engine_kwargs = {
             "echo": False,
             "pool_pre_ping": True,
@@ -826,9 +818,8 @@ class DatabaseManager:
         session = self.get_session()
         try:
             yield session
-            for obj in list(session.dirty):
-                if isinstance(obj, AnalysisHistory) and isinstance(getattr(obj, "raw_result", None), dict):
-                    obj.raw_result = json.dumps(obj.raw_result, ensure_ascii=False)
+            if hasattr(session, "_normalize_pending_objects"):
+                session._normalize_pending_objects()
             session.commit()
         except Exception:
             session.rollback()
@@ -928,30 +919,6 @@ class DatabaseManager:
                 }
                 for record in records
             ]
-        try:
-            def _write(session: Session) -> int:
-                session.add(
-                    FundamentalSnapshot(
-                        query_id=query_id,
-                        code=code,
-                        payload=self._safe_json_dumps(payload),
-                        source_chain=self._safe_json_dumps(source_chain or []),
-                        coverage=self._safe_json_dumps(coverage or {}),
-                    )
-                )
-                return 1
-            return self._run_write_transaction(
-                f"save_fundamental_snapshot[{query_id}:{code}]",
-                _write,
-            )
-        except Exception as e:
-            logger.debug(
-                "基本面快照写入失败（fail-open）: query_id=%s code=%s err=%s",
-                query_id,
-                code,
-                e,
-            )
-            return 0
 
     def get_chat_sessions(
         self,
@@ -1233,48 +1200,6 @@ class DatabaseManager:
             
             return 1
         return self._run_write_transaction(f"save_analysis_history[{result.code}]", _write)
-        """
-        保存分析结果历史记录
-        """
-        if result is None:
-            return 0
-
-        sniper_points = self._extract_sniper_points(result)
-        raw_result = self._build_raw_result(result)
-        context_text = None
-        if save_snapshot and context_snapshot is not None:
-            context_text = self._safe_json_dumps(context_snapshot)
-
-        try:
-            def _write(session: Session) -> int:
-                session.add(
-                    AnalysisHistory(
-                        query_id=query_id,
-                        code=result.code,
-                        name=result.name,
-                        report_type=report_type,
-                        sentiment_score=result.sentiment_score,
-                        operation_advice=result.operation_advice,
-                        trend_prediction=result.trend_prediction,
-                        analysis_summary=result.analysis_summary,
-                        raw_result=self._safe_json_dumps(raw_result),
-                        news_content=news_content,
-                        context_snapshot=context_text,
-                        ideal_buy=sniper_points.get("ideal_buy"),
-                        secondary_buy=sniper_points.get("secondary_buy"),
-                        stop_loss=sniper_points.get("stop_loss"),
-                        take_profit=sniper_points.get("take_profit"),
-                        created_at=datetime.now(),
-                    )
-                )
-                return 1
-            return self._run_write_transaction(
-                f"save_analysis_history[{result.code}]",
-                _write,
-            )
-        except Exception as e:
-            logger.error(f"保存分析历史失败: {e}")
-            return 0
 
     def get_analysis_history(
         self,

@@ -179,15 +179,18 @@ class FundamentalPipeline:
     def _build_failed_context(self, stock_code: str, reason: str) -> Dict[str, Any]:
         return {"market": _market_tag(stock_code), "status": "failed", "errors": [reason]}
 
-    def _run_with_timeout(self, func: Callable, timeout: float, label: str) -> Tuple[Any, Any, int]:
+    def _run_with_timeout(self, func: Callable, timeout: float, label: str, slots=None) -> Tuple[Any, Any, int]:
+        _slots = slots if slots is not None else self._timeout_slots
         start = time.time()
-        if not self._timeout_slots.acquire(blocking=False):
+        if _slots is not None and not _slots.acquire(blocking=False):
              return None, "worker pool exhausted", 0
         outcome = {}
         def _target():
             try: outcome["res"] = func()
             except Exception as e: outcome["err"] = str(e)
-            finally: self._timeout_slots.release()
+            finally:
+                if _slots is not None:
+                    _slots.release()
         t = Thread(target=_target, daemon=True)
         t.start()
         t.join(timeout)

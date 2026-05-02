@@ -256,6 +256,7 @@ async def run_agent_analysis(
                     )
                 except TypeError:
                     db.save_news_intel(news_items)
+                    logger.debug("[%s] 新闻保存使用兼容签名", code)
         except Exception:
             logger.debug("[%s] 混合 Agent 新闻持久化跳过", code, exc_info=True)
 

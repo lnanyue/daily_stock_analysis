@@ -120,9 +120,8 @@ class StockAnalysisPipeline:
         )
 
     async def _maybe_await(self, value):
-        if inspect.isawaitable(value):
-            return await value
-        return value
+        from data_provider.utils import maybe_await
+        return await maybe_await(value)
 
     @staticmethod
     def _coerce_bool_setting(value: Any, default: bool = False) -> bool:
@@ -321,14 +320,11 @@ class StockAnalysisPipeline:
             fundamental_context = None
             peer_comparison = None
             try:
-                fundamental_context = await self.fetcher_manager.get_fundamental_context(
-                    code,
-                    fundamental_context,
-                )
+                fundamental_context = await self.fetcher_manager.get_fundamental_context(code)
                 # 获取行业对标数据 (P2)
-                peer_comparison = await self.fetcher_manager._fundamental_pipeline.get_peer_comparison_context(code)
-            except Exception:
-                logger.warning("%s(%s) 获取基本面/对标数据失败，降级处理", stock_name, code)
+                peer_comparison = await self.fetcher_manager.get_peer_comparison_context(code)
+            except Exception as e:
+                logger.warning("%s(%s) 获取基本面/对标数据失败: %s", stock_name, code, e)
 
             if realtime_quote and getattr(realtime_quote, 'name', None):
                 stock_name = realtime_quote.name
@@ -338,8 +334,8 @@ class StockAnalysisPipeline:
             money_flow_intelligence = ""
             guru_insight = ""
             ak_fetcher = None
-            if not is_us_stock_code(code) and hasattr(self.fetcher_manager, "_fetchers"):
-                ak_fetcher = next((f for f in self.fetcher_manager._fetchers if f.name == "AkshareFetcher"), None)
+            if not is_us_stock_code(code):
+                ak_fetcher = next((f for f in self.fetcher_manager.fetchers if f.name == "AkshareFetcher"), None)
             
             if ak_fetcher:
                 tasks = [

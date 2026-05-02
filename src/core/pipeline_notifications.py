@@ -15,10 +15,7 @@ from src.enums import ReportType
 logger = logging.getLogger(__name__)
 
 
-async def maybe_await(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return await value
-    return value
+from data_provider.utils import maybe_await  # noqa: F811
 
 
 def sync_maybe_await(value: Any) -> Any:
