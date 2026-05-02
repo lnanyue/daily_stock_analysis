@@ -310,9 +310,20 @@ async def run_full_analysis(
                             and not getattr(args, 'no_market_review', False)
                             and not config.single_stock_notify)
 
+        def cli_progress_callback(progress, message=None):
+            if isinstance(progress, dict):
+                p = progress.get("progress", 0)
+                m = progress.get("progress_message", "")
+            else:
+                p = progress
+                m = message
+            if m:
+                print(f"➜ [{p}%] {m}")
+
         pipeline = StockAnalysisPipeline(
             config=config, max_workers=args.workers, query_id=uuid.uuid4().hex,
-            query_source="cli", save_context_snapshot=not getattr(args, 'no_context_snapshot', False)
+            query_source="cli", save_context_snapshot=not getattr(args, 'no_context_snapshot', False),
+            progress_callback=cli_progress_callback
         )
 
         # 1. 个股分析 (Async)
