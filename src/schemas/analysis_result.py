@@ -16,6 +16,72 @@ from src.report_language import (
 
 logger = logging.getLogger(__name__)
 
+# Explicit JSON output schema for LLM decision dashboard.
+# The LLM must output exactly this structure (all fields optional at runtime,
+# but the schema tells the LLM which keys and value shapes are expected).
+DASHBOARD_OUTPUT_SCHEMA = """
+{
+  "stock_name": "股票中文全称（如'贵州茅台'）",
+
+  "core_conclusion": {
+    "one_sentence": "一句话说清该买/该卖/该等",
+    "position_advice": {
+      "has_position": "持仓者建议",
+      "no_position": "空仓者建议"
+    }
+  },
+
+  "trend_prediction": "强烈看多 | 看多 | 震荡 | 看空 | 强烈看空",
+  "operation_advice": "买入 | 加仓 | 持有 | 减仓 | 卖出 | 观望",
+  "decision_type": "buy | hold | sell",
+  "confidence_level": "高 | 中 | 低",
+  "sentiment_score": 85,
+
+  "analysis_summary": "综合分析摘要",
+  "trend_analysis": "走势形态分析（支撑位、压力位）",
+  "short_term_outlook": "短期展望（1-3日）",
+  "medium_term_outlook": "中期展望（1-2周）",
+  "technical_analysis": "技术指标综合分析",
+  "ma_analysis": "均线分析（多头/空头排列）",
+  "volume_analysis": "量能分析",
+  "pattern_analysis": "K线形态分析",
+  "fundamental_analysis": "基本面综合分析",
+  "sector_position": "板块地位和行业趋势",
+  "company_highlights": "公司亮点/风险点",
+  "news_summary": "近期重要新闻摘要",
+  "market_sentiment": "市场情绪分析",
+  "hot_topics": "相关热点话题",
+  "key_points": "核心看点（3-5个要点）",
+  "risk_warning": "风险提示",
+  "buy_reason": "买入/卖出理由",
+
+  "battle_plan": {
+    "sniper_points": {
+      "ideal_buy": "理想买入价",
+      "secondary_buy": "次优买入价",
+      "stop_loss": "止损价",
+      "take_profit": "目标价"
+    },
+    "action_checklist": ["✅/⚠️/❌ 标记的检查项"]
+  },
+
+  "intelligence": {
+    "latest_news": "最新消息汇总",
+    "risk_alerts": ["风险警报1", "风险警报2"],
+    "positive_catalysts": ["利好催化1", "利好催化2"],
+    "sentiment_summary": "情绪面总结（正面/负面/中性）"
+  }
+}
+"""
+
+DASHBOARD_SCHEMA_INTRO = """
+### 严格输出格式要求
+
+你必须严格按照下面的 JSON Schema 输出。每个字段的含义和允许值如下：
+
+---
+"""
+
 @dataclass
 class AnalysisResult:
     """
