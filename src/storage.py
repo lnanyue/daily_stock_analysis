@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
@@ -703,6 +704,7 @@ class DatabaseManager:
         self._sqlite_busy_timeout_ms = config.sqlite_busy_timeout_ms
         self._sqlite_write_retry_max = config.sqlite_write_retry_max
         self._sqlite_write_retry_base_delay = config.sqlite_write_retry_base_delay
+        self._write_lock = threading.Lock()
 
         engine_kwargs = {
             "echo": False,
@@ -745,11 +747,19 @@ class DatabaseManager:
 
     @classmethod
     def reset_instance(cls) -> None:
-        if cls._instance is not None and hasattr(cls._instance, "_engine"):
+        instance = cls._instance
+        if instance is not None:
+            lock = getattr(instance, "_write_lock", None)
+            if lock is not None:
+                lock.acquire()
             try:
-                cls._instance._engine.dispose()
+                if hasattr(instance, "_engine"):
+                    instance._engine.dispose()
             except Exception:
                 pass
+            finally:
+                if lock is not None:
+                    lock.release()
         cls._instance = None
         cls._initialized = False
 
@@ -828,9 +838,23 @@ class DatabaseManager:
             session.close()
 
     def _run_write_transaction(self, name: str, operation: Callable[[Session], T]) -> T:
+        """Execute a write operation within a serialized SQLite transaction.
+
+        Uses an instance-level write lock to prevent concurrent ``BEGIN IMMEDIATE``
+        calls from contending for the SQLite write lock.  Retries are only needed
+        for transient lock errors that slip past the application-level gate.
+        """
         max_retries = self._sqlite_write_retry_max if self._is_sqlite_engine else 0
 
         for attempt in range(max_retries + 1):
+            acquired = self._write_lock.acquire(timeout=15.0) if self._is_sqlite_engine else True
+            if not acquired and self._is_sqlite_engine:
+                logger.error("write lock acquire timeout for %s (attempt %d)", name, attempt + 1)
+                if attempt < max_retries:
+                    time.sleep(self._sqlite_write_retry_base_delay * (2 ** attempt))
+                    continue
+                raise RuntimeError(f"write lock timeout: {name}")
+
             session = self.get_session()
             try:
                 if self._is_sqlite_engine:
@@ -855,6 +879,8 @@ class DatabaseManager:
                 raise
             finally:
                 session.close()
+                if self._is_sqlite_engine:
+                    self._write_lock.release()
 
         raise RuntimeError(f"write transaction failed after retries: {name}")
 

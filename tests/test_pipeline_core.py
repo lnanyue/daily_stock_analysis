@@ -39,6 +39,7 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
         self.mock_db.get_data_range_async = AsyncMock(return_value=[])
         self.mock_db.get_data_range = MagicMock(return_value=[])
         self.mock_db.save_analysis_history_async = AsyncMock()
+        self.mock_db.save_daily_data_async = AsyncMock()
         self.mock_db.has_today_data = MagicMock(return_value=False)
         
         self.mock_search = self.search_service_patch.start().return_value
@@ -52,6 +53,8 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
         self.mock_fetcher.get_chip_distribution = AsyncMock(return_value=None)
         self.mock_fetcher.get_fundamental_context = AsyncMock(return_value={})
         self.mock_fetcher.get_daily_data = AsyncMock(return_value=(None, "test"))
+        self.mock_fetcher._fundamental_pipeline = MagicMock()
+        self.mock_fetcher._fundamental_pipeline.get_peer_comparison_context = AsyncMock(return_value={})
         
         self.mock_analyzer = self.analyzer_patch.start().return_value
         self.mock_analyzer.analyze_async = AsyncMock(return_value=None)

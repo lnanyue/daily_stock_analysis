@@ -39,8 +39,12 @@ class TaskService:
     _lock = asyncio.Lock()
 
     def __init__(self):
+        from src.config import get_config
+        cfg = get_config()
+        max_concurrent = max(1, getattr(cfg, "bot_max_concurrent_analysis", 5))
         self._tasks: Dict[str, Dict[str, Any]] = {}
         self._tasks_lock = asyncio.Lock()
+        self._submission_semaphore = asyncio.Semaphore(max_concurrent)
 
     @classmethod
     async def get_instance(cls) -> 'TaskService':
@@ -103,76 +107,80 @@ class TaskService:
         query_source: str = "bot"
     ) -> Dict[str, Any]:
         """
-        异步执行单只股票分析
+        异步执行单只股票分析（受 submission semaphore 保护，防止并发写库雪崩）
         """
         async with self._tasks_lock:
             self._tasks[task_id] = {
                 "task_id": task_id,
                 "code": code,
-                "status": "running",
+                "status": "pending",
                 "start_time": datetime.now().isoformat(),
                 "result": None,
                 "error": None,
                 "report_type": report_type.value
             }
 
-        try:
-            from src.config import get_config
-            from src.core.pipeline import StockAnalysisPipeline
+        async with self._submission_semaphore:
+            async with self._tasks_lock:
+                self._tasks[task_id]["status"] = "running"
 
-            logger.info("[TaskService] 正在异步分析股票: %s", code)
+            try:
+                from src.config import get_config
+                from src.core.pipeline import StockAnalysisPipeline
 
-            config = get_config()
-            pipeline = StockAnalysisPipeline(
-                config=config,
-                max_workers=1,
-                source_message=source_message,
-                query_id=task_id,
-                query_source=query_source,
-                save_context_snapshot=save_context_snapshot
-            )
+                logger.info("[TaskService] 正在异步分析股票: %s", code)
 
-            # 执行单只股票分析 (Async)
-            result = await pipeline.process_single_stock(
-                code=code,
-                skip_analysis=False,
-                single_stock_notify=True,
-                report_type=report_type
-            )
+                config = get_config()
+                pipeline = StockAnalysisPipeline(
+                    config=config,
+                    max_workers=1,
+                    source_message=source_message,
+                    query_id=task_id,
+                    query_source=query_source,
+                    save_context_snapshot=save_context_snapshot
+                )
 
-            if result:
-                result_data = {
-                    "code": result.code,
-                    "name": result.name,
-                    "sentiment_score": result.sentiment_score,
-                    "operation_advice": result.operation_advice,
-                    "trend_prediction": result.trend_prediction,
-                    "analysis_summary": result.analysis_summary,
-                }
+                # 执行单只股票分析 (Async)
+                result = await pipeline.process_single_stock(
+                    code=code,
+                    skip_analysis=False,
+                    single_stock_notify=True,
+                    report_type=report_type
+                )
+
+                if result:
+                    result_data = {
+                        "code": result.code,
+                        "name": result.name,
+                        "sentiment_score": result.sentiment_score,
+                        "operation_advice": result.operation_advice,
+                        "trend_prediction": result.trend_prediction,
+                        "analysis_summary": result.analysis_summary,
+                    }
+
+                    async with self._tasks_lock:
+                        self._tasks[task_id].update({
+                            "status": "completed",
+                            "end_time": datetime.now().isoformat(),
+                            "result": result_data
+                        })
+
+                    return {"success": True, "task_id": task_id, "result": result_data}
+                else:
+                    raise Exception("分析返回空结果")
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error("[TaskService] 股票 %s 分析异常: %s", code, error_msg)
 
                 async with self._tasks_lock:
                     self._tasks[task_id].update({
-                        "status": "completed",
+                        "status": "failed",
                         "end_time": datetime.now().isoformat(),
-                        "result": result_data
+                        "error": error_msg
                     })
 
-                return {"success": True, "task_id": task_id, "result": result_data}
-            else:
-                raise Exception("分析返回空结果")
-
-        except Exception as e:
-            error_msg = str(e)
-            logger.error("[TaskService] 股票 %s 分析异常: %s", code, error_msg)
-
-            async with self._tasks_lock:
-                self._tasks[task_id].update({
-                    "status": "failed",
-                    "end_time": datetime.now().isoformat(),
-                    "error": error_msg
-                })
-
-            return {"success": False, "task_id": task_id, "error": error_msg}
+                return {"success": False, "task_id": task_id, "error": error_msg}
 
 
 # ============================================================

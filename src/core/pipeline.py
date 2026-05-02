@@ -231,7 +231,7 @@ class StockAnalysisPipeline:
             if df is None or df.empty: 
                 return False, "获取数据为空"
                 
-            self.db.save_daily_data(df, code, source_name)
+            await self.db.save_daily_data_async(df, code, source_name)
             return True, None
         except Exception as e:
             logger.error(f"[{code}] 数据抓取失败: {e}")
@@ -620,7 +620,7 @@ class StockAnalysisPipeline:
         try:
             df, source = await self.fetcher_manager.get_daily_data(code, days=min_days)
             if df is not None and not df.empty:
-                self.db.save_daily_data(df, code, source)
+                await self.db.save_daily_data_async(df, code, source)
                 logger.info("[%s] Prefetched %d rows of history for agent (source: %s)", code, len(df), source)
         except Exception as e:
             logger.warning("[%s] Agent history prefetch failed: %s", code, e)

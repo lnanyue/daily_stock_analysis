@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-AI 分析结果数据类定义
+AI 分析结果数据模型定义
 """
 
 import logging
-from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple
+from pydantic import BaseModel, Field
 
 from src.report_language import (
     get_signal_level,
@@ -82,10 +82,9 @@ DASHBOARD_SCHEMA_INTRO = """
 ---
 """
 
-@dataclass
-class AnalysisResult:
+class AnalysisResult(BaseModel):
     """
-    AI 分析结果数据类 - 决策仪表盘版
+    AI 分析结果数据模型 - 决策仪表盘版
 
     封装 Gemini 返回的分析结果，包含决策仪表盘和详细分析
     """
@@ -93,9 +92,9 @@ class AnalysisResult:
     name: str
 
     # ========== 核心指标 ==========
-    sentiment_score: int  # 综合评分 0-100 (>70强烈看多, >60看多, 40-60震荡, <40看空)
-    trend_prediction: str  # 趋势预测：强烈看多/看多/震荡/看空/强烈看空
-    operation_advice: str  # 操作建议：买入/加仓/持有/减仓/卖出/观望
+    sentiment_score: int = 50  # 综合评分 0-100 (>70强烈看多, >60看多, 40-60震荡, <40看空)
+    trend_prediction: str = ""  # 趋势预测：强烈看多/看多/震荡/看空/强烈看空
+    operation_advice: str = ""  # 操作建议：买入/加仓/持有/减仓/卖出/观望
     decision_type: str = "hold"  # 决策类型：buy/hold/sell（用于统计）
     confidence_level: str = "中"  # 置信度：高/中/低
     report_language: str = "zh"  # 报告输出语言：zh/en
@@ -131,8 +130,8 @@ class AnalysisResult:
     buy_reason: str = ""  # 买入/卖出理由
 
     # ========== 元数据 ==========
-    analysis_metadata: Optional[Dict[str, Any]] = None  # Agent 路由/阶段审计信息
-    market_snapshot: Optional[Dict[str, Any]] = None  # 当日行情快照（展示用）
+    analysis_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)  # Agent 路由/阶段审计信息
+    market_snapshot: Optional[Dict[str, Any]] = Field(default_factory=dict)  # 当日行情快照（展示用）
     raw_response: Optional[str] = None  # 原始响应（调试用）
     search_performed: bool = False  # 是否执行了联网搜索
     data_sources: str = ""  # 数据来源说明
@@ -151,46 +150,13 @@ class AnalysisResult:
 
     # ========== 历史胜率/表现 (新增) ==========
     historical_performance: Optional[Dict[str, Any]] = None  # 包含 win_rate_pct, total_evaluations 等
+    
+    # ========== 同行业横向对比 ==========
+    peer_comparison: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
-        return {
-            'code': self.code,
-            'name': self.name,
-            'sentiment_score': self.sentiment_score,
-            'trend_prediction': self.trend_prediction,
-            'operation_advice': self.operation_advice,
-            'decision_type': self.decision_type,
-            'confidence_level': self.confidence_level,
-            'report_language': self.report_language,
-            'dashboard': self.dashboard,  # 决策仪表盘数据
-            'trend_analysis': self.trend_analysis,
-            'short_term_outlook': self.short_term_outlook,
-            'medium_term_outlook': self.medium_term_outlook,
-            'technical_analysis': self.technical_analysis,
-            'ma_analysis': self.ma_analysis,
-            'volume_analysis': self.volume_analysis,
-            'pattern_analysis': self.pattern_analysis,
-            'fundamental_analysis': self.fundamental_analysis,
-            'sector_position': self.sector_position,
-            'company_highlights': self.company_highlights,
-            'news_summary': self.news_summary,
-            'market_sentiment': self.market_sentiment,
-            'hot_topics': self.hot_topics,
-            'analysis_summary': self.analysis_summary,
-            'key_points': self.key_points,
-            'risk_warning': self.risk_warning,
-            'buy_reason': self.buy_reason,
-            'analysis_metadata': self.analysis_metadata,
-            'market_snapshot': self.market_snapshot,
-            'search_performed': self.search_performed,
-            'success': self.success,
-            'error_message': self.error_message,
-            'current_price': self.current_price,
-            'change_pct': self.change_pct,
-            'model_used': self.model_used,
-            'historical_performance': self.historical_performance,
-        }
+        return self.model_dump()
 
     def get_core_conclusion(self) -> str:
         """获取核心结论（一句话）"""

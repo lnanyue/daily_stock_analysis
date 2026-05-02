@@ -103,6 +103,7 @@ class Config:
     analysis_mode: str = "simple"
 
     max_workers: int = 3
+    bot_max_concurrent_analysis: int = 5
     webui_port: int = 8000
     log_level: str = "INFO"
     log_dir: str = "./logs"
@@ -437,6 +438,12 @@ class Config:
                 os.getenv("MAX_WORKERS"),
                 3,
                 field_name="MAX_WORKERS",
+                minimum=1,
+            ),
+            bot_max_concurrent_analysis=parse_env_int(
+                os.getenv("BOT_MAX_CONCURRENT_ANALYSIS"),
+                5,
+                field_name="BOT_MAX_CONCURRENT_ANALYSIS",
                 minimum=1,
             ),
             webui_port=parse_env_int(

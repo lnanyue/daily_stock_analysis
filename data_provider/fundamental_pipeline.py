@@ -18,12 +18,14 @@ from .utils import normalize_stock_code, _market_tag, _is_etf_code, summarize_ex
 from .exceptions import DataFetchError
 from .fundamental_adapter import AkshareFundamentalAdapter
 from .normalizers import normalize_source_chain, normalize_belong_boards
+from src.schemas.fundamental_context import FundamentalContext, PeerComparisonBlock, PeerComparisonData, PeerComparisonEntry
 
 logger = logging.getLogger(__name__)
 
 class FundamentalPipeline:
     """
     基本面数据聚合流水线。
+    支持 Fail-open 语义、多级缓存、并发控制及耗时分析。
     """
 
     def __init__(self, manager: Any):
@@ -33,25 +35,14 @@ class FundamentalPipeline:
         self.adapter = AkshareFundamentalAdapter()
         self._timeout_slots = BoundedSemaphore(8)
 
-    def _iter_manager_fetchers(self) -> List[Any]:
-        fetchers = getattr(self.manager, "fetchers", None)
-        if isinstance(fetchers, (list, tuple)):
-            return list(fetchers)
-        private_fetchers = getattr(self.manager, "_fetchers", None)
-        if isinstance(private_fetchers, (list, tuple)):
-            return list(private_fetchers)
-        if fetchers is None:
-            return []
-        try:
-            return list(fetchers)
-        except TypeError:
-            return []
-
     async def get_fundamental_context(
         self,
         stock_code: str,
         budget_seconds: Optional[float] = None
     ) -> Dict[str, Any]:
+        """
+        聚合基本面区块，返回符合 FundamentalContext 模型的数据。
+        """
         if not getattr(self.config, "enable_fundamental_pipeline", True):
             return self._build_failed_context(stock_code, "fundamental pipeline disabled")
 
@@ -67,22 +58,25 @@ class FundamentalPipeline:
         remaining_seconds = timeout
         fetch_timeout = float(getattr(self.config, "fundamental_fetch_timeout_seconds", 1.0))
 
-        result_ctx: Dict[str, Any] = {
-            "market": market,
-            "status": "partial",
-            "coverage": {},
-            "source_chain": [],
-            "errors": [],
-        }
+        # 初始化模型数据
+        ctx = FundamentalContext(market=market)
 
         def _consume_budget(consumed_ms: int) -> None:
             nonlocal remaining_seconds
             remaining_seconds = max(0.0, remaining_seconds - consumed_ms / 1000.0)
 
         # 1. Valuation
-        quote_payload = await self.manager.get_realtime_quote(stock_code)
-        valuation_ms = int((time.time() - start_ts) * 1000)
-        _consume_budget(valuation_ms)
+        valuation_timeout = min(fetch_timeout, remaining_seconds)
+        quote_payload = None
+        valuation_err = None
+        valuation_ms = 0
+        if valuation_timeout > 0:
+            try:
+                quote_payload = await self.manager.get_realtime_quote(stock_code)
+                valuation_ms = int((time.time() - start_ts) * 1000)
+            except Exception as e:
+                valuation_err = str(e)
+            _consume_budget(valuation_ms)
 
         valuation_data = {
             "price": getattr(quote_payload, "price", None) if quote_payload else None,
@@ -92,71 +86,51 @@ class FundamentalPipeline:
             "circ_mv": getattr(quote_payload, "circ_mv", None) if quote_payload else None,
         }
         val_status = self._infer_block_status(valuation_data, "partial" if quote_payload else "not_supported")
-        result_ctx["valuation"] = self._build_fundamental_block(val_status, valuation_data, [{"provider": "realtime_quote", "result": val_status}], [])
+        ctx.valuation = self._build_fundamental_block(val_status, valuation_data, [{"provider": "realtime_quote", "result": val_status}], [valuation_err] if valuation_err else [])
 
-        # 2. Bundle
+        # 2. Bundle (Growth, Earnings, Institution)
         if remaining_seconds > 0:
             bundle_payload, bundle_err, bundle_ms = await asyncio.to_thread(self._run_with_timeout, lambda: self.adapter.get_fundamental_bundle(stock_code), min(fetch_timeout, remaining_seconds), "fundamental_bundle")
             _consume_budget(bundle_ms)
             if isinstance(bundle_payload, dict):
                 bundle_status = str(bundle_payload.get("status", "partial"))
+                bundle_chain = bundle_payload.get("source_chain", [])
                 bundle_errors = list(bundle_payload.get("errors", []))
-                for block in ["growth", "earnings", "institution"]:
-                    data = bundle_payload.get(block, {})
+                if bundle_err: bundle_errors.append(bundle_err)
+                
+                for block_name in ["growth", "earnings", "institution"]:
+                    data = bundle_payload.get(block_name, {})
                     block_errors = list(bundle_errors)
-                    if block == "earnings" and "dividend" in data:
-                        block_errors.extend(
-                            self._inject_dividend_yield(
-                                data["dividend"],
-                                valuation_data.get("price"),
-                            )
-                        )
-                    result_ctx[block] = self._build_fundamental_block(
-                        self._infer_block_status(data, bundle_status),
-                        data,
-                        bundle_payload.get("source_chain", []),
-                        block_errors,
-                    )
+                    if block_name == "earnings" and "dividend" in data:
+                        block_errors.extend(self._inject_dividend_yield(data["dividend"], valuation_data.get("price")))
+                    
+                    status = self._infer_block_status(data, bundle_status)
+                    block_obj = self._build_fundamental_block(status, data, bundle_chain, block_errors)
+                    setattr(ctx, block_name, block_obj)
 
         # 3. Capital Flow / Dragon Tiger
         if not is_etf and remaining_seconds > 0:
-            capital_flow_budget = min(fetch_timeout, remaining_seconds)
-            override = getattr(self.manager, "__dict__", {}).get("get_capital_flow_context")
-            if override is not None:
-                result_ctx["capital_flow"] = override(stock_code, capital_flow_budget)
-            else:
-                result_ctx["capital_flow"] = await self.get_capital_flow_context_async(stock_code, capital_flow_budget)
-
-            dragon_tiger_budget = min(fetch_timeout, remaining_seconds)
-            override = getattr(self.manager, "__dict__", {}).get("get_dragon_tiger_context")
-            if override is not None:
-                result_ctx["dragon_tiger"] = override(stock_code, dragon_tiger_budget)
-            else:
-                result_ctx["dragon_tiger"] = await self.get_dragon_tiger_context_async(stock_code, dragon_tiger_budget)
+            ctx.capital_flow = await self.get_capital_flow_context_async(stock_code, min(fetch_timeout, remaining_seconds))
+            ctx.dragon_tiger = await self.get_dragon_tiger_context_async(stock_code, min(fetch_timeout, remaining_seconds))
+            # 行业对标
+            ctx.peer_comparison = await self.get_peer_comparison_context(stock_code)
         else:
-            for b in ["capital_flow", "dragon_tiger"]:
-                result_ctx[b] = self._build_fundamental_block("not_supported", {}, [], ["etf not supported"])
+            not_supported = self._build_fundamental_block("not_supported", {}, [], ["etf not supported"])
+            ctx.capital_flow = not_supported
+            ctx.dragon_tiger = not_supported
 
-        if is_etf:
-            result_ctx["boards"] = self._build_fundamental_block("not_supported", {}, [], ["etf not supported"])
-        else:
-            board_budget = min(fetch_timeout, remaining_seconds)
-            override = getattr(self.manager, "__dict__", {}).get("get_board_context")
-            if override is not None:
-                result_ctx["boards"] = override(stock_code, board_budget)
-            else:
-                result_ctx["boards"] = self.get_board_context(stock_code, board_budget)
+        ctx.boards = self.get_board_context(stock_code)
         
-        # 4. Status
-        result_ctx["coverage"] = {k: result_ctx[k].get("status") for k in ["valuation", "growth", "earnings", "institution", "capital_flow", "dragon_tiger", "boards"] if k in result_ctx}
-        result_ctx["status"] = "ok" if all(v == "ok" for v in result_ctx["coverage"].values()) else "partial"
-        result_ctx["elapsed_ms"] = int((time.time() - start_ts) * 1000)
-        return result_ctx
+        # 4. Status and Coverage
+        ctx.coverage = {k: getattr(ctx, k).status for k in ["valuation", "growth", "earnings", "institution", "capital_flow", "dragon_tiger", "boards"] if hasattr(ctx, k)}
+        ctx.status = "ok" if all(v == "ok" for v in ctx.coverage.values()) else "partial"
+        ctx.elapsed_ms = int((time.time() - start_ts) * 1000)
+        
+        return ctx.model_dump()
 
     def _inject_dividend_yield(self, dividend_payload: Dict, price: Optional[float]) -> List[str]:
         ttm_cash = dividend_payload.get("ttm_cash_dividend_per_share")
-        if ttm_cash is None:
-            return []
+        if ttm_cash is None: return []
         if not price or price <= 0:
             dividend_payload["ttm_dividend_yield_pct"] = None
             return ["invalid_price_for_ttm_dividend_yield"]
@@ -164,7 +138,6 @@ class FundamentalPipeline:
             dividend_payload["ttm_dividend_yield_pct"] = round(float(ttm_cash) / float(price) * 100, 4)
             dividend_payload["yield_formula"] = "ttm_cash_dividend_per_share / latest_price * 100"
         except (TypeError, ValueError):
-            dividend_payload["ttm_dividend_yield_pct"] = None
             return ["invalid_ttm_cash_dividend_for_yield"]
         return []
 
@@ -189,8 +162,7 @@ class FundamentalPipeline:
             try: outcome["res"] = func()
             except Exception as e: outcome["err"] = str(e)
             finally:
-                if _slots is not None:
-                    _slots.release()
+                if _slots is not None: _slots.release()
         t = Thread(target=_target, daemon=True)
         t.start()
         t.join(timeout)
@@ -203,18 +175,10 @@ class FundamentalPipeline:
         if isinstance(res, dict): return self._build_fundamental_block(res.get("status", "ok"), {"stock_flow": res.get("stock_flow", {}), "sector_rankings": res.get("sector_rankings", {})}, res.get("source_chain", []), res.get("errors", []))
         return self._build_fundamental_block("failed", {}, [], [err or "failed"])
 
-    def get_capital_flow_context(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
-        try: return asyncio.run(self.get_capital_flow_context_async(stock_code, budget_seconds))
-        except RuntimeError: return asyncio.get_event_loop().run_until_complete(self.get_capital_flow_context_async(stock_code, budget_seconds))
-
     async def get_dragon_tiger_context_async(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
         res, err, ms = await asyncio.to_thread(self._run_with_timeout, lambda: self.adapter.get_dragon_tiger_flag(stock_code), budget_seconds, "dragon_tiger")
         if isinstance(res, dict): return self._build_fundamental_block(res.get("status", "ok"), {"is_on_list": res.get("is_on_list", False), "recent_count": res.get("recent_count", 0), "latest_date": res.get("latest_date")}, res.get("source_chain", []), res.get("errors", []))
         return self._build_fundamental_block("failed", {}, [], [err or "failed"])
-
-    def get_dragon_tiger_context(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
-        try: return asyncio.run(self.get_dragon_tiger_context_async(stock_code, budget_seconds))
-        except RuntimeError: return asyncio.get_event_loop().run_until_complete(self.get_dragon_tiger_context_async(stock_code, budget_seconds))
 
     def get_board_context(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
         top, bottom, chain, err = self._get_sector_rankings_with_meta(5)
@@ -225,12 +189,11 @@ class FundamentalPipeline:
     async def get_peer_comparison_context(self, stock_code: str) -> Dict[str, Any]:
         """行业横向对比区块（含深度财务指标）。"""
         stock_code = normalize_stock_code(stock_code)
-        
-        # 1. 获取目标股票的行业信息 (优先 Tushare)
         target_industry = None
         all_stocks = None
         
-        for fetcher in self._iter_manager_fetchers():
+        fetchers = self.manager.fetchers
+        for fetcher in fetchers:
             if fetcher.name == "TushareFetcher" and hasattr(fetcher, "get_stock_list"):
                 all_stocks = fetcher.get_stock_list()
                 if all_stocks is not None and not all_stocks.empty:
@@ -242,9 +205,8 @@ class FundamentalPipeline:
         if not target_industry:
             return self._build_fundamental_block("not_supported", {}, [], ["Industry information not found"])
 
-        # 2. 获取全市场实时行情作为对比基准 (AkShare)
         ak_spot = None
-        for fetcher in self._iter_manager_fetchers():
+        for fetcher in fetchers:
             if fetcher.name == "AkshareFetcher":
                 try:
                     ak_spot = await asyncio.to_thread(ak.stock_zh_a_spot_em)
@@ -254,7 +216,6 @@ class FundamentalPipeline:
         if ak_spot is None or ak_spot.empty:
             return self._build_fundamental_block("failed", {}, [], ["Market spot data unavailable"])
 
-        # 3. 过滤行业对标并确定 Top 3 竞争对手 (按市值)
         try:
             ak_spot['code'] = ak_spot['代码'].astype(str)
             industry_peers_codes = all_stocks[all_stocks['industry'] == target_industry]['code'].tolist()
@@ -263,16 +224,13 @@ class FundamentalPipeline:
             mv_col = '总市值' if '总市值' in peers_spot.columns else 'total_mv'
             peers_spot = peers_spot.sort_values(mv_col, ascending=False)
             
-            # 对标名单: [目标股, 龙头1, 龙头2, 龙头3]
             target_row = peers_spot[peers_spot['code'] == stock_code]
             top_peers_df = peers_spot[peers_spot['code'] != stock_code].head(3)
             final_peers_df = pd.concat([target_row, top_peers_df])
             peer_codes = final_peers_df['code'].tolist()
 
-            # 4. 并行抓取深度财务指标 (ROE, 营收/净利增长, 毛利)
             async def _fetch_peer_financials(code: str) -> Dict[str, Any]:
                 try:
-                    # 复用 Adapter 逻辑获取财务包
                     bundle = await asyncio.to_thread(self.adapter.get_fundamental_bundle, code)
                     growth = bundle.get("growth", {})
                     earnings = bundle.get("earnings", {}).get("financial_report", {})
@@ -283,14 +241,12 @@ class FundamentalPipeline:
                         "net_profit_yoy": growth.get("net_profit_yoy"),
                         "gross_margin": growth.get("gross_margin")
                     }
-                except Exception:
-                    return {"code": code}
+                except Exception: return {"code": code}
 
             fin_tasks = [_fetch_peer_financials(c) for c in peer_codes]
             fin_results = await asyncio.gather(*fin_tasks)
             fin_map = {res['code']: res for res in fin_results}
 
-            # 5. 组装对比矩阵
             comparison_list = []
             for _, row in final_peers_df.iterrows():
                 code = row['code']
@@ -302,7 +258,7 @@ class FundamentalPipeline:
                     "change_pct": row['涨跌幅'],
                     "pe_ttm": row.get('动态市盈率', 'N/A'),
                     "pb": row.get('市净率', 'N/A'),
-                    "market_cap": round(row[mv_col] / 1e8, 2) if mv_col in row else 'N/A', # 亿元
+                    "market_cap": round(row[mv_col] / 1e8, 2) if mv_col in row else 'N/A',
                     "roe": fin.get("roe", "N/A"),
                     "revenue_yoy": fin.get("revenue_yoy", "N/A"),
                     "net_profit_yoy": fin.get("net_profit_yoy", "N/A"),
@@ -323,7 +279,7 @@ class FundamentalPipeline:
     def _get_sector_rankings_with_meta(self, n: int = 5):
         source_chain: List[Dict[str, Any]] = []
         last_error = ""
-        for fetcher in self._iter_manager_fetchers():
+        for fetcher in self.manager.fetchers:
             if not hasattr(fetcher, 'get_sector_rankings'): continue
             start = time.time()
             try:
