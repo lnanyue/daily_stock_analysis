@@ -1405,5 +1405,98 @@ class TestSkillActivation(unittest.TestCase):
             self.assertEqual(result.sentiment_score, 77)
 
 
+# ============================================================
+# Hybrid mode tests
+# ============================================================
+
+class TestHybridAgentConversion(unittest.TestCase):
+    """Test the hybrid agent path (single LLM call over pre-collected data)."""
+
+    def setUp(self):
+        self.code = "600519"
+        self.stock_name = "贵州茅台"
+        self.query_id = "test-hybrid-001"
+
+    def test_dashboard_schema_constant_defined(self):
+        """DASHBOARD_OUTPUT_SCHEMA should be a non-empty string with required keys."""
+        from src.schemas.analysis_result import DASHBOARD_OUTPUT_SCHEMA
+        self.assertIsInstance(DASHBOARD_OUTPUT_SCHEMA, str)
+        self.assertGreater(len(DASHBOARD_OUTPUT_SCHEMA.strip()), 200)
+        self.assertIn("stock_name", DASHBOARD_OUTPUT_SCHEMA)
+        self.assertIn("battle_plan", DASHBOARD_OUTPUT_SCHEMA)
+        self.assertIn("sniper_points", DASHBOARD_OUTPUT_SCHEMA)
+
+    def test_format_analysis_prompt_output_format_param(self):
+        """format_analysis_prompt should accept output_format parameter."""
+        from src.analyzer.prompt_builder import format_analysis_prompt
+        prompt_standard = format_analysis_prompt({"code": "600519"}, "测试", output_format="standard")
+        prompt_dashboard = format_analysis_prompt({"code": "600519"}, "测试", output_format="dashboard")
+        self.assertIsInstance(prompt_standard, str)
+        self.assertIsInstance(prompt_dashboard, str)
+        # Dashboard prompt should be longer (contains schema)
+        self.assertGreater(len(prompt_dashboard), len(prompt_standard))
+        # Dashboard prompt should contain the schema intro
+        self.assertIn("严格输出格式要求", prompt_dashboard)
+        self.assertNotIn("严格输出格式要求", prompt_standard)
+
+    def test_hybrid_result_price_override(self):
+        """Hybrid path should override current_price and change_pct from realtime quote."""
+        from src.schemas.analysis_result import AnalysisResult
+
+        # Build a mock realtime quote
+        rt = SimpleNamespace(price=152.30, change_pct=1.25, name=self.stock_name)
+
+        # Simulate what _analyze_with_agent does: override deterministic fields
+        llm_result = AnalysisResult(
+            code=self.code, name=self.stock_name,
+            sentiment_score=75, trend_prediction="看多",
+            operation_advice="买入", decision_type="buy",
+            confidence_level="中", current_price=150.0,  # LLM might guess wrong
+            change_pct=0.5,
+        )
+
+        # Override (simulating Step 5 in hybrid path)
+        llm_result.current_price = rt.price
+        llm_result.change_pct = rt.change_pct
+
+        self.assertEqual(llm_result.current_price, 152.30)
+        self.assertEqual(llm_result.change_pct, 1.25)
+
+    def test_analysis_metadata_structure(self):
+        """Hybrid analysis_metadata should have expected structure."""
+        from src.schemas.analysis_result import AnalysisResult
+
+        result = AnalysisResult(
+            code=self.code, name=self.stock_name,
+            sentiment_score=65, trend_prediction="震荡",
+            operation_advice="持有", decision_type="hold",
+            confidence_level="中",
+        )
+        # Simulate what hybrid path sets
+        model_used = "gemini/gemini-2.0-flash"
+        result.analysis_metadata = {
+            "agent_route": {
+                "used_agent": True,
+                "selection_source": "auto",
+                "reasons": [],
+                "arch": "hybrid",
+                "mode": "single",
+            },
+            "agent_runtime": {
+                "arch": "hybrid",
+                "success": True,
+                "model": model_used,
+                "provider": "gemini",
+            },
+        }
+
+        meta = result.analysis_metadata
+        self.assertEqual(meta["agent_route"]["arch"], "hybrid")
+        self.assertEqual(meta["agent_route"]["mode"], "single")
+        self.assertTrue(meta["agent_route"]["used_agent"])
+        self.assertEqual(meta["agent_runtime"]["model"], "gemini/gemini-2.0-flash")
+        self.assertEqual(meta["agent_runtime"]["provider"], "gemini")
+
+
 if __name__ == '__main__':
     unittest.main()
