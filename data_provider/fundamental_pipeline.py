@@ -204,6 +204,105 @@ class FundamentalPipeline:
         data = {"top": top, "bottom": bottom} if status == "ok" else {}
         return self._build_fundamental_block(status, data, chain, [err] if err else [])
 
+    async def get_peer_comparison_context(self, stock_code: str) -> Dict[str, Any]:
+        """行业横向对比区块（含深度财务指标）。"""
+        stock_code = normalize_stock_code(stock_code)
+        
+        # 1. 获取目标股票的行业信息 (优先 Tushare)
+        target_industry = None
+        all_stocks = None
+        
+        for fetcher in self.manager._fetchers:
+            if fetcher.name == "TushareFetcher" and hasattr(fetcher, "get_stock_list"):
+                all_stocks = fetcher.get_stock_list()
+                if all_stocks is not None and not all_stocks.empty:
+                    row = all_stocks[all_stocks['code'] == stock_code]
+                    if not row.empty:
+                        target_industry = row.iloc[0].get('industry')
+                        break
+        
+        if not target_industry:
+            return self._build_fundamental_block("not_supported", {}, [], ["Industry information not found"])
+
+        # 2. 获取全市场实时行情作为对比基准 (AkShare)
+        ak_spot = None
+        for fetcher in self.manager._fetchers:
+            if fetcher.name == "AkshareFetcher":
+                try:
+                    import akshare as ak
+                    ak_spot = ak.stock_zh_a_spot_em()
+                    break
+                except Exception: continue
+        
+        if ak_spot is None or ak_spot.empty:
+            return self._build_fundamental_block("failed", {}, [], ["Market spot data unavailable"])
+
+        # 3. 过滤行业对标并确定 Top 3 竞争对手 (按市值)
+        try:
+            ak_spot['code'] = ak_spot['代码'].astype(str)
+            industry_peers_codes = all_stocks[all_stocks['industry'] == target_industry]['code'].tolist()
+            peers_spot = ak_spot[ak_spot['code'].isin(industry_peers_codes)].copy()
+            
+            mv_col = '总市值' if '总市值' in peers_spot.columns else 'total_mv'
+            peers_spot = peers_spot.sort_values(mv_col, ascending=False)
+            
+            # 对标名单: [目标股, 龙头1, 龙头2, 龙头3]
+            target_row = peers_spot[peers_spot['code'] == stock_code]
+            top_peers_df = peers_spot[peers_spot['code'] != stock_code].head(3)
+            final_peers_df = pd.concat([target_row, top_peers_df])
+            peer_codes = final_peers_df['code'].tolist()
+
+            # 4. 并行抓取深度财务指标 (ROE, 营收/净利增长, 毛利)
+            async def _fetch_peer_financials(code: str) -> Dict[str, Any]:
+                try:
+                    # 复用 Adapter 逻辑获取财务包
+                    bundle = await asyncio.to_thread(self.adapter.get_fundamental_bundle, code)
+                    growth = bundle.get("growth", {})
+                    earnings = bundle.get("earnings", {}).get("financial_report", {})
+                    return {
+                        "code": code,
+                        "roe": growth.get("roe") or earnings.get("roe"),
+                        "revenue_yoy": growth.get("revenue_yoy"),
+                        "net_profit_yoy": growth.get("net_profit_yoy"),
+                        "gross_margin": growth.get("gross_margin")
+                    }
+                except Exception:
+                    return {"code": code}
+
+            fin_tasks = [_fetch_peer_financials(c) for c in peer_codes]
+            fin_results = await asyncio.gather(*fin_tasks)
+            fin_map = {res['code']: res for res in fin_results}
+
+            # 5. 组装对比矩阵
+            comparison_list = []
+            for _, row in final_peers_df.iterrows():
+                code = row['code']
+                fin = fin_map.get(code, {})
+                comparison_list.append({
+                    "code": code,
+                    "name": row['名称'],
+                    "price": row['最新价'],
+                    "change_pct": row['涨跌幅'],
+                    "pe_ttm": row.get('动态市盈率', 'N/A'),
+                    "pb": row.get('市净率', 'N/A'),
+                    "market_cap": round(row[mv_col] / 1e8, 2) if mv_col in row else 'N/A', # 亿元
+                    "roe": fin.get("roe", "N/A"),
+                    "revenue_yoy": fin.get("revenue_yoy", "N/A"),
+                    "net_profit_yoy": fin.get("net_profit_yoy", "N/A"),
+                    "gross_margin": fin.get("gross_margin", "N/A"),
+                    "is_target": code == stock_code
+                })
+
+            return self._build_fundamental_block("ok", {
+                "industry": target_industry,
+                "comparison": comparison_list,
+                "peer_count": len(peers_spot)
+            }, ["tushare:industry", "akshare:spot_em", "akshare:financials"], [])
+            
+        except Exception as e:
+            logger.error(f"[Peer Comparison] 失败: {e}", exc_info=True)
+            return self._build_fundamental_block("failed", {}, [], [str(e)])
+
     def _get_sector_rankings_with_meta(self, n: int = 5):
         source_chain: List[Dict[str, Any]] = []
         last_error = ""

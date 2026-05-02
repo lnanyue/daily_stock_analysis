@@ -319,17 +319,18 @@ class StockAnalysisPipeline:
 
             self._emit_progress(32, f"{stock_name}：正在聚合基本面与趋势数据")
 
-            # Step 2.5: 基本面能力聚合（统一入口，异常降级）
-            # - 失败时返回 partial/failed，不影响既有技术面/新闻链路
-            # - 关闭开关时仍返回 not_supported 结构
+            # Step 2.5: 基本面与对标能力聚合
             fundamental_context = None
+            peer_comparison = None
             try:
                 fundamental_context = await self.fetcher_manager.get_fundamental_context(
                     code,
                     fundamental_context,
                 )
+                # 获取行业对标数据 (P2)
+                peer_comparison = await self.fetcher_manager._fundamental_pipeline.get_peer_comparison_context(code)
             except Exception:
-                logger.warning("%s(%s) 获取基本面数据失败，降级处理", stock_name, code)
+                logger.warning("%s(%s) 获取基本面/对标数据失败，降级处理", stock_name, code)
 
             if realtime_quote and getattr(realtime_quote, 'name', None):
                 stock_name = realtime_quote.name
@@ -423,8 +424,9 @@ class StockAnalysisPipeline:
             
             enhanced_context = self._enhance_context(
                 base_context, realtime_quote, chip_data, trend_result, stock_name,
-                fundamental_context, None
+                fundamental_context, None, peer_comparison
             )
+
             
             final_news = (news_context or "")
             if a_stock_intelligence: final_news += "\n\n" + a_stock_intelligence
@@ -481,6 +483,7 @@ class StockAnalysisPipeline:
                 self._emit_progress(94, f"{stock_name}：正在校验并整理分析结果")
                 result.query_id = query_id
                 result.historical_performance = enhanced_context.get('historical_performance')
+                result.peer_comparison = peer_comparison
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 fill_chip_structure_if_needed(result, chip_data)
                 await self.db.save_analysis_history_async(result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
@@ -527,7 +530,7 @@ class StockAnalysisPipeline:
             await self.notifier.send(report_text, email_stock_codes=stock_codes)
         return results
 
-    def _enhance_context(self, context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context=None, market_overview=None):
+    def _enhance_context(self, context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context=None, market_overview=None, peer_comparison=None):
         def _as_float(value: Any) -> Optional[float]:
             try:
                 number = float(value)
@@ -546,6 +549,10 @@ class StockAnalysisPipeline:
 
         if fundamental_context: enhanced['fundamental'] = fundamental_context
         if market_overview: enhanced['market_overview'] = market_overview
+        
+        # 行业对标数据 (P2)
+        if peer_comparison:
+            enhanced['peer_comparison'] = peer_comparison
 
         trend_payload = {}
         if trend_result:
@@ -1302,9 +1309,10 @@ class StockAnalysisPipeline:
             'date': date.today().isoformat(),
         }
         enhanced_context = self._enhance_context(
-            base_context, realtime_quote, chip_data, trend_result, prompt_name,
-            fundamental_context, None,
+            base_context, realtime_quote, chip_data, trend_result, stock_name,
+            fundamental_context, None, peer_comparison
         )
+
 
         # Step 2: Stage 1 - Concurrent Expert Analysis (Technical + Risk)
         self._emit_progress(68, f"{stock_name}：专家组正在并行会诊")
@@ -1412,6 +1420,7 @@ class StockAnalysisPipeline:
         result.model_used = model_used
         result.report_language = report_language
         result.historical_performance = enhanced_context.get('historical_performance')
+        result.peer_comparison = peer_comparison
         result.data_sources = f"multi-agent:{model_used or 'unknown'}" + (f"({','.join(route_reasons)})" if route_reasons else "")
         result.analysis_metadata.update({
             "agent_route": {

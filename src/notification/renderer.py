@@ -174,6 +174,7 @@ class ReportRenderer:
         self._append_data_perspective(lines, result)
         self._append_battle_plan(lines, result)
         self._append_historical_performance(lines, result)
+        self._append_peer_comparison(lines, result)
         self._append_analysis_sections(lines, result)
 
         if not is_nested:
@@ -456,6 +457,57 @@ class ReportRenderer:
             lines.append(
                 f"| {system_label} | {overall_perf.get('win_rate_pct', 'N/A')}% | "
                 f"{overall_perf.get('direction_accuracy_pct', 'N/A')}% | {overall_perf.get('total_evaluations', 0)} |"
+            )
+        lines.append("")
+
+    def _append_peer_comparison(self, lines: List[str], result: AnalysisResult) -> None:
+        """添加行业对标分析区块。"""
+        peer_data = getattr(result, "peer_comparison", None)
+        if not peer_data or not peer_data.get("data", {}).get("comparison"):
+            return
+
+        report_language = self._get_report_language(result)
+        labels = get_report_labels(report_language)
+        data = peer_data["data"]
+        industry = data.get("industry", "Unknown")
+        comparison = data.get("comparison", [])
+
+        lines.extend([
+            f"### 🏢 {labels['peer_comparison_heading']} ({labels['industry_label']}: {industry})",
+            "",
+            f"| {labels['stock_label']} | {labels['current_price_label']} | {labels['change_pct_label']} | {labels['pe_ttm_label']} | {labels['pb_label']} | {labels['market_cap_label']} |",
+            "|:---|:---|:---|:---|:---|:---|",
+        ])
+
+        for p in comparison:
+            name = get_localized_stock_name(p.get("name"), p.get("code"), report_language)
+            highlight = "**" if p.get("is_target") else ""
+            lines.append(
+                f"| {highlight}{name}({p.get('code')}){highlight} | {p.get('price')} | {p.get('change_pct')}% | "
+                f"{p.get('pe_ttm')} | {p.get('pb')} | {p.get('market_cap')}亿 |"
+            )
+        lines.append("")
+
+        # 2. 深度财务对比
+        lines.extend([
+            f"**💡 {labels['industry_label']}竞争力分析**",
+            "",
+            f"| {labels['stock_label']} | {labels['roe_label']} | {labels['revenue_growth_label']} | {labels['profit_growth_label']} | {labels['gross_margin_label']} |",
+            "|:---|:---|:---|:---|:---|",
+        ])
+
+        for p in comparison:
+            name = get_localized_stock_name(p.get("name"), p.get("code"), report_language)
+            highlight = "**" if p.get("is_target") else ""
+            
+            def _fmt_fin(val):
+                try:
+                    return f"{float(val):.2f}%" if val is not None and str(val) != 'N/A' else "N/A"
+                except (ValueError, TypeError): return str(val)
+
+            lines.append(
+                f"| {highlight}{name}{highlight} | {_fmt_fin(p.get('roe'))} | "
+                f"{_fmt_fin(p.get('revenue_yoy'))} | {_fmt_fin(p.get('net_profit_yoy'))} | {_fmt_fin(p.get('gross_margin'))} |"
             )
         lines.append("")
 

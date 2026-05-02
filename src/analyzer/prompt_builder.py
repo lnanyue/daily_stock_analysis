@@ -163,6 +163,21 @@ def build_chief_synthesizer_prompt(
     """构建首席策略师的综合提示词。"""
     base_prompt = format_analysis_prompt(context, name, news_context=None, report_language=report_language, output_format="dashboard")
     
+    # 注入行业对标深度数据
+    peer_section = ""
+    peer_comparison = context.get("peer_comparison", {})
+    if peer_comparison and peer_comparison.get("status") == "ok":
+        data = peer_comparison.get("data", {})
+        peer_section = f"\n---\n\n## 🏢 行业横向对比 ({data.get('industry')})\n"
+        peer_section += "你手头有该股票与其行业前三名龙头的对比数据：\n"
+        for p in data.get("comparison", []):
+            mark = "[目标]" if p.get("is_target") else ""
+            peer_section += (
+                f"- {mark}{p['name']}({p['code']}): PE={p['pe_ttm']}, ROE={p['roe']}%, "
+                f"营收增长={p['revenue_yoy']}%, 净利增长={p['net_profit_yoy']}%, 毛利={p['gross_margin']}%\n"
+            )
+        peer_section += "\n> **分析要求**：请对比目标股与龙头的【成长性】与【盈利质量】。如果目标股估值远高于龙头但增速较低，请在风险中明确指出。\n"
+
     expert_section = "\n---\n\n## 🧑‍🔬 专家组分析报告 (Expert Reports)\n"
     if "technical" in expert_outputs:
         expert_section += f"\n### 📊 技术专家意见：\n{expert_outputs['technical']}\n"
@@ -170,11 +185,11 @@ def build_chief_synthesizer_prompt(
         expert_section += f"\n### 🛡️ 风控专家意见：\n{expert_outputs['risk']}\n"
         
     if report_language == "en":
-        instruction = "\n\n### 🎯 Final Instruction: Synthesize the expert reports above with the structured data. Finalize the Decision Dashboard JSON."
+        instruction = "\n\n### 🎯 Final Instruction: Synthesize the expert reports and the peer comparison data above. Finalize the Decision Dashboard JSON."
     else:
-        instruction = "\n\n### 🎯 最终指令：请汇总上方专家意见与结构化数据，化解可能的观点冲突，输出最终的【决策仪表盘】JSON。"
+        instruction = "\n\n### 🎯 最终指令：请汇总专家意见、行业对标数据与结构化行情，化解冲突，输出最终的【决策仪表盘】JSON。"
         
-    return base_prompt + expert_section + instruction
+    return base_prompt + peer_section + expert_section + instruction
 
 def format_analysis_prompt(
     context: Dict[str, Any],
