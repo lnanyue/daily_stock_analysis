@@ -795,6 +795,7 @@ class DatabaseManager:
     def _is_file_sqlite_database(self) -> bool:
         database = (self._engine.url.database or "").strip()
         return bool(database) and database.lower() != ":memory:"
+    @staticmethod
     def _is_sqlite_locked_error(exc: OperationalError) -> bool:
         err_text = str(getattr(exc, "orig", exc)).lower()
         return any(
@@ -806,7 +807,6 @@ class DatabaseManager:
             )
         )
 
-    @staticmethod
     def get_session(self) -> Session:
         """
         获取数据库 Session。调用方可直接使用 ``with db.get_session()``，

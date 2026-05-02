@@ -1395,7 +1395,9 @@ class StockAnalysisPipeline:
         for attempt in range(max_correction_attempts + 1):
             try:
                 result = self.analyzer._parse_response(response_text, code, prompt_name)
-                
+                if result.analysis_metadata is None:
+                    result.analysis_metadata = {}
+
                 # Step 5: Verify results against ground truth
                 passed, fact_issues = checker.verify(result)
                 if passed:
