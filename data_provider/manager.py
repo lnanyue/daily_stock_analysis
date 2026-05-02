@@ -50,7 +50,7 @@ class DataFetcherManager:
                 config = None
 
         self._config = config
-        self._fetchers = fetchers or self._create_default_fetchers(config=config)
+        self._fetchers = fetchers if fetchers is not None else self._create_default_fetchers(config=config)
         self._fetchers.sort(key=lambda x: getattr(x, "priority", 99))
         
         self._stock_name_cache: Dict[str, str] = {}
@@ -218,8 +218,10 @@ class DataFetcherManager:
 
     @staticmethod
     def _infer_block_status(payload, fallback):
-        if isinstance(payload, dict) and any(v not in (None, "", [], {}) for v in payload.values()):
-            return "ok"
+        if isinstance(payload, dict):
+            if any(v not in (None, "", [], {}) for v in payload.values()):
+                return "ok"
+            return fallback
         if payload:
             return "ok"
         return fallback

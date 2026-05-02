@@ -108,7 +108,6 @@ class StockAnalysisPipeline:
         self.fetcher_manager = DataFetcherManager(
             fetchers=plugin_fetchers,
             config=self.config,
-            include_default_fetchers=True,
         )
         plugin_ctx.fetcher_manager = self.fetcher_manager
         
@@ -677,18 +676,19 @@ class StockAnalysisPipeline:
         )
 
         # 历史胜率/表现 (Report Engine P1)
+        code_str = context.get("code", "")
         try:
             from src.services.backtest_service import BacktestService
             bt_service = BacktestService(self.db)
-            stock_perf = bt_service.get_stock_summary(code)
+            stock_perf = bt_service.get_stock_summary(code_str)
             overall_perf = bt_service.get_global_summary()
-            
+
             enhanced['historical_performance'] = {
                 'stock': stock_perf,
                 'overall': overall_perf
             }
         except Exception as e:
-            logger.debug(f"[{code}] 获取历史胜率失败: {e}")
+            logger.debug(f"[{code_str}] 获取历史胜率失败: {e}")
 
         return enhanced
 
