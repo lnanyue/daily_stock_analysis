@@ -1324,20 +1324,53 @@ class StockAnalysisPipeline:
 
         # Step 4: Parse response into AnalysisResult
         self._emit_progress(86, f"{stock_name}：正在解析分析结果")
-        result = self.analyzer._parse_response(response_text, code, prompt_name)
+        try:
+            result = self.analyzer._parse_response(response_text, code, prompt_name)
+        except Exception as e:
+            logger.error("[%s] 混合 Agent 结果解析失败: %s", code, e)
+            err = AnalysisResult(
+                code=code, name=prompt_name or code,
+                sentiment_score=50, trend_prediction="震荡",
+                operation_advice="观望", decision_type="hold",
+                confidence_level="中",
+                analysis_summary=f"分析结果解析失败: {e}",
+                success=False, error_message=str(e),
+                query_id=query_id,
+                data_sources="hybrid" + (f":{','.join(route_reasons)}" if route_reasons else ""),
+            )
+            return err
         result.query_id = query_id
         result.model_used = model_used
         result.report_language = report_language
         result.data_sources = "hybrid" + (f":{','.join(route_reasons)}" if route_reasons else "")
+        result.analysis_metadata = {
+            "agent_route": {
+                "used_agent": True,
+                "selection_source": "forced" if (route_reasons and any(r.startswith("config:") for r in route_reasons)) else "auto",
+                "reasons": route_reasons or [],
+                "arch": "hybrid",
+                "mode": "single",
+            },
+            "agent_runtime": {
+                "arch": "hybrid",
+                "success": True,
+                "model": model_used or "",
+                "provider": (model_used or "").split("/")[0] if model_used else "",
+            },
+        }
 
         # Step 5: Override deterministic fields from code-collected data
         if realtime_quote:
-            price = getattr(realtime_quote, 'price', None) or (realtime_quote.get('price') if isinstance(realtime_quote, dict) else None)
-            change_pct = getattr(realtime_quote, 'change_pct', None) or (realtime_quote.get('change_pct') if isinstance(realtime_quote, dict) else None)
-            if price is not None:
-                result.current_price = price
-            if change_pct is not None:
-                result.change_pct = change_pct
+            quote_price = getattr(realtime_quote, 'price', None)
+            if quote_price is None and isinstance(realtime_quote, dict):
+                quote_price = realtime_quote.get('price')
+            if quote_price is not None:
+                result.current_price = quote_price
+            quote_change = getattr(realtime_quote, 'change_pct', None)
+            if quote_change is None and isinstance(realtime_quote, dict):
+                quote_change = realtime_quote.get('change_pct')
+            if quote_change is not None:
+                result.change_pct = quote_change
         result.market_snapshot = build_market_snapshot(enhanced_context)
 
         # Step 6: Integrity check + placeholder fill
@@ -1352,6 +1385,28 @@ class StockAnalysisPipeline:
             result, query_id, getattr(report_type, 'value', str(report_type)),
             news_context, {}, getattr(self, 'save_context_snapshot', False),
         )
+
+        # News persistence for hybrid-analyzed stocks
+        if result and getattr(self.search_service, "is_available", False):
+            try:
+                news_response = self.search_service.search_stock_news(
+                    stock_code=code,
+                    stock_name=result.name,
+                    max_results=5,
+                )
+                news_items = getattr(news_response, "results", None) or []
+                if news_items:
+                    try:
+                        self.db.save_news_intel(
+                            news_items=news_items,
+                            code=code,
+                            name=result.name,
+                            query_id=query_id,
+                        )
+                    except TypeError:
+                        self.db.save_news_intel(news_items)
+            except Exception:
+                logger.debug("[%s] 混合 Agent 新闻持久化跳过", code, exc_info=True)
 
         logger.info("[%s] 混合 Agent 分析完成，评分: %s", code, result.sentiment_score)
         return result
