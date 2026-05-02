@@ -481,9 +481,6 @@ class StockAnalysisPipeline:
         except Exception as e:
             logger.error(f"[{code}] AI 分析失败: {e}", exc_info=True)
             return None
-        except Exception as e:
-            logger.error(f"[{code}] AI 分析失败: {e}", exc_info=True)
-            return None
 
     async def run(self, stock_codes=None, dry_run=False, send_notification=True, merge_notification=False):
         if stock_codes is None: stock_codes = self.config.stock_list
