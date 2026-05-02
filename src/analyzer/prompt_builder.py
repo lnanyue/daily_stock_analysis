@@ -121,6 +121,61 @@ def _build_output_language_requirements(report_language: str, no_data_text: str)
 - 当数据缺失时，请使用中文直接说明“{no_data_text}，无法判断”。
 """
 
+def get_persona_system_prompt(persona: str, report_language: str = "zh") -> str:
+    """获取特定角色的系统提示词。"""
+    if persona == "technical":
+        if report_language == "en":
+            return "You are a Senior Technical Analyst. Your goal is to analyze price action, moving averages, volume, and chip distribution. Be objective and data-driven."
+        return "你是一位资深技术面分析师。你的职责是深入分析股价走势、均线系统、成交量变化以及筹码分布结构。请保持客观、严谨，一切以数据说话。"
+    
+    if persona == "risk":
+        if report_language == "en":
+            return "You are a Chief Risk Officer. Your goal is to identify potential pitfalls, news-driven risks, and fundamental red flags. Be skeptical and cautious."
+        return "你是一位首席风控官。你的职责是识别潜在的投资陷阱、舆情风险、基本面红线以及技术指标背离。请保持审慎、怀疑的态度，重点关注风险。 "
+    
+    if persona == "chief":
+        if report_language == "en":
+            return "You are a Chief Strategist. Your goal is to synthesize findings from Technical and Risk experts into a final, actionable trading decision. Resolve any conflicts logically."
+        return "你是一位首席策略师。你的职责是汇总技术专家和风控专家的分析意见，结合市场全局，给出最终的、可落地的交易决策。请逻辑严密地化解专家间的观点冲突。"
+    
+    return ""
+
+def format_expert_instruction(persona: str, name: str, code: str, report_language: str = "zh") -> str:
+    """格式化专家的具体指令。"""
+    if persona == "technical":
+        if report_language == "en":
+            return f"Analyze the technical structure of {name} ({code}). Focus on trend status, MA alignment, and chip health. Provide a concise bulleted summary."
+        return f"请对 {name} ({code}) 的技术面结构进行深度分析。重点关注趋势状态、均线排列、以及筹码健康度。给出精炼的要点总结。"
+    
+    if persona == "risk":
+        if report_language == "en":
+            return f"Evaluate all risk factors for {name} ({code}). Scan the news context for alerts, catalysts, and fundamental weaknesses. List critical red flags."
+        return f"请评估 {name} ({code}) 的所有风险因素。扫描新闻上下文，识别风险警报、利好催化及其可持续性，并指出基本面薄弱点。列出关键的负面信号。"
+    
+    return ""
+
+def build_chief_synthesizer_prompt(
+    context: Dict[str, Any],
+    expert_outputs: Dict[str, str],
+    name: str,
+    report_language: str = "zh"
+) -> str:
+    """构建首席策略师的综合提示词。"""
+    base_prompt = format_analysis_prompt(context, name, news_context=None, report_language=report_language, output_format="dashboard")
+    
+    expert_section = "\n---\n\n## 🧑‍🔬 专家组分析报告 (Expert Reports)\n"
+    if "technical" in expert_outputs:
+        expert_section += f"\n### 📊 技术专家意见：\n{expert_outputs['technical']}\n"
+    if "risk" in expert_outputs:
+        expert_section += f"\n### 🛡️ 风控专家意见：\n{expert_outputs['risk']}\n"
+        
+    if report_language == "en":
+        instruction = "\n\n### 🎯 Final Instruction: Synthesize the expert reports above with the structured data. Finalize the Decision Dashboard JSON."
+    else:
+        instruction = "\n\n### 🎯 最终指令：请汇总上方专家意见与结构化数据，化解可能的观点冲突，输出最终的【决策仪表盘】JSON。"
+        
+    return base_prompt + expert_section + instruction
+
 def format_analysis_prompt(
     context: Dict[str, Any],
     name: str,

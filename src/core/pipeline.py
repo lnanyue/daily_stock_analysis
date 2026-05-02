@@ -23,7 +23,15 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
-from src.analyzer import GeminiAnalyzer, AnalysisResult, fill_chip_structure_if_needed, fill_price_position_if_needed
+from src.analyzer import (
+    GeminiAnalyzer,
+    AnalysisResult,
+    fill_chip_structure_if_needed,
+    fill_price_position_if_needed,
+    get_persona_system_prompt,
+    format_expert_instruction,
+    build_chief_synthesizer_prompt,
+)
 from src.analyzer.prompt_builder import format_analysis_prompt
 from src.analyzer.utils import build_market_snapshot
 from src.schemas.analysis_result import check_content_integrity, apply_placeholder_fill
@@ -1298,81 +1306,130 @@ class StockAnalysisPipeline:
             fundamental_context, None,
         )
 
-        # Step 2: Build prompt with dashboard output schema
-        prompt = format_analysis_prompt(
-            context=enhanced_context,
-            name=prompt_name,
-            news_context=news_context,
-            report_language=report_language,
-            use_legacy_default_prompt=False,
-            news_window_days_config=getattr(self.config, "news_window_days", None),
-            output_format="dashboard",
+        # Step 2: Stage 1 - Concurrent Expert Analysis (Technical + Risk)
+        self._emit_progress(68, f"{stock_name}：专家组正在并行会诊")
+        
+        async def _run_expert(persona: str) -> str:
+            expert_prompt = format_analysis_prompt(
+                context=enhanced_context,
+                name=prompt_name,
+                news_context=news_context if persona == "risk" else None, # Only Risk gets full news context
+                report_language=report_language,
+                use_legacy_default_prompt=False,
+                output_format="standard",
+            )
+            # Add persona specific instruction
+            expert_prompt += "\n\n" + format_expert_instruction(persona, prompt_name, code, report_language)
+            
+            try:
+                out, _, _ = await self.analyzer._call_litellm_async(
+                    expert_prompt,
+                    {"max_tokens": 2048, "temperature": 0.3}, # Experts should be more deterministic
+                    system_prompt=get_persona_system_prompt(persona, report_language),
+                )
+                return out
+            except Exception as e:
+                logger.warning("[%s] %s 专家调用失败: %s", code, persona, e)
+                return f"Analysis failed: {e}"
+
+        expert_tasks = [
+            _run_expert("technical"),
+            _run_expert("risk"),
+        ]
+        
+        expert_results = await asyncio.gather(*expert_tasks, return_exceptions=True)
+        expert_map = {
+            "technical": expert_results[0] if not isinstance(expert_results[0], Exception) else str(expert_results[0]),
+            "risk": expert_results[1] if not isinstance(expert_results[1], Exception) else str(expert_results[1]),
+        }
+
+        # Step 3: Stage 2 - Chief Synthesizer
+        self._emit_progress(82, f"{stock_name}：首席策略师正在汇总")
+        synthesis_prompt = build_chief_synthesizer_prompt(
+            enhanced_context, expert_map, prompt_name, report_language
         )
 
-        # Step 3: Single LLM call (reuse the existing analyzer's LLM client)
-        self._emit_progress(74, f"{stock_name}：正在调用 LLM 分析")
         try:
             response_text, model_used, _ = await self.analyzer._call_litellm_async(
-                prompt,
+                synthesis_prompt,
                 {"max_tokens": 8192, "temperature": getattr(self.config, "llm_temperature", 0.7)},
-                system_prompt=self.analyzer._get_analysis_system_prompt(
-                    report_language,
-                    stock_code=code,
-                ),
+                system_prompt=get_persona_system_prompt("chief", report_language),
             )
         except Exception as e:
-            logger.error("[%s] 混合 Agent LLM 调用失败: %s", code, e)
+            logger.error("[%s] 首席策略师 LLM 调用失败: %s", code, e)
             err = AnalysisResult(
                 code=code, name=prompt_name or code,
                 sentiment_score=50, trend_prediction="震荡",
                 operation_advice="观望", decision_type="hold",
                 confidence_level="中",
-                analysis_summary=f"分析失败: {e}",
+                analysis_summary=f"分析汇总失败: {e}",
                 success=False, error_message=str(e),
                 query_id=query_id,
-                data_sources="hybrid",
+                data_sources=f"multi-agent:{model_used or 'unknown'}",
             )
             return err
 
-        # Step 4: Parse response into AnalysisResult
-        self._emit_progress(86, f"{stock_name}：正在解析分析结果")
-        try:
-            result = self.analyzer._parse_response(response_text, code, prompt_name)
-        except Exception as e:
-            logger.error("[%s] 混合 Agent 结果解析失败: %s", code, e)
-            err = AnalysisResult(
-                code=code, name=prompt_name or code,
-                sentiment_score=50, trend_prediction="震荡",
-                operation_advice="观望", decision_type="hold",
-                confidence_level="中",
-                analysis_summary=f"分析结果解析失败: {e}",
-                success=False, error_message=str(e),
-                query_id=query_id,
-                data_sources="hybrid" + (f":{','.join(route_reasons)}" if route_reasons else ""),
-            )
-            return err
+        # Step 4: Parse response and Fact-Check Loop
+        self._emit_progress(88, f"{stock_name}：正在生成最终决策")
+        from src.agent.fact_checker import FactChecker
+        checker = FactChecker(enhanced_context)
+        
+        result = None
+        max_correction_attempts = 1
+        for attempt in range(max_correction_attempts + 1):
+            try:
+                result = self.analyzer._parse_response(response_text, code, prompt_name)
+                
+                # Step 5: Verify results against ground truth
+                passed, fact_issues = checker.verify(result)
+                if passed:
+                    break
+                
+                if attempt < max_correction_attempts:
+                    logger.warning("[%s] 事实核查失败，触发 AI 自我修正 (%d/%d): %s", 
+                                   code, attempt + 1, max_correction_attempts, fact_issues)
+                    self._emit_progress(91, f"{stock_name}：检测到数据幻觉，正在修正")
+                    
+                    correction_prompt = synthesis_prompt + "\n\n" + checker.build_correction_prompt(fact_issues, report_language)
+                    response_text, _, _ = await self.analyzer._call_litellm_async(
+                        correction_prompt,
+                        {"max_tokens": 8192, "temperature": 0.2}, 
+                        system_prompt=get_persona_system_prompt("chief", report_language),
+                    )
+                else:
+                    logger.error("[%s] 事实核查最终失败，使用代码兜底覆盖: %s", code, fact_issues)
+                    # Metadata for failed check
+                    result.analysis_metadata.setdefault("fact_check", {})["status"] = "failed_and_overridden"
+                    result.analysis_metadata["fact_check"]["issues"] = fact_issues
+                    
+            except Exception as e:
+                logger.error("[%s] 结果解析或事实核查异常: %s", code, e)
+                if attempt >= max_correction_attempts:
+                    return self.analyzer._make_error_result(code, prompt_name, f"核查系统故障: {e}")
+
+        # Update metadata and common fields
         result.query_id = query_id
         result.model_used = model_used
         result.report_language = report_language
         result.historical_performance = enhanced_context.get('historical_performance')
-        result.data_sources = f"hybrid:{model_used or 'unknown'}" + (f"({','.join(route_reasons)})" if route_reasons else "")
-        result.analysis_metadata = {
+        result.data_sources = f"multi-agent:{model_used or 'unknown'}" + (f"({','.join(route_reasons)})" if route_reasons else "")
+        result.analysis_metadata.update({
             "agent_route": {
                 "used_agent": True,
                 "selection_source": "forced" if (route_reasons and any(r.startswith("config:") for r in route_reasons)) else "auto",
                 "reasons": route_reasons or [],
-                "arch": "hybrid",
-                "mode": "single",
+                "arch": "multi-agent",
+                "mode": "concurrent",
             },
             "agent_runtime": {
-                "arch": "hybrid",
+                "arch": "multi-agent",
                 "success": True,
                 "model": model_used or "",
                 "provider": (model_used or "").split("/")[0] if model_used else "",
             },
-        }
+        })
 
-        # Step 5: Override deterministic fields from code-collected data
+        # Step 6: Override deterministic fields from code-collected data
         if realtime_quote:
             quote_price = getattr(realtime_quote, 'price', None)
             if quote_price is None and isinstance(realtime_quote, dict):

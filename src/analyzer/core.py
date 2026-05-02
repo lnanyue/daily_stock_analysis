@@ -28,7 +28,13 @@ from src.schemas.analysis_result import (
 )
 from src.agent.llm_adapter import get_thinking_extra_body
 from src.storage import persist_llm_usage
-from .prompt_builder import format_analysis_prompt, build_integrity_retry_prompt
+from .prompt_builder import (
+    format_analysis_prompt,
+    build_integrity_retry_prompt,
+    get_persona_system_prompt,
+    format_expert_instruction,
+    build_chief_synthesizer_prompt,
+)
 from .utils import (
     fill_chip_structure_if_needed,
     fill_price_position_if_needed,
