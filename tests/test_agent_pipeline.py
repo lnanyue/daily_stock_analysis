@@ -722,14 +722,13 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
     """Test stock-name handling in _analyze_with_agent."""
 
     def test_analyze_with_agent_uses_resolved_name_for_news_persistence(self):
-        """Should use resolved stock name from dashboard for search and DB persistence."""
+        """Should resolve stock name from LLM response for search and DB persistence."""
         with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
+             patch('src.core.pipeline.get_db') as mock_get_db, \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.GeminiAnalyzer') as mock_analyzer_class, \
              patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'), \
-             patch('src.agent.factory.build_agent_executor') as mock_build_executor:
+             patch('src.core.pipeline.SearchService'):
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -739,31 +738,37 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.tavily_api_keys = []
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
+            mock_cfg.news_window_days = 3
+            mock_cfg.llm_temperature = 0.7
             mock_cfg.enable_chip_distribution = True
             mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
+
+            # Make db async methods awaitable
+            mock_db = MagicMock()
+            mock_db.save_analysis_history_async = AsyncMock()
+            mock_db.save_news_intel = MagicMock()
+            mock_get_db.return_value = mock_db
+
             mock_config.return_value = mock_cfg
 
             from src.core.pipeline import StockAnalysisPipeline
-            from src.agent.executor import AgentResult
             from src.enums import ReportType
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
 
-            agent_result = AgentResult(
-                success=True,
-                content="{}",
-                dashboard={
-                    "stock_name": "科创芯片ETF",
-                    "sentiment_score": 78,
-                    "trend_prediction": "震荡偏多",
-                    "operation_advice": "持有",
-                    "decision_type": "hold",
-                },
-                provider="gemini",
+            # Mock analyzer instance
+            mock_analyzer = MagicMock()
+            mock_analyzer._call_litellm_async = AsyncMock(return_value=('{"sentiment_score": 78}', "gemini/gemini-2.0-flash", None))
+            from src.schemas.analysis_result import AnalysisResult
+            mock_analyzer._parse_response.return_value = AnalysisResult(
+                code="588200", name="科创芯片ETF",
+                sentiment_score=78, trend_prediction="震荡偏多",
+                operation_advice="持有", decision_type="hold",
+                confidence_level="中",
             )
-            mock_executor = MagicMock()
-            mock_executor.run.return_value = agent_result
-            mock_build_executor.return_value = mock_executor
+            mock_analyzer._get_analysis_system_prompt.return_value = "system prompt"
+            mock_analyzer_class.return_value = mock_analyzer
+
+            pipeline = StockAnalysisPipeline(config=mock_cfg)
 
             news_response = MagicMock()
             news_response.success = True
@@ -778,16 +783,13 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
                 query_id="q-news",
                 stock_name="股票588200",
                 realtime_quote=None,
-                chip_data=None
+                chip_data=None,
             ))
 
             self.assertIsNotNone(result)
             self.assertEqual(result.name, "科创芯片ETF")
-            mock_executor.run.assert_called_once()
-            agent_context = mock_executor.run.call_args.kwargs["context"]
-            self.assertEqual(agent_context["stock_code"], "588200")
-            self.assertEqual(agent_context["stock_name"], "股票588200")
-            self.assertEqual(agent_context["report_type"], ReportType.SIMPLE.value)
+            # Verify LLM was called once (hybrid path)
+            mock_analyzer._call_litellm_async.assert_called_once()
             pipeline.search_service.search_stock_news.assert_called_once_with(
                 stock_code="588200",
                 stock_name="科创芯片ETF",
@@ -799,12 +801,11 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
 
     def test_analyze_with_agent_passes_prefetched_context_to_executor(self):
         with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
+             patch('src.core.pipeline.get_db') as mock_get_db, \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.GeminiAnalyzer') as mock_analyzer_class, \
              patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'), \
-             patch('src.agent.factory.build_agent_executor') as mock_build_executor:
+             patch('src.core.pipeline.SearchService'):
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -817,30 +818,42 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.enable_chip_distribution = True
             mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
+            mock_cfg.news_window_days = 3
+            mock_cfg.llm_temperature = 0.7
+
+            # Make db async methods awaitable
+            mock_db = MagicMock()
+            mock_db.save_analysis_history_async = AsyncMock()
+            mock_db.save_news_intel = MagicMock()
+            mock_get_db.return_value = mock_db
+
             mock_config.return_value = mock_cfg
 
             from src.core.pipeline import StockAnalysisPipeline
-            from src.agent.executor import AgentResult
             from src.enums import ReportType
 
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
-
-            agent_result = AgentResult(
-                success=True,
-                content="{}",
-                dashboard={"stock_name": "贵州茅台", "sentiment_score": 72, "decision_type": "hold"},
-                provider="gemini",
+            # Mock analyzer instance
+            mock_analyzer = MagicMock()
+            mock_analyzer._call_litellm_async = AsyncMock(return_value=('{"sentiment_score": 72}', "gemini/gemini-2.0-flash", None))
+            from src.schemas.analysis_result import AnalysisResult
+            mock_analyzer._parse_response.return_value = AnalysisResult(
+                code="600519", name="贵州茅台",
+                sentiment_score=72, trend_prediction="看多",
+                operation_advice="持有", decision_type="hold",
+                confidence_level="中",
             )
-            mock_executor = MagicMock()
-            mock_executor.run.return_value = agent_result
-            mock_build_executor.return_value = mock_executor
+            mock_analyzer._get_analysis_system_prompt.return_value = "system prompt"
+            mock_analyzer_class.return_value = mock_analyzer
+
+            pipeline = StockAnalysisPipeline(config=mock_cfg)
             pipeline.search_service.is_available = False
 
             realtime_quote = SimpleNamespace(price=123.4, change_pct=1.23, volume=1000, amount=2000, name="贵州茅台")
             chip_data = SimpleNamespace(profit_ratio=0.71, avg_cost=120.5, concentration_90=0.12, concentration_70=0.08, date="2026-04-30")
-            trend_result = SimpleNamespace(to_dict=lambda: {"trend_status": "多头排列", "signal_score": 78})
+            # trend_result needs ma5 for _enhance_context intraday pricing
+            trend_result = SimpleNamespace(ma5=125.0, ma10=123.0, ma20=120.0, to_dict=lambda: {"trend_status": "多头排列", "signal_score": 78})
 
-            asyncio.run(pipeline._analyze_with_agent(
+            result = asyncio.run(pipeline._analyze_with_agent(
                 code="600519",
                 report_type=ReportType.FULL,
                 query_id="q-context",
@@ -851,13 +864,12 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
                 news_context="### 风险\n- 2026-04-30: 无重大利空",
             ))
 
-            agent_context = mock_executor.run.call_args.kwargs["context"]
-            self.assertEqual(agent_context["stock_code"], "600519")
-            self.assertEqual(agent_context["report_type"], ReportType.FULL.value)
-            self.assertEqual(agent_context["realtime_quote"]["price"], 123.4)
-            self.assertEqual(agent_context["chip_distribution"]["avg_cost"], 120.5)
-            self.assertEqual(agent_context["trend_result"]["signal_score"], 78)
-            self.assertIn("无重大利空", agent_context["news_context"])
+            self.assertIsNotNone(result)
+            # Verify LLM was called once (hybrid path), not via build_agent_executor
+            mock_analyzer._call_litellm_async.assert_called_once()
+            # Verify deterministic field override
+            self.assertEqual(result.current_price, 123.4)
+            self.assertEqual(result.change_pct, 1.23)
 
 
 # ============================================================
