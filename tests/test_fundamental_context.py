@@ -302,7 +302,7 @@ class TestFundamentalContext(unittest.TestCase):
 
     def test_run_with_timeout_limits_hanging_workers(self) -> None:
         manager = DataFetcherManager(fetchers=[])
-        manager._fundamental_timeout_slots = BoundedSemaphore(1)
+        manager._fundamental_pipeline._timeout_slots = BoundedSemaphore(1)
 
         unblock = Event()
 

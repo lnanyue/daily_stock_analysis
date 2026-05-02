@@ -77,10 +77,10 @@ class TestFetcherLogging(unittest.TestCase):
         log_text = "\n".join(captured.output)
         self.assertFalse(df.empty)
         self.assertEqual(source, "SuccessFetcher")
-        self.assertIn("[数据源尝试 1/2] [FailureFetcher] 获取 601006...", log_text)
-        self.assertIn("[数据源失败 1/2] [FailureFetcher] 601006:", log_text)
-        self.assertIn("[数据源切换] 601006: [FailureFetcher] -> [SuccessFetcher]", log_text)
-        self.assertIn("[数据源完成] 601006 使用 [SuccessFetcher] 获取成功:", log_text)
+        self.assertIn("[FailureFetcher] 开始获取 601006 日线数据", log_text)
+        self.assertIn("[FailureFetcher] 601006 获取失败:", log_text)
+        self.assertIn("[SuccessFetcher] 开始获取 601006 日线数据", log_text)
+        self.assertIn("[SuccessFetcher] 601006 获取成功:", log_text)
 
     def test_efinance_logs_eastmoney_endpoint_on_remote_disconnect(self):
         fetcher = EfinanceFetcher()
