@@ -71,6 +71,36 @@ LITELLM_MODEL=ollama/qwen3:8b
 
 > **新版编辑体验补充**：对于 DeepSeek、阿里百炼（DashScope）以及其他兼容 OpenAI `/v1/models` 的渠道，设置页现在支持直接点击“获取模型”，从 `{base_url}/models` 拉取可用模型并多选；底层仍会保存为原来的 `LLM_{CHANNEL}_MODELS=model1,model2` 逗号格式。若渠道不支持该接口、鉴权失败或暂时不可达，仍可继续手动填写模型列表，不影响保存。
 
+### 首次启动配置状态
+
+后端提供只读状态接口 `GET /api/v1/system/config/setup/status`，用于判断首次启动闭环中最基础的几类配置是否已经就绪：LLM 主渠道、Agent 渠道、自选股、通知渠道和本地存储。这个接口只读取已保存的 `.env` 与当前进程环境变量，不会重载运行时配置、写入 `.env`、测试真实模型或创建数据库文件；前端向导和后续 smoke run 可以基于该接口逐步接入。
+
+### Web 渠道编辑器的兼容性 / 迁移 / 回退规则
+
+- 预设里的 provider / Base URL / 示例模型只用于**初始化表单**；真正落盘时仍是你当前输入的 `LLM_{CHANNEL}_PROTOCOL`、`LLM_{CHANNEL}_BASE_URL`、`LLM_{CHANNEL}_MODELS`、`LLM_{CHANNEL}_API_KEY(S)`，不会在后台偷偷改成别的 provider 名或 URL。
+- 设置页的“获取模型”只对 `OpenAI Compatible` / `DeepSeek` 渠道调用 `{base_url}/models`；“测试连接”只发一次最小聊天请求。两者返回的 `stage / error_code / details / latency_ms` 仅用于结构化诊断提示，**不会写回** `.env`。
+- 保存渠道时，只会更新这次提交的 key；不会因为切换渠道模式而静默迁移整个旧配置。唯一会被**同步清理**的是运行时模型引用：如果 `LITELLM_MODEL`、`AGENT_LITELLM_MODEL`、`VISION_MODEL` 或 `LITELLM_FALLBACK_MODELS` 指向了当前已启用渠道里已经不存在的模型，设置页会在保存前把这些失效引用清空/移除，避免运行时继续指向无效模型；像 `cohere/...` 这类直连环境变量 provider 仍会保留。
+- 回退方式也保持最小：把对应渠道模型列表改回去后重新选择主模型 / fallback，或直接用桌面端导出备份 / 手动 `.env` 还原之前的 `LLM_*`、`LITELLM_MODEL`、`AGENT_LITELLM_MODEL`、`VISION_MODEL`、`LLM_TEMPERATURE` 即可，不需要额外跑迁移脚本。
+- 当前仓库对此链路的依赖窗口是 `litellm>=1.80.10,<1.82.7`（见 `requirements.txt`）；回归覆盖包括 `tests/test_system_config_service.py`、`tests/test_system_config_api.py` 和 `apps/dsa-web/src/components/settings/__tests__/LLMChannelEditor.test.tsx`。
+
+### 回退与兼容性证据
+
+- 兼容窗口与静默清理范围：在 `litellm>=1.80.10,<1.82.7` 时，保存仅清理失效的 runtime 模型引用（`LITELLM_MODEL`、`AGENT_LITELLM_MODEL`、`VISION_MODEL`、`LITELLM_FALLBACK_MODELS`），`cohere/*` 等非渠道直连模型会被保留。
+- 回退方式：可直接用桌面端导出备份后通过 `POST /api/v1/system/config/import` 恢复；也可手动把 `.env` 中历史 `LITELLM_* / AGENT_LITELLM_MODEL / VISION_MODEL / LLM_TEMPERATURE` 回填后重启生效。
+- 回退回归证据：`tests/test_system_config_service.py::test_import_desktop_env_restores_runtime_models_after_cleanup` 覆盖“清理后用桌面导出备份恢复 runtime 引用”。
+- 建议回退操作链路（含设置页刷新）：先导出桌面备份，`POST /api/v1/system/config/import` 导入后，再通过 `GET /api/v1/system/config` 刷新页面配置，再确认 `LITELLM_MODEL / AGENT_LITELLM_MODEL / VISION_MODEL / LLM_TEMPERATURE` 与模型列表一致后再继续使用。
+
+### 常用官方文档来源（用于核对预设 provider / Base URL / 模型命名）
+
+- OpenAI Compatible 规范（LiteLLM）：<https://docs.litellm.ai/docs/providers/openai_compatible>
+- OpenAI 官方：<https://platform.openai.com/docs/api-reference/chat>
+- DeepSeek 官方：<https://api-docs.deepseek.com/>
+- 阿里百炼 DashScope 兼容模式：<https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope>
+- Moonshot / Kimi 官方：<https://platform.moonshot.ai/docs/guide/compatibility>
+- Anthropic 官方：<https://docs.anthropic.com/en/api/messages>
+- Gemini 官方：<https://ai.google.dev/gemini-api/docs/openai>
+- Ollama 官方：<https://github.com/ollama/ollama/blob/main/docs/api.md>
+
 如果不方便用网页版，在 `.env` 文件中配置也非常丝滑，它能让你同时管理多个第三方平台。规则如下：
 
 1. **先声明你有几个渠道**：`LLM_CHANNELS=渠道名称1,渠道名称2`
@@ -138,6 +168,16 @@ LITELLM_MODEL=ollama/qwen3:8b
 - 非 Kimi 主模型、非 Kimi fallback 以及切回普通模型后的请求，仍继续使用你配置的温度；也就是说旧配置无需迁移，切换模型即可自动恢复原行为。
 - 本仓库兼容性回归覆盖见：`tests/test_llm_channel_config.py`、`tests/test_market_analyzer_generate_text.py`、`tests/test_agent_pipeline.py`、`tests/test_system_config_service.py`。
 - 最小回滚方式：直接回退本次 Kimi 固定温度相关改动，无需单独迁移已有 `LLM_TEMPERATURE` 配置。
+
+### 兼容性与回退复核清单（按 PR 审核口径）
+
+- 运行时依赖窗口：`litellm>=1.80.10,<1.82.7`（与 `requirements.txt` 一致）。
+- 回归验证入口：
+  - 渠道模型发现与连接：`tests/test_llm_channel_config.py`
+  - 运行时源清理与恢复（含桌面导出备份链路）：`tests/test_system_config_service.py`
+  - 接口校验与问题面向字段：`tests/test_system_config_api.py`
+  - 设置页交互与保存后提示：`apps/dsa-web/src/components/settings/__tests__/LLMChannelEditor.test.tsx`
+- 旧配置回退路径：`桌面端导出备份 -> /api/v1/system/config/import`，或手动恢复 `LLM_* / LITELLM_* / AGENT_LITELLM_MODEL / VISION_MODEL / LLM_TEMPERATURE`。
 
 > **致命避坑说明**：如果你启用了 `LLM_CHANNELS`，那么你直接写在外面的 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY` 将**全部失效（系统一律无视）**！二者**选其一即可**，千万不要既写了新手模式又写了渠道模式结果产生冲突。
 > **Docker 注意**：如果你在 `docker compose environment:` 或 `docker run -e` 中显式传入 `LITELLM_MODEL`、`LLM_CHANNELS`、`LLM_DEEPSEEK_MODELS` 等变量，容器重启后这些环境变量会覆盖 Web 设置页写入的 `.env`，需要同步修改部署配置。
