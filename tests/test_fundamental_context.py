@@ -3,6 +3,7 @@
 Tests for structured fundamental context (P0).
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -114,6 +115,17 @@ class TestFundamentalContext(unittest.TestCase):
         )
         manager = DataFetcherManager(fetchers=[efinance, tushare, akshare])
         top, bottom = manager.get_sector_rankings_sync(1)
+        self.assertEqual(top[0]["name"], "地产")
+        self.assertEqual(bottom[0]["name"], "煤炭")
+
+    def test_async_sector_rankings_uses_sync_fallback(self) -> None:
+        efinance = _DummyFetcher(
+            "EfinanceFetcher",
+            priority=0,
+            rankings=([{"name": "地产", "change_pct": 2.0}], [{"name": "煤炭", "change_pct": -2.0}]),
+        )
+        manager = DataFetcherManager(fetchers=[efinance])
+        top, bottom = asyncio.run(manager.get_sector_rankings(1))
         self.assertEqual(top[0]["name"], "地产")
         self.assertEqual(bottom[0]["name"], "煤炭")
 

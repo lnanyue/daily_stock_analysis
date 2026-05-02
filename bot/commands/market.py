@@ -8,6 +8,7 @@
 """
 
 import logging
+import inspect
 from typing import List
 
 from bot.commands.base import BotCommand
@@ -69,12 +70,42 @@ class MarketCommand(BotCommand):
         try:
             from src.config import get_config
             from src.notification import NotificationService
-            from src.search_service import SearchService
             from src.analyzer import GeminiAnalyzer
             from src.core.market_review import run_market_review
 
             config = get_config()
             notifier = NotificationService(source_message=message)
+
+            # 与 CLI/main.py 保持一致：交易日过滤后只跑实际开市的相关市场。
+            override_region = None
+            if getattr(config, "trading_day_check_enabled", True):
+                try:
+                    from src.core.trading_calendar import (
+                        compute_effective_region,
+                        get_open_markets_today,
+                    )
+
+                    open_markets = get_open_markets_today()
+                    override_region = compute_effective_region(
+                        getattr(config, "market_review_region", "cn") or "cn",
+                        open_markets,
+                    )
+                except Exception as calendar_err:
+                    logger.warning(
+                        "[MarketCommand] 交易日过滤 fail-open: %s", calendar_err
+                    )
+                    override_region = None
+
+                if override_region == "":
+                    logger.info("[MarketCommand] 今日相关市场休市，跳过大盘复盘")
+                    if notifier.is_available():
+                        await self._maybe_await(
+                            notifier.send(
+                                "🎯 大盘复盘\n\n今日相关市场休市，已跳过大盘复盘。",
+                                email_send_to_all=True,
+                            )
+                        )
+                    return
 
             # 初始化搜索服务
             search_service = None
@@ -94,13 +125,25 @@ class MarketCommand(BotCommand):
                 analyzer = GeminiAnalyzer()
 
             # 执行复盘（调用核心模块的异步函数）
-            await run_market_review(
+            review_report = await self._maybe_await(run_market_review(
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,
-                send_notification=True
-            )
+                send_notification=True,
+                override_region=override_region,
+            ))
+
+            if review_report:
+                logger.info("[MarketCommand] 大盘复盘完成并已推送")
+            else:
+                logger.warning("[MarketCommand] 大盘复盘返回空结果")
 
         except Exception as e:
             logger.error("[MarketCommand] 大盘复盘失败: %s", e)
             logger.exception(e)
+
+    @staticmethod
+    async def _maybe_await(value):
+        if inspect.isawaitable(value):
+            return await value
+        return value

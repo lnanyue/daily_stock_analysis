@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 个股分析链路恢复 `fundamental_context` 兼容封装与 prompt 透传；修复 `AkshareFundamentalAdapter` 缺少旧版基本面上下文入口导致个股 CLI 在基本面阶段直接中断的问题，并让个股 prompt 重新读到结构化财报/分红字段。
 - [修复] 恢复数据源、历史详情、回测与报告渲染的兼容契约：`DataFetcherManager` 重新提供同步公共入口并补充异步 wrapper，补齐历史详情/回测 ORM 字段、Vision legacy 模型配置、Jinja 报告模板默认目录与报告输出忽略规则。
 - [修复] 股票名称 fallback 遇到 Tushare `stock_basic` 超时或“频率超限”时会更快切换后续数据源；名称查询改用独立超时线程与短超时 HTTP 调用，避免阻塞默认 asyncio 执行器导致分析尾延迟过长。
-- [修复] A 股大盘复盘恢复稳定七段式报告结构；Prompt 和 AI 不可用兜底报告都会输出“市场总结 / 指数点评 / 资金动向 / 热点解读 / 后市展望 / 风险提示 / 策略计划”，并保留市场宽度行、指数表、领涨领跌板块与策略失效条件；同时恢复 `DataFetcherManager.get_main_indices()` 的指数数据源 fallback，避免指数点评天然缺失。
+- [修复] A 股大盘复盘恢复与 main 分支一致的 CLI 七段式预览结构；Prompt 和 AI 不可用兜底报告都会输出“盘面总览 / 指数结构 / 板块主线 / 资金与情绪 / 消息催化 / 明日交易计划 / 风险提示”，并保留市场宽度行、指数表、领涨领跌板块与交易计划字段；同时恢复 Bot `/market` 的交易日过滤，避免休市时仍触发复盘推送，并补齐 Tushare 市场统计 HTTP client 的 `requests` 导入。
 - [新功能] 新增 `AGENT_AUTO_ROUTE_ANALYSIS` 条件式 Agent 分流：经典单股分析仍为默认，但在数据缺口、密集/高风险情报或较丰富的 A 股情报场景会自动升级到 Agent；同时把已预取的行情、筹码、趋势与新闻上下文注入 Agent，减少重复取数。
 - [新功能] 新增可选 `OpenBBFetcher` 数据源；配置 `OPENBB_FETCHER_ENABLED=true` 后可通过 OpenBB provider 获取历史价格、实时行情与股票名称 fallback，未安装 OpenBB 时保持静默降级。
 - [改进] 下线 `PytdxFetcher`：移除 pytdx 依赖与默认数据源注册，避免通达信服务器频繁超时/握手失败拖慢股票名称与行情 fallback 链路。

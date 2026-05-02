@@ -15,6 +15,9 @@ import numpy as np
 
 from .utils import (
     normalize_stock_code,
+    is_bse_code,
+    is_st_stock,
+    is_kc_cy_stock,
     summarize_exception,
     STANDARD_COLUMNS,
 )
@@ -26,6 +29,14 @@ from .exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def __getattr__(name: str):
+    """Backward-compatible lazy exports for historical imports from base."""
+    if name == "DataFetcherManager":
+        from .manager import DataFetcherManager
+        return DataFetcherManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class BaseFetcher(ABC):
@@ -111,6 +122,7 @@ class BaseFetcher(ABC):
             start_date = start_dt.strftime('%Y-%m-%d')
 
         try:
+            logger.info(f"[{self.name}] 开始获取 {stock_code} 日线数据: {start_date} -> {end_date}")
             raw_df = self._fetch_raw_data(stock_code, start_date, end_date)
             if raw_df is None or raw_df.empty:
                 raise DataFetchError(f"[{self.name}] 未获取到 {stock_code} 的数据")
@@ -118,9 +130,15 @@ class BaseFetcher(ABC):
             df = self._normalize_data(raw_df, stock_code)
             df = self._clean_data(df)
             df = self._calculate_indicators(df)
+            logger.info(f"[{self.name}] {stock_code} 获取成功: rows={len(df)}")
             return df
         except Exception as e:
-            raise DataFetchError(f"[{self.name}] {stock_code}: {str(e)}") from e
+            _, error_reason = summarize_exception(e)
+            if isinstance(e, DataFetchError):
+                logger.warning(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            else:
+                logger.error(f"[{self.name}] {stock_code} 获取失败: {error_reason}")
+            raise DataFetchError(f"[{self.name}] {stock_code}: {error_reason}") from e
 
     def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """基础数据清洗"""

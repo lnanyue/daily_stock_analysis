@@ -25,6 +25,7 @@ from typing import Optional, Tuple, List, Dict, Any
 
 import pandas as pd
 import httpx
+import requests
 from tenacity import (
     retry,
     stop_after_attempt,

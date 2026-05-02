@@ -64,10 +64,18 @@ class SearchService:
     def __init__(
         self,
         tavily_keys: Optional[List[str]] = None,
+        anspire_keys: Optional[List[str]] = None,
+        bocha_keys: Optional[List[str]] = None,
+        brave_keys: Optional[List[str]] = None,
+        serpapi_keys: Optional[List[str]] = None,
+        minimax_keys: Optional[List[str]] = None,
+        searxng_base_urls: Optional[List[str]] = None,
+        searxng_public_instances_enabled: bool = False,
         openbb_news_enabled: bool = False,
         openbb_news_provider: str = "yfinance",
         news_max_age_days: int = 3,
         news_strategy_profile: str = "short",
+        **_legacy_kwargs,
     ):
         self._providers: List[BaseSearchProvider] = []
         self.news_max_age_days = max(1, news_max_age_days)

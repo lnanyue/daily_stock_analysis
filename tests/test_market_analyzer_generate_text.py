@@ -233,13 +233,13 @@ class TestMarketAnalyzerBypassFix:
         prompt = ma._build_prompt(context)
 
         for title in [
-            "### 一、市场总结",
-            "### 二、指数点评",
-            "### 三、资金动向",
-            "### 四、热点解读",
-            "### 五、后市展望",
-            "### 六、风险提示",
-            "### 七、策略计划",
+            "### 一、盘面总览",
+            "### 二、指数结构",
+            "### 三、板块主线",
+            "### 四、资金与情绪",
+            "### 五、消息催化",
+            "### 六、明日交易计划",
+            "### 七、风险提示",
         ]:
             assert title in prompt
 
@@ -248,10 +248,9 @@ class TestMarketAnalyzerBypassFix:
         assert "| 上证指数 | 3913.72 | 🟢 +0.63% | 7997 |" in prompt
         assert "🔥 领涨: 锂(+8.88%)" in prompt
         assert "💧 领跌: 风力发电(-2.13%)" in prompt
-        assert "市场状态" in prompt
-        assert "仓位建议" in prompt
-        assert "失效条件" in prompt
-        assert "> 建议仅供参考，不构成投资建议。" in prompt
+        assert "结论 / 仓位 / 关注方向 / 回避方向 / 失效条件" in prompt
+        assert "### 一、市场总结" not in prompt
+        assert "### 七、策略计划" not in prompt
 
     def test_cn_fallback_report_uses_structured_market_review_contract(self):
         """Fallback report should still look like the desired A-share recap."""
@@ -287,13 +286,13 @@ class TestMarketAnalyzerBypassFix:
         report = ma._generate_fallback_report(context)
 
         for title in [
-            "### 一、市场总结",
-            "### 二、指数点评",
-            "### 三、资金动向",
-            "### 四、热点解读",
-            "### 五、后市展望",
-            "### 六、风险提示",
-            "### 七、策略计划",
+            "### 一、盘面总览",
+            "### 二、指数结构",
+            "### 三、板块主线",
+            "### 四、资金与情绪",
+            "### 五、消息催化",
+            "### 六、明日交易计划",
+            "### 七、风险提示",
         ]:
             assert title in report
 
@@ -302,7 +301,8 @@ class TestMarketAnalyzerBypassFix:
         assert "| 指数 | 最新 | 涨跌幅 | 成交额(亿) |" in report
         assert "🔥 领涨: 能源金属(+7.36%)" in report
         assert "💧 领跌: 水力发电(-1.37%)" in report
-        assert "市场状态：" in report
-        assert "仓位建议：" in report
-        assert "失效条件：" in report
-        assert "> 建议仅供参考，不构成投资建议。" in report
+        assert "- **结论**：" in report
+        assert "- **仓位**：" in report
+        assert "- **失效条件**：" in report
+        assert "### 一、市场总结" not in report
+        assert "### 七、策略计划" not in report

@@ -14,7 +14,7 @@ import logging
 import asyncio
 import inspect
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Any, List, Optional
 
 from src.config import get_config
@@ -133,7 +133,8 @@ class MarketAnalyzer:
             if self.region == "hk":
                 return "Analyze the key moves in the HSI, Hang Seng Tech, HSCEI, and other major indices."
             return "Analyze the price action in the SSE, SZSE, ChiNext, and other major indices."
-        return self.profile.prompt_index_hint
+        profile = getattr(self, "profile", None)
+        return getattr(profile, "prompt_index_hint", "分析主要指数的共振、分化和风格强弱。")
 
     def _get_strategy_prompt_block(self) -> str:
         if self.region == "hk" and self._get_review_language() == "en":
@@ -460,30 +461,28 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         )
         template = f"""## {context.date} 大盘复盘
 
-### 一、市场总结
-（2-3句话概括指数方向、赚钱效应、量能温度；必须保留提供的市场宽度行。）
+> 一句话给出今日市场状态、核心矛盾和明日优先观察方向。
 
-### 二、指数点评
-（围绕主要指数共振/分化、权重与成长风格强弱展开；必须输出提供的指数表。）
+### 一、盘面总览
+（2-3句话概括指数、涨跌家数、成交额和情绪温度，明确“强势/偏暖/震荡/偏弱”判断；必须保留提供的市场宽度行。）
 
-### 三、资金动向
-（结合成交额、涨跌家数、涨跌停结构判断风险偏好和短线情绪。）
+### 二、指数结构
+（{self._get_index_hint()}，说明谁在护盘、谁在拖累，以及关键支撑/压力；必须输出提供的指数表。）
 
-### 四、热点解读
-（解读领涨/领跌板块及可能的调仓含义；必须输出“🔥 领涨”和“💧 领跌”两行。）
+### 三、板块主线
+（分析领涨/领跌板块背后的逻辑、持续性和是否形成主线；必须输出“🔥 领涨”和“💧 领跌”两行。）
 
-### 五、后市展望
-（结合走势、量能和板块持续性，给出下一交易日观察重点。）
+### 四、资金与情绪
+（解读成交额、涨跌停结构、市场宽度和风险偏好。）
 
-### 六、风险提示
-（列出2-3条最关键风险，不要空泛。）
+### 五、消息催化
+（结合近三日新闻，提炼真正影响明日交易的催化或扰动。）
 
-### 七、策略计划
-市场状态：（进攻/均衡/防守之一，并说明原因）
-仓位建议：（给出可执行的仓位节奏）
-失效条件：（写清触发降级或转向的条件）
+### 六、明日交易计划
+（给出进攻/均衡/防守结论、仓位区间、关注方向、回避方向和一个触发失效条件。）
 
-> 建议仅供参考，不构成投资建议。"""
+### 七、风险提示
+（列出需要关注的风险点；最后补充“建议仅供参考，不构成投资建议”。）"""
         return role, missing_data_guidance, template
 
     def search_market_news(self) -> List[Dict]:
@@ -1050,11 +1049,11 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 
         cn_requirements = ""
         if context.region == "cn":
-            cn_requirements = """- A 股复盘必须严格使用模板中的七段标题，不要改写成“市场总览 / 盘面结构 / 策略建议”
-- A 股复盘的“一、市场总结”必须保留下方市场宽度行
-- A 股复盘的“二、指数点评”必须输出表头为“指数 / 最新 / 涨跌幅 / 成交额(亿)”的指数表
-- A 股复盘的“四、热点解读”必须保留“🔥 领涨”和“💧 领跌”两行
-- A 股复盘的“七、策略计划”必须包含“市场状态 / 仓位建议 / 失效条件”
+            cn_requirements = """- A 股复盘必须严格使用模板中的七段标题，不要改写成“市场总结 / 指数点评 / 策略计划”
+- A 股复盘的“一、盘面总览”必须保留下方市场宽度行
+- A 股复盘的“二、指数结构”必须输出表头为“指数 / 最新 / 涨跌幅 / 成交额(亿)”的指数表
+- A 股复盘的“三、板块主线”必须保留“🔥 领涨”和“💧 领跌”两行
+- A 股复盘的“六、明日交易计划”必须包含“结论 / 仓位 / 关注方向 / 回避方向 / 失效条件”
 """
 
         return f"""{role}，请根据以下数据生成一份结构化的{self._get_market_scope_name('zh')}大盘复盘报告。
@@ -1160,38 +1159,41 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 
         return f"""## {context.date} 大盘复盘
 
-> 提示：AI 分析服务暂时不可用，以下为基于原始数据的结构化复盘。
+> 今日A股市场整体呈现**{state}**态势，优先观察指数承接、成交额变化和板块持续性。
 
-### 一、市场总结
+### 一、盘面总览
 {summary}
 {breadth_line}
 
-### 二、指数点评
+### 二、指数结构
 {index_comment}
 {index_table}
 
-### 三、资金动向
-两市成交额为 {turnover} 亿。结合上涨/下跌家数与涨跌停结构看，当前资金风险偏好处于“{state}”状态，后续需要观察成交额是否继续配合。
-
-### 四、热点解读
+### 三、板块主线
 领涨板块体现当日资金进攻方向，领跌板块反映调仓或防御压力。
 {sector_lines[0]}
 {sector_lines[1]}
 
-### 五、后市展望
-后续重点看三点：主要指数能否继续共振、成交额是否维持活跃、领涨板块能否形成持续主线。若量能回落或主线快速轮动，指数大概率转入震荡。
+### 四、资金与情绪
+两市成交额为 {turnover} 亿。结合上涨/下跌家数与涨跌停结构看，当前资金风险偏好处于“{state}”状态，后续需要观察成交额是否继续配合。
 
-### 六、风险提示
+### 五、消息催化
+- 暂无可用新闻时，应降低对题材持续性的确定性判断。
+
+### 六、明日交易计划
+- **结论**：{state}观察。
+- **仓位**：{position_map[state]}
+- **关注方向**：领涨板块中强于指数、且成交额配合的方向。
+- **回避方向**：连续走弱且缺少修复信号的方向。
+- **失效条件**：{invalidation_map[state]}
+
+### 七、风险提示
 - 热点轮动过快可能带来追高回撤风险。
 - 若成交额萎缩，指数上行动能会受到制约。
 - 领跌板块若继续扩散，可能削弱短线风险偏好。
 
-### 七、策略计划
-市场状态：{state}。判断依据为指数表现、成交额和涨跌分布的综合状态。
-仓位建议：{position_map[state]}
-失效条件：{invalidation_map[state]}
-
-> 建议仅供参考，不构成投资建议。"""
+---
+*复盘时间: {datetime.now().strftime('%H:%M')}*"""
     def _generate_template_review(self, overview: MarketOverview, news: List) -> str:
         """使用模板生成复盘报告（无大模型时的备选方案）"""
         template_language = self._get_template_review_language()
