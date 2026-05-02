@@ -41,7 +41,6 @@ python scripts/check_ai_assets.py
 - 主流程：抓取数据 -> 技术分析/新闻检索 -> LLM 分析 -> 生成报告 -> 通知推送。
 - 关键入口：
   - `main.py`：分析任务主入口
-  - `server.py`：FastAPI 服务入口
   - `.github/workflows/`：CI、发布、每日任务
 - 核心职责：
   - `src/core/`：主流程编排
@@ -50,7 +49,6 @@ python scripts/check_ai_assets.py
   - `src/reports/`：报告生成
   - `src/schemas/`：Schema / 数据结构
   - `data_provider/`：多数据源适配与 fallback
-  - `api/`：FastAPI API
   - `bot/`：机器人接入
   - `scripts/`：本地脚本
   - `.github/scripts/`：GitHub 自动化脚本
@@ -68,9 +66,6 @@ python main.py --dry-run
 python main.py --stocks 600519,hk00700,AAPL
 python main.py --market-review
 python main.py --schedule
-python main.py --serve
-python main.py --serve-only
-uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### 后端验证

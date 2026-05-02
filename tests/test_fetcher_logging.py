@@ -81,6 +81,10 @@ class TestFetcherLogging(unittest.TestCase):
         self.assertIn("[FailureFetcher] 601006 获取失败:", log_text)
         self.assertIn("[SuccessFetcher] 开始获取 601006 日线数据", log_text)
         self.assertIn("[SuccessFetcher] 601006 获取成功:", log_text)
+        chain = manager.get_last_source_chain()
+        self.assertEqual([item["provider"] for item in chain], ["FailureFetcher", "SuccessFetcher"])
+        self.assertEqual([item["result"] for item in chain], ["failed", "ok"])
+        self.assertTrue(all("duration_ms" in item for item in chain))
 
     def test_efinance_logs_eastmoney_endpoint_on_remote_disconnect(self):
         fetcher = EfinanceFetcher()

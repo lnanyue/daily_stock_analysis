@@ -12,7 +12,6 @@ import random
 import re
 import threading
 import uuid
-import json
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple, Callable
 
@@ -28,24 +27,23 @@ from src.analyzer import (
     AnalysisResult,
     fill_chip_structure_if_needed,
     fill_price_position_if_needed,
-    get_persona_system_prompt,
-    format_expert_instruction,
-    build_chief_synthesizer_prompt,
 )
-from src.analyzer.prompt_builder import format_analysis_prompt
-from src.analyzer.utils import build_market_snapshot
-from src.schemas.analysis_result import check_content_integrity, apply_placeholder_fill
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.notification import NotificationService, NotificationChannel
 from src.report_language import (
     get_unknown_text,
     localize_confidence_level,
-    normalize_report_language,
 )
 from src.search_service import SearchService
 from src.services.social_sentiment_service import SocialSentimentService
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
+from src.core.pipeline_agent import run_agent_analysis
+from src.core.pipeline_context import enhance_analysis_context
+from src.core.pipeline_notifications import (
+    send_single_stock_notification,
+    sync_maybe_await,
+)
 from src.core.trading_calendar import (
     get_effective_trading_date,
     get_market_for_stock,
@@ -108,6 +106,7 @@ class StockAnalysisPipeline:
         self.fetcher_manager = DataFetcherManager(
             fetchers=plugin_fetchers,
             config=self.config,
+            include_default_fetchers=True,
         )
         plugin_ctx.fetcher_manager = self.fetcher_manager
         
@@ -533,164 +532,20 @@ class StockAnalysisPipeline:
         return results
 
     def _enhance_context(self, context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context=None, market_overview=None, peer_comparison=None):
-        def _as_float(value: Any) -> Optional[float]:
-            try:
-                number = float(value)
-                return None if pd.isna(number) else number
-            except Exception:
-                logger.debug("_as_float failed for value=%r", value)
-                return None
-
-        def _get_quote_value(obj: Any, key: str) -> Any:
-            if obj is None: return None
-            return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
-
-        enhanced = context.copy()
-        enhanced['stock_name'] = stock_name
-        enhanced['news_window_days'] = getattr(self.search_service, "news_window_days", None)
-
-        if fundamental_context: enhanced['fundamental'] = fundamental_context
-        if market_overview: enhanced['market_overview'] = market_overview
-        
-        # 行业对标数据 (P2)
-        if peer_comparison:
-            enhanced['peer_comparison'] = peer_comparison
-
-        trend_payload = {}
-        if trend_result:
-            if hasattr(trend_result, "to_dict"): trend_payload = trend_result.to_dict()
-            elif hasattr(trend_result, "__dict__"): trend_payload = trend_result.__dict__
-        if trend_payload: enhanced['trend_analysis'] = trend_payload
-
-        if realtime_quote:
-            enhanced['realtime'] = {
-                'price': _get_quote_value(realtime_quote, 'price'),
-                'change_pct': _get_quote_value(realtime_quote, 'change_pct'),
-                'volume': _get_quote_value(realtime_quote, 'volume'),
-                'amount': _get_quote_value(realtime_quote, 'amount'),
-                'open': _get_quote_value(realtime_quote, 'open_price'),
-                'high': _get_quote_value(realtime_quote, 'high'),
-                'low': _get_quote_value(realtime_quote, 'low'),
-                'turnover_rate': _get_quote_value(realtime_quote, 'turnover_rate'),
-                'pe_ratio': _get_quote_value(realtime_quote, 'pe_ratio'),
-                'total_mv': _get_quote_value(realtime_quote, 'total_mv'),
-            }
-        if chip_data:
-            enhanced['chip_structure'] = {'profit_ratio': chip_data.profit_ratio, 'avg_cost': chip_data.avg_cost}
-
-        today = dict(enhanced.get('today') or {})
-        yesterday = dict(enhanced.get('yesterday') or {})
-        
-        # 注入均线
-        ma5 = _as_float(trend_payload.get('ma5'))
-        if ma5:
-            today['ma5'] = round(ma5, 2)
-            today['ma10'] = round(_as_float(trend_payload.get('ma10')) or 0, 2)
-            today['ma20'] = round(_as_float(trend_payload.get('ma20')) or 0, 2)
-
-        enhanced['today'] = today
-        enhanced['ma_status'] = self._compute_ma_status(today.get('ma5'), today.get('ma10'), today.get('ma20'), today.get('close'))
-        
-        if yesterday and today:
-            prev_close = _as_float(yesterday.get('close'))
-            if prev_close and today.get('close'): 
-                enhanced['price_change_ratio'] = round((today['close'] - prev_close) / prev_close * 100, 2)
-        # Issue #234: Override today with realtime OHLC + trend MA for intraday analysis
-        # Guard: trend_result.ma5 > 0 ensures MA calculation succeeded (data sufficient)
-        if realtime_quote and trend_result and trend_result.ma5 > 0:
-            price = getattr(realtime_quote, 'price', None)
-            if price is not None and price > 0:
-                yesterday_close = None
-                if enhanced.get('yesterday') and isinstance(enhanced['yesterday'], dict):
-                    yesterday_close = enhanced['yesterday'].get('close')
-                orig_today = enhanced.get('today') or {}
-                open_p = getattr(realtime_quote, 'open_price', None) or getattr(
-                    realtime_quote, 'pre_close', None
-                ) or yesterday_close or orig_today.get('open') or price
-                high_p = getattr(realtime_quote, 'high', None) or price
-                low_p = getattr(realtime_quote, 'low', None) or price
-                vol = getattr(realtime_quote, 'volume', None)
-                amt = getattr(realtime_quote, 'amount', None)
-                pct = getattr(realtime_quote, 'change_pct', None)
-                realtime_today = {
-                    'close': price,
-                    'open': open_p,
-                    'high': high_p,
-                    'low': low_p,
-                    'ma5': trend_result.ma5,
-                    'ma10': trend_result.ma10,
-                    'ma20': trend_result.ma20,
-                }
-                if vol is not None:
-                    realtime_today['volume'] = vol
-                if amt is not None:
-                    realtime_today['amount'] = amt
-                if pct is not None:
-                    realtime_today['pct_chg'] = pct
-                for k, v in orig_today.items():
-                    if k not in realtime_today and v is not None:
-                        realtime_today[k] = v
-                enhanced['today'] = realtime_today
-                enhanced['ma_status'] = self._compute_ma_status(
-                    trend_result.ma5, trend_result.ma10, trend_result.ma20, price
-                )
-                enhanced['date'] = get_market_now(
-                    get_market_for_stock(normalize_stock_code(enhanced.get('code', '')))
-                ).date().isoformat()
-                if yesterday_close is not None:
-                    try:
-                        yc = float(yesterday_close)
-                        if yc > 0:
-                            enhanced['price_change_ratio'] = round(
-                                (price - yc) / yc * 100, 2
-                            )
-                    except (TypeError, ValueError):
-                        pass
-                if vol is not None and enhanced.get('yesterday'):
-                    yest_vol = enhanced['yesterday'].get('volume') if isinstance(
-                        enhanced['yesterday'], dict
-                    ) else None
-                    if yest_vol is not None:
-                        try:
-                            yv = float(yest_vol)
-                            if yv > 0:
-                                enhanced['volume_change_ratio'] = round(
-                                    float(vol) / yv, 2
-                                )
-                        except (TypeError, ValueError):
-                            pass
-
-        # ETF/index flag for analyzer prompt (Fixes #274)
-        enhanced['is_index_etf'] = SearchService.is_index_or_etf(
-            context.get('code', ''), enhanced.get('stock_name', stock_name)
+        return enhance_analysis_context(
+            context=context,
+            realtime_quote=realtime_quote,
+            chip_data=chip_data,
+            trend_result=trend_result,
+            stock_name=stock_name,
+            search_service=self.search_service,
+            fetcher_manager=self.fetcher_manager,
+            db=self.db,
+            compute_ma_status=self._compute_ma_status,
+            fundamental_context=fundamental_context,
+            market_overview=market_overview,
+            peer_comparison=peer_comparison,
         )
-
-        # P0: append unified fundamental block; keep as additional context only
-        enhanced["fundamental_context"] = (
-            fundamental_context
-            if isinstance(fundamental_context, dict)
-            else self.fetcher_manager.build_failed_fundamental_context(
-                context.get("code", ""),
-                "invalid fundamental context",
-            )
-        )
-
-        # 历史胜率/表现 (Report Engine P1)
-        code_str = context.get("code", "")
-        try:
-            from src.services.backtest_service import BacktestService
-            bt_service = BacktestService(self.db)
-            stock_perf = bt_service.get_stock_summary(code_str)
-            overall_perf = bt_service.get_global_summary()
-
-            enhanced['historical_performance'] = {
-                'stock': stock_perf,
-                'overall': overall_perf
-            }
-        except Exception as e:
-            logger.debug(f"[{code_str}] 获取历史胜率失败: {e}")
-
-        return enhanced
 
     def _should_auto_route_to_agent(
         self,
@@ -1143,7 +998,7 @@ class StockAnalysisPipeline:
                 
                 # 单股推送模式（#55）：每分析完一只股票立即推送
                 if single_stock_notify:
-                    self._send_single_stock_notification(
+                    await self._send_single_stock_notification_async(
                         result,
                         report_type=report_type,
                         fallback_code=code,
@@ -1164,9 +1019,7 @@ class StockAnalysisPipeline:
 
     @staticmethod
     def _sync_maybe_await(value: Any) -> Any:
-        if inspect.isawaitable(value):
-            return asyncio.run(value)
-        return value
+        return sync_maybe_await(value)
 
     def _send_notifications(
         self,
@@ -1253,9 +1106,24 @@ class StockAnalysisPipeline:
         fallback_code: Optional[str] = None,
     ) -> None:
         """发送单股通知，供直接单股入口和批量串行推送共用。"""
-        if not self.notifier.is_available():
-            return
+        try:
+            self._sync_maybe_await(
+                self._send_single_stock_notification_async(
+                    result,
+                    report_type=report_type,
+                    fallback_code=fallback_code,
+                )
+            )
+        except Exception as e:
+            stock_code = getattr(result, "code", None) or fallback_code or "unknown"
+            logger.error(f"[{stock_code}] 单股推送异常: {e}")
 
+    async def _send_single_stock_notification_async(
+        self,
+        result: AnalysisResult,
+        report_type: ReportType = ReportType.SIMPLE,
+        fallback_code: Optional[str] = None,
+    ) -> bool:
         stock_code = getattr(result, "code", None) or fallback_code or "unknown"
         notify_lock = getattr(self, "_single_stock_notify_lock", None)
         if notify_lock is None:
@@ -1264,25 +1132,17 @@ class StockAnalysisPipeline:
                 if notify_lock is None:
                     notify_lock = threading.Lock()
                     setattr(self, "_single_stock_notify_lock", notify_lock)
-
-        with notify_lock:
-            try:
-                if report_type == ReportType.FULL:
-                    report_content = self.notifier.generate_dashboard_report([result])
-                    logger.info(f"[{stock_code}] 使用完整报告格式")
-                elif report_type == ReportType.BRIEF:
-                    report_content = self.notifier.generate_brief_report([result])
-                    logger.info(f"[{stock_code}] 使用简洁报告格式")
-                else:
-                    report_content = self.notifier.generate_single_stock_report(result)
-                    logger.info(f"[{stock_code}] 使用精简报告格式")
-
-                if self.notifier.send(report_content, email_stock_codes=[stock_code]):
-                    logger.info(f"[{stock_code}] 单股推送成功")
-                else:
-                    logger.warning(f"[{stock_code}] 单股推送失败")
-            except Exception as e:
-                logger.error(f"[{stock_code}] 单股推送异常: {e}")
+        try:
+            return await send_single_stock_notification(
+                notifier=self.notifier,
+                result=result,
+                report_type=report_type,
+                fallback_code=stock_code,
+                notify_lock=notify_lock,
+            )
+        except Exception as e:
+            logger.error(f"[{stock_code}] 单股推送异常: {e}")
+            return False
 
     async def _analyze_with_agent(
         self,
@@ -1301,202 +1161,24 @@ class StockAnalysisPipeline:
         news_context: str = "",
         route_reasons: Optional[List[str]] = None,
     ) -> Optional[AnalysisResult]:
-        route_suffix = f" ({', '.join(route_reasons)})" if route_reasons else ""
-        logger.info(f"[{code}] 正在执行混合 Agent 分析（单 LLM 调用）{route_suffix}...")
-        self._emit_progress(62, f"{stock_name}：正在生成分析 Prompt")
-
-        prompt_name = stock_name or code
-        report_language = normalize_report_language(getattr(self.config, "report_language", "zh"))
-
-        # Step 1: Reuse analyze_stock()'s already-collected data to build the prompt
-        base_context = {
-            'code': code,
-            'stock_name': prompt_name,
-            'date': date.today().isoformat(),
-            'today': today_k or {},
-            'yesterday': yesterday_k or {},
-        }
-        enhanced_context = self._enhance_context(
-            base_context, realtime_quote, chip_data, trend_result, stock_name,
-            fundamental_context, None, peer_comparison
+        return await run_agent_analysis(
+            code=code,
+            report_type=report_type,
+            query_id=query_id,
+            config=self.config,
+            analyzer=self.analyzer,
+            db=self.db,
+            search_service=self.search_service,
+            emit_progress=self._emit_progress,
+            enhance_context=self._enhance_context,
+            stock_name=stock_name,
+            realtime_quote=realtime_quote,
+            chip_data=chip_data,
+            fundamental_context=fundamental_context,
+            trend_result=trend_result,
+            today_k=today_k,
+            yesterday_k=yesterday_k,
+            peer_comparison=peer_comparison,
+            news_context=news_context,
+            route_reasons=route_reasons,
         )
-
-
-        # Step 2: Stage 1 - Concurrent Expert Analysis (Technical + Risk)
-        self._emit_progress(68, f"{stock_name}：专家组正在并行会诊")
-        
-        async def _run_expert(persona: str) -> str:
-            expert_prompt = format_analysis_prompt(
-                context=enhanced_context,
-                name=prompt_name,
-                news_context=news_context if persona == "risk" else None, # Only Risk gets full news context
-                report_language=report_language,
-                use_legacy_default_prompt=False,
-                output_format="standard",
-            )
-            # Add persona specific instruction
-            expert_prompt += "\n\n" + format_expert_instruction(persona, prompt_name, code, report_language)
-            
-            try:
-                out, _, _ = await self.analyzer._call_litellm_async(
-                    expert_prompt,
-                    {"max_tokens": 2048, "temperature": 0.3}, # Experts should be more deterministic
-                    system_prompt=get_persona_system_prompt(persona, report_language),
-                )
-                return out
-            except Exception as e:
-                logger.warning("[%s] %s 专家调用失败: %s", code, persona, e)
-                return f"Analysis failed: {e}"
-
-        expert_tasks = [
-            _run_expert("technical"),
-            _run_expert("risk"),
-        ]
-        
-        expert_results = await asyncio.gather(*expert_tasks, return_exceptions=True)
-        expert_map = {
-            "technical": expert_results[0] if not isinstance(expert_results[0], Exception) else str(expert_results[0]),
-            "risk": expert_results[1] if not isinstance(expert_results[1], Exception) else str(expert_results[1]),
-        }
-
-        # Step 3: Stage 2 - Chief Synthesizer
-        self._emit_progress(82, f"{stock_name}：首席策略师正在汇总")
-        synthesis_prompt = build_chief_synthesizer_prompt(
-            enhanced_context, expert_map, prompt_name, report_language
-        )
-
-        try:
-            response_text, model_used, _ = await self.analyzer._call_litellm_async(
-                synthesis_prompt,
-                {"max_tokens": 8192, "temperature": getattr(self.config, "llm_temperature", 0.7)},
-                system_prompt=get_persona_system_prompt("chief", report_language),
-            )
-        except Exception as e:
-            logger.error("[%s] 首席策略师 LLM 调用失败: %s", code, e)
-            err = AnalysisResult(
-                code=code, name=prompt_name or code,
-                sentiment_score=50, trend_prediction="震荡",
-                operation_advice="观望", decision_type="hold",
-                confidence_level="中",
-                analysis_summary=f"分析汇总失败: {e}",
-                success=False, error_message=str(e),
-                query_id=query_id,
-                data_sources=f"multi-agent:{model_used or 'unknown'}",
-            )
-            return err
-
-        # Step 4: Parse response and Fact-Check Loop
-        self._emit_progress(88, f"{stock_name}：正在生成最终决策")
-        from src.agent.fact_checker import FactChecker
-        checker = FactChecker(enhanced_context)
-        
-        result = None
-        max_correction_attempts = 1
-        for attempt in range(max_correction_attempts + 1):
-            try:
-                result = self.analyzer._parse_response(response_text, code, prompt_name)
-                if result.analysis_metadata is None:
-                    result.analysis_metadata = {}
-
-                # Step 5: Verify results against ground truth
-                passed, fact_issues = checker.verify(result)
-                if passed:
-                    break
-                
-                if attempt < max_correction_attempts:
-                    logger.warning("[%s] 事实核查失败，触发 AI 自我修正 (%d/%d): %s", 
-                                   code, attempt + 1, max_correction_attempts, fact_issues)
-                    self._emit_progress(91, f"{stock_name}：检测到数据幻觉，正在修正")
-                    
-                    correction_prompt = synthesis_prompt + "\n\n" + checker.build_correction_prompt(fact_issues, report_language)
-                    response_text, _, _ = await self.analyzer._call_litellm_async(
-                        correction_prompt,
-                        {"max_tokens": 8192, "temperature": 0.2}, 
-                        system_prompt=get_persona_system_prompt("chief", report_language),
-                    )
-                else:
-                    logger.error("[%s] 事实核查最终失败，使用代码兜底覆盖: %s", code, fact_issues)
-                    # Metadata for failed check
-                    result.analysis_metadata.setdefault("fact_check", {})["status"] = "failed_and_overridden"
-                    result.analysis_metadata["fact_check"]["issues"] = fact_issues
-                    
-            except Exception as e:
-                logger.error("[%s] 结果解析或事实核查异常: %s", code, e)
-                if attempt >= max_correction_attempts:
-                    return self.analyzer._make_error_result(code, prompt_name, f"核查系统故障: {e}")
-
-        # Update metadata and common fields
-        result.query_id = query_id
-        result.model_used = model_used
-        result.report_language = report_language
-        result.historical_performance = enhanced_context.get('historical_performance')
-        result.peer_comparison = peer_comparison
-        result.data_sources = f"multi-agent:{model_used or 'unknown'}" + (f"({','.join(route_reasons)})" if route_reasons else "")
-        result.analysis_metadata.update({
-            "agent_route": {
-                "used_agent": True,
-                "selection_source": "forced" if (route_reasons and any(r.startswith("config:") for r in route_reasons)) else "auto",
-                "reasons": route_reasons or [],
-                "arch": "multi-agent",
-                "mode": "concurrent",
-            },
-            "agent_runtime": {
-                "arch": "multi-agent",
-                "success": True,
-                "model": model_used or "",
-                "provider": (model_used or "").split("/")[0] if model_used else "",
-            },
-        })
-
-        # Step 6: Override deterministic fields from code-collected data
-        if realtime_quote:
-            quote_price = getattr(realtime_quote, 'price', None)
-            if quote_price is None and isinstance(realtime_quote, dict):
-                quote_price = realtime_quote.get('price')
-            if quote_price is not None:
-                result.current_price = quote_price
-            quote_change = getattr(realtime_quote, 'change_pct', None)
-            if quote_change is None and isinstance(realtime_quote, dict):
-                quote_change = realtime_quote.get('change_pct')
-            if quote_change is not None:
-                result.change_pct = quote_change
-        result.market_snapshot = build_market_snapshot(enhanced_context)
-
-        # Step 6: Integrity check + placeholder fill
-        passed, missing_fields = check_content_integrity(result)
-        if not passed:
-            logger.warning("[%s] 混合 Agent 结果完整性检查未通过，不足字段: %s", code, missing_fields)
-            apply_placeholder_fill(result, missing_fields)
-
-        # Step 7: Persist (same as standard pipeline)
-        self._emit_progress(94, f"{stock_name}：正在保存分析结果")
-        await self.db.save_analysis_history_async(
-            result, query_id, getattr(report_type, 'value', str(report_type)),
-            news_context, {}, getattr(self.config, 'save_context_snapshot', False),
-        )
-
-        # News persistence for hybrid-analyzed stocks
-        if result and getattr(self.search_service, "is_available", False):
-            try:
-                news_response = self.search_service.search_stock_news(
-                    stock_code=code,
-                    stock_name=result.name,
-                    max_results=5,
-                )
-                news_items = getattr(news_response, "results", None) or []
-                if news_items:
-                    try:
-                        self.db.save_news_intel(
-                            news_items=news_items,
-                            code=code,
-                            name=result.name,
-                            query_id=query_id,
-                        )
-                    except TypeError:
-                        self.db.save_news_intel(news_items)
-            except Exception:
-                logger.debug("[%s] 混合 Agent 新闻持久化跳过", code, exc_info=True)
-
-        logger.info("[%s] 混合 Agent 分析完成，评分: %s", code, result.sentiment_score)
-        return result
-

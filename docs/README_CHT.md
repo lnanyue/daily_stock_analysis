@@ -187,27 +187,17 @@
 
 > 📖 完整環境變量、定時任務配置請參考 [完整配置指南](full-guide.md)
 
-## 🧩 FastAPI Web 服務（可選）
+## 🧩 CLI 運行方式
 
-本地運行時，可啟用 FastAPI 服務來管理配置和觸發分析。
-
-### 啟動方式
+當前版本聚焦 CLI、本地定時任務與通知推送，不再提供內建 FastAPI/Web 服務。
 
 | 命令 | 說明 |
 |------|------|
-| `python main.py --serve` | 啟動 API 服務 + 執行一次完整分析 |
-| `python main.py --serve-only` | 僅啟動 API 服務，手動觸發分析 |
-
-- 訪問地址：`http://127.0.0.1:8000`
-- API 文檔：`http://127.0.0.1:8000/docs`
-
-### 功能特性
-
-- 📝 **配置管理** - 查看/修改自選股列表
-- 🚀 **快速分析** - 通過 API 接口觸發分析
-- 📊 **實時進度** - 分析任務狀態實時更新，支持多任務並行
-- 🤖 **Agent 策略對話** - 啟用 `AGENT_MODE=true` 後可在 `/chat` 進行多輪問答
-- 📈 **回測驗證** - 評估歷史分析準確率，查詢方向勝率與模擬收益
+| `python main.py` | 執行一次完整分析 |
+| `python main.py --market-review` | 僅生成大盤復盤 |
+| `python main.py --stocks 600519,hk00700,AAPL` | 指定股票代碼分析 |
+| `python main.py --schedule` | 啟動本地定時任務 |
+| `python main.py --dry-run` | 只準備資料，不調用 LLM 分析 |
 
 ### API 接口
 
@@ -241,7 +231,6 @@
 ```
 daily_stock_analysis/
 ├── main.py              # 主程序入口
-├── server.py            # FastAPI 服務入口
 ├── src/                 # 核心業務代碼
 │   ├── analyzer.py      # AI 分析器（Gemini）
 │   ├── config.py        # 配置管理

@@ -33,6 +33,20 @@ class FundamentalPipeline:
         self.adapter = AkshareFundamentalAdapter()
         self._timeout_slots = BoundedSemaphore(8)
 
+    def _iter_manager_fetchers(self) -> List[Any]:
+        fetchers = getattr(self.manager, "fetchers", None)
+        if isinstance(fetchers, (list, tuple)):
+            return list(fetchers)
+        private_fetchers = getattr(self.manager, "_fetchers", None)
+        if isinstance(private_fetchers, (list, tuple)):
+            return list(private_fetchers)
+        if fetchers is None:
+            return []
+        try:
+            return list(fetchers)
+        except TypeError:
+            return []
+
     async def get_fundamental_context(
         self,
         stock_code: str,
@@ -213,7 +227,7 @@ class FundamentalPipeline:
         target_industry = None
         all_stocks = None
         
-        for fetcher in self.manager._fetchers:
+        for fetcher in self._iter_manager_fetchers():
             if fetcher.name == "TushareFetcher" and hasattr(fetcher, "get_stock_list"):
                 all_stocks = fetcher.get_stock_list()
                 if all_stocks is not None and not all_stocks.empty:
@@ -227,7 +241,7 @@ class FundamentalPipeline:
 
         # 2. 获取全市场实时行情作为对比基准 (AkShare)
         ak_spot = None
-        for fetcher in self.manager._fetchers:
+        for fetcher in self._iter_manager_fetchers():
             if fetcher.name == "AkshareFetcher":
                 try:
                     ak_spot = await asyncio.to_thread(ak.stock_zh_a_spot_em)
@@ -306,7 +320,7 @@ class FundamentalPipeline:
     def _get_sector_rankings_with_meta(self, n: int = 5):
         source_chain: List[Dict[str, Any]] = []
         last_error = ""
-        for fetcher in self.manager._fetchers:
+        for fetcher in self._iter_manager_fetchers():
             if not hasattr(fetcher, 'get_sector_rankings'): continue
             start = time.time()
             try:

@@ -264,7 +264,9 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 
 ---
 
-## Docker Deployment
+## CLI Deployment
+
+This branch is CLI-only. The built-in FastAPI server, Web UI, desktop wrapper, and Docker deployment files have been removed. Run the analysis process directly with Python, or use your operating system's scheduler/systemd to keep scheduled jobs running.
 
 ### Quick Start
 
@@ -275,83 +277,24 @@ cd daily_stock_analysis
 
 # 2. Configure environment variables
 cp .env.example .env
-vim .env  # Fill in API Keys and configuration
+vim .env  # Fill in API keys and configuration
 
-# 3. Start container
-docker-compose -f ./docker/docker-compose.yml up -d server     # API service mode
-docker-compose -f ./docker/docker-compose.yml up -d analyzer   # Scheduled task mode
-docker-compose -f ./docker/docker-compose.yml up -d            # Start both modes
+# 3. Run once
+python main.py
 
-# 4. View logs
-docker-compose -f ./docker/docker-compose.yml logs -f server
+# 4. Run the market review only
+python main.py --market-review
 ```
 
 ### Run Mode Description
 
-| Command | Description | Port |
-|------|------|------|
-| `docker-compose -f ./docker/docker-compose.yml up -d server` | API service mode | 8000 |
-| `docker-compose -f ./docker/docker-compose.yml up -d analyzer` | Scheduled task mode, daily auto execution | - |
-| `docker-compose -f ./docker/docker-compose.yml up -d` | Start both modes simultaneously | 8000 |
-
-### Docker Compose Configuration
-
-`docker-compose.yml` uses YAML anchors to reuse configuration:
-
-```yaml
-version: '3.8'
-
-x-common: &common
-  build: .
-  restart: unless-stopped
-  env_file:
-    - .env
-  environment:
-    - TZ=Asia/Shanghai
-  volumes:
-    - ./data:/app/data
-    - ./logs:/app/logs
-    - ./reports:/app/reports
-    - ./.env:/app/.env
-
-services:
-  # Scheduled task mode
-  analyzer:
-    <<: *common
-    container_name: stock-analyzer
-
-  # FastAPI mode
-  server:
-    <<: *common
-    container_name: stock-server
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "8000"]
-    ports:
-      - "8000:8000"
-```
-
-### Common Commands
-
-```bash
-# View running status
-docker-compose -f ./docker/docker-compose.yml ps
-
-# View logs
-docker-compose -f ./docker/docker-compose.yml logs -f server
-
-# Stop services
-docker-compose -f ./docker/docker-compose.yml down
-
-# Rebuild image (after code update)
-docker-compose -f ./docker/docker-compose.yml build --no-cache
-docker-compose -f ./docker/docker-compose.yml up -d server
-```
-
-### Manual Image Build
-
-```bash
-docker build -t stock-analysis .
-docker run -d --env-file .env -p 8000:8000 -v ./data:/app/data stock-analysis python main.py --serve-only --host 0.0.0.0 --port 8000
-```
+| Command | Description |
+|------|------|
+| `python main.py` | Run one full stock analysis workflow |
+| `python main.py --stocks 600519,hk00700,AAPL` | Analyze specific stock codes |
+| `python main.py --market-review` | Generate the market review only |
+| `python main.py --schedule` | Start the local scheduled runner |
+| `python main.py --dry-run` | Prepare data without invoking LLM analysis |
 
 ---
 
@@ -654,82 +597,18 @@ Backtesting triggers automatically after the daily analysis flow completes (non-
 
 ---
 
-## FastAPI API Service
+## CLI Run Modes
 
-FastAPI provides RESTful API service for configuration management and triggering analysis.
-
-### Startup Methods
+The project no longer ships a built-in FastAPI service. Use CLI commands for local runs, scheduled runs, market reviews, and backtests.
 
 | Command | Description |
 |------|------|
-| `python main.py --serve` | Start API service + run full analysis once |
-| `python main.py --serve-only` | Start API service only, manually trigger analysis |
-
-### Features
-
-- **Configuration Management** - View/modify watchlist
-- **Quick Analysis** - Trigger analysis via API
-- **Real-time Progress** - Analysis task status updates in real-time, supports parallel tasks
-- **Backtest Validation** - Evaluate historical analysis accuracy, query direction win rate and simulated returns
-- **API Documentation** - Visit `/docs` for Swagger UI
-
-### API Endpoints
-
-| Endpoint | Method | Description |
-|------|------|------|
-| `/api/v1/analysis/analyze` | POST | Trigger stock analysis |
-| `/api/v1/analysis/tasks` | GET | Query task list |
-| `/api/v1/analysis/status/{task_id}` | GET | Query task status |
-| `/api/v1/history` | GET | Query analysis history |
-| `/api/v1/backtest/run` | POST | Trigger backtest |
-| `/api/v1/backtest/results` | GET | Query backtest results (paginated) |
-| `/api/v1/backtest/performance` | GET | Get overall backtest performance |
-| `/api/v1/backtest/performance/{code}` | GET | Get per-stock backtest performance |
-| `/api/health` | GET | Health check |
-| `/docs` | GET | API Swagger documentation |
-
-> Note: `POST /api/v1/analysis/analyze` supports only one stock when `async_mode=false`; batch `stock_codes` requires `async_mode=true`. The async `202` response returns a single `task_id` for one stock, or an `accepted` / `duplicates` summary for batch requests.
-
-**Usage examples**:
-```bash
-# Health check
-curl http://127.0.0.1:8000/api/health
-
-# Trigger analysis (A-shares)
-curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"stock_code": "600519"}'
-
-# Query task status
-curl http://127.0.0.1:8000/api/v1/analysis/status/<task_id>
-
-# Trigger backtest (all stocks)
-curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
-  -H 'Content-Type: application/json' \
-  -d '{"force": false}'
-
-# Trigger backtest (specific stock)
-curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
-  -H 'Content-Type: application/json' \
-  -d '{"code": "600519", "force": false}'
-
-# Query overall backtest performance
-curl http://127.0.0.1:8000/api/v1/backtest/performance
-
-# Query per-stock backtest performance
-curl http://127.0.0.1:8000/api/v1/backtest/performance/600519
-
-# Paginated backtest results
-curl "http://127.0.0.1:8000/api/v1/backtest/results?page=1&limit=20"
-```
-
-### Custom Configuration
-
-Modify default port or allow LAN access:
-
-```bash
-python main.py --serve-only --host 0.0.0.0 --port 8888
-```
+| `python main.py` | Run one full analysis workflow |
+| `python main.py --stocks 600519,hk00700,AAPL` | Analyze specific symbols |
+| `python main.py --market-review` | Generate the market review only |
+| `python main.py --schedule` | Start the local scheduler |
+| `python main.py --backtest` | Run backtest evaluation |
+| `python main.py --backtest --backtest-code 600519` | Run backtest for one symbol |
 
 ### Supported Stock Code Formats
 

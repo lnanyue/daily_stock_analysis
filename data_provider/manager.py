@@ -7,20 +7,17 @@ import asyncio
 import logging
 import time
 import inspect
-from threading import RLock, BoundedSemaphore, Thread
+from threading import RLock, Thread
 from typing import Any, Dict, List, Optional, Tuple, Iterable
 
 import pandas as pd
 
-from .base import BaseFetcher, DataFetchError
-from .exceptions import InsufficientQuotaError
+from .base import BaseFetcher
 from .fundamental_pipeline import FundamentalPipeline
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
 from .utils import (
     normalize_stock_code,
-    _market_tag,
     _is_hk_market,
-    _is_etf_code,
     summarize_exception,
 )
 from .us_index_mapping import is_us_index_code, is_us_stock_code
@@ -41,6 +38,7 @@ class DataFetcherManager:
         self,
         fetchers: Optional[List[BaseFetcher]] = None,
         config=None,
+        include_default_fetchers: Optional[bool] = None,
     ):
         if config is None:
             try:
@@ -50,8 +48,13 @@ class DataFetcherManager:
                 config = None
 
         self._config = config
-        self._fetchers = fetchers if fetchers is not None else self._create_default_fetchers(config=config)
+        if include_default_fetchers is None:
+            include_default_fetchers = fetchers is None
+        provided_fetchers = list(fetchers or [])
+        default_fetchers = self._create_default_fetchers(config=config) if include_default_fetchers else []
+        self._fetchers = [*provided_fetchers, *default_fetchers]
         self._fetchers.sort(key=lambda x: getattr(x, "priority", 99))
+        self._last_source_chain: List[Dict[str, Any]] = []
         
         self._stock_name_cache: Dict[str, str] = {}
         self._stock_name_cache_lock = RLock()
@@ -65,6 +68,11 @@ class DataFetcherManager:
         
         # 业务流水线逻辑拆分
         self._fundamental_pipeline = FundamentalPipeline(manager=self)
+
+    @property
+    def fetchers(self) -> List[BaseFetcher]:
+        """获取所有已加载的数据源。"""
+        return list(self._fetchers)
 
     @classmethod
     def get_instance(cls, fetchers: List[BaseFetcher] = None, config=None):
@@ -99,9 +107,15 @@ class DataFetcherManager:
     def _ensure_runtime_state(self):
         """确保运行时属性存在（用于单例恢复后的健壮性）。"""
         if not hasattr(self, "_fetchers"): self._fetchers = []
+        if not hasattr(self, "_config"): self._config = None
+        if not hasattr(self, "_last_source_chain"): self._last_source_chain = []
         if not hasattr(self, "_stock_name_cache"): self._stock_name_cache = {}
         if not hasattr(self, "_stock_name_cache_lock"): self._stock_name_cache_lock = RLock()
         if not hasattr(self, "_stock_name_timeout_seconds"): self._stock_name_timeout_seconds = 3.0
+        if not hasattr(self, "_tickflow_fetcher"): self._tickflow_fetcher = None
+        if not hasattr(self, "_tickflow_api_key"): self._tickflow_api_key = None
+        if not hasattr(self, "_tickflow_lock") or self._tickflow_lock is None:
+            self._tickflow_lock = RLock()
 
     async def get_daily_data(
         self,
@@ -113,24 +127,81 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
         is_us = is_us_index_code(stock_code) or is_us_stock_code(stock_code)
         fetchers = list(self._fetchers)
+        self._last_source_chain = []
         
         if is_us:
             source_order = ["YfinanceFetcher", "LongbridgeFetcher"]
             for src_name in source_order:
                 fetcher = next((f for f in fetchers if f.name == src_name), None)
                 if not fetcher: continue
+                start = time.time()
+                logger.info("[数据源尝试] [%s] 获取 %s...", fetcher.name, stock_code)
                 try:
                     df = await fetcher.get_daily_data_async(stock_code, start_date, end_date, days)
                     if df is not None and not df.empty:
+                        duration_ms = int((time.time() - start) * 1000)
+                        self._last_source_chain.append({
+                            "provider": fetcher.name,
+                            "result": "ok",
+                            "duration_ms": duration_ms,
+                        })
+                        logger.info("[数据源完成] %s 使用 [%s] 获取成功: rows=%d", stock_code, fetcher.name, len(df))
                         return df, fetcher.name
-                except Exception: continue
+                    duration_ms = int((time.time() - start) * 1000)
+                    self._last_source_chain.append({
+                        "provider": fetcher.name,
+                        "result": "empty",
+                        "duration_ms": duration_ms,
+                    })
+                    logger.info("[数据源为空] [%s] %s 未返回有效日线数据", fetcher.name, stock_code)
+                except Exception as e:
+                    duration_ms = int((time.time() - start) * 1000)
+                    _, error_reason = summarize_exception(e)
+                    self._last_source_chain.append({
+                        "provider": fetcher.name,
+                        "result": "failed",
+                        "duration_ms": duration_ms,
+                        "error": error_reason,
+                    })
+                    logger.warning("[数据源失败] [%s] %s: %s", fetcher.name, stock_code, error_reason)
+                    continue
 
-        for fetcher in fetchers:
+        total_fetchers = len(fetchers)
+        for index, fetcher in enumerate(fetchers, 1):
+            start = time.time()
+            logger.info("[数据源尝试 %d/%d] [%s] 获取 %s...", index, total_fetchers, fetcher.name, stock_code)
             try:
                 df = await fetcher.get_daily_data_async(stock_code, start_date, end_date, days)
                 if df is not None and not df.empty:
+                    duration_ms = int((time.time() - start) * 1000)
+                    self._last_source_chain.append({
+                        "provider": fetcher.name,
+                        "result": "ok",
+                        "duration_ms": duration_ms,
+                    })
+                    logger.info("[数据源完成] %s 使用 [%s] 获取成功: rows=%d", stock_code, fetcher.name, len(df))
                     return df, fetcher.name
+                duration_ms = int((time.time() - start) * 1000)
+                self._last_source_chain.append({
+                    "provider": fetcher.name,
+                    "result": "empty",
+                    "duration_ms": duration_ms,
+                })
+                logger.info("[数据源为空 %d/%d] [%s] %s 未返回有效日线数据", index, total_fetchers, fetcher.name, stock_code)
+                if index < total_fetchers:
+                    logger.info("[数据源切换] %s: [%s] -> [%s]", stock_code, fetcher.name, fetchers[index].name)
             except Exception as e:
+                duration_ms = int((time.time() - start) * 1000)
+                _, error_reason = summarize_exception(e)
+                self._last_source_chain.append({
+                    "provider": fetcher.name,
+                    "result": "failed",
+                    "duration_ms": duration_ms,
+                    "error": error_reason,
+                })
+                logger.warning("[数据源失败 %d/%d] [%s] %s: %s", index, total_fetchers, fetcher.name, stock_code, error_reason)
+                if index < total_fetchers:
+                    logger.info("[数据源切换] %s: [%s] -> [%s]", stock_code, fetcher.name, fetchers[index].name)
                 continue
         return None, "None"
 
@@ -201,8 +272,7 @@ class DataFetcherManager:
 
     async def get_sector_rankings(self, n: int = 5) -> Optional[Tuple[List[dict], List[dict]]]:
         """获取板块涨跌榜。"""
-        top, bottom, _, _ = self._get_sector_rankings_with_meta(n)
-        return top, bottom
+        return await asyncio.to_thread(self.get_sector_rankings_sync, n)
 
     def get_sector_rankings_sync(self, n: int = 5):
         top, bottom, _, _ = self._get_sector_rankings_with_meta(n)
@@ -214,7 +284,34 @@ class DataFetcherManager:
         return f"{normalized}|budget={bucket}"
 
     def _run_with_timeout(self, func, timeout, label, slots_attr=None):
-        return self._fundamental_pipeline._run_with_timeout(func, timeout, label)
+        slots = None
+        if slots_attr:
+            slots = getattr(self, slots_attr, None)
+        if slots is None:
+            slots = getattr(self, "_fundamental_timeout_slots", None)
+        if slots is None:
+            slots = getattr(self._fundamental_pipeline, "_timeout_slots", None)
+        start = time.time()
+        if slots is not None and not slots.acquire(blocking=False):
+            return None, "worker pool exhausted", 0
+        outcome: Dict[str, Any] = {}
+
+        def _target():
+            try:
+                outcome["res"] = func()
+            except Exception as exc:
+                outcome["err"] = str(exc)
+            finally:
+                if slots is not None:
+                    slots.release()
+
+        thread = Thread(target=_target, daemon=True)
+        thread.start()
+        thread.join(timeout)
+        elapsed_ms = int((time.time() - start) * 1000)
+        if thread.is_alive():
+            return None, f"{label} timeout", elapsed_ms
+        return outcome.get("res"), outcome.get("err"), elapsed_ms
 
     @staticmethod
     def _infer_block_status(payload, fallback):
@@ -295,14 +392,13 @@ class DataFetcherManager:
         try: return asyncio.run(self.get_realtime_quote(stock_code))
         except RuntimeError: return asyncio.get_event_loop().run_until_complete(self.get_realtime_quote(stock_code))
 
-    def _maybe_await(self, value):
-        if asyncio.iscoroutine(value) or hasattr(value, "__await__"): return value
-        async def _wrap(): return value
-        return _wrap()
+    async def _maybe_await(self, value):
+        if inspect.isawaitable(value):
+            return await value
+        return value
 
-    @property
-    def fetchers(self) -> List[BaseFetcher]:
-        return self._fetchers
+    def get_last_source_chain(self) -> List[Dict[str, Any]]:
+        return list(getattr(self, "_last_source_chain", []))
 
     @staticmethod
     def _normalize_market_stats(stats: Dict[str, Any], source: str) -> Dict[str, Any]:

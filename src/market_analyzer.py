@@ -893,7 +893,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                     for f in self.data_manager.fetchers:
                         try:
                             if hasattr(f, 'get_market_stats'):
-                                stats = f.get_market_stats()
+                                stats = await asyncio.to_thread(f.get_market_stats)
                                 if stats and hasattr(self.data_manager, "_normalize_market_stats"):
                                     stats = self.data_manager._normalize_market_stats(stats, getattr(f, "name", "unknown"))
                                 if stats and stats.get('volume_total', 0) > 100: # 成交额通常 > 100亿才可信
@@ -901,7 +901,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                                     logger.info(f"[大盘] 从 {f.name} 获取到真实的非零统计: 成交额={stats.get('volume_total')}亿")
                                     break
                         except Exception:
-                            logger.warning("[大盘] get_market_stats failed for %s", getattr(f, "name", "unknown"), exc_info=True)
+                            logger.warning("[大盘] get_market_stats failed for %s", getattr(f, "name", "unknown"))
                             continue
             else:
                 context.indices = indices

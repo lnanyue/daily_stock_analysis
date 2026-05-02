@@ -343,30 +343,6 @@ class LLMToolAdapter:
                     max_tokens=max_tokens,
                     timeout=remaining_timeout,
                 )
-            except litellm.RateLimitError as e:
-                logger.warning("Agent LLM rate-limited on %s: %s", model, e)
-                last_error = e
-                hit_rate_limit = True
-
-                # Avoid blind backoff across different providers; cross-provider
-                # fallback usually means different accounts/rate-limit buckets.
-                should_backoff = (
-                    idx + 1 < len(models_to_try)
-                    and providers[idx] == providers[idx + 1]
-                )
-                if should_backoff:
-                    backoff_sleep = min(2.0, (time.time() - started_at) * 0.1 + 0.5)
-                    if timeout is not None and timeout > 0:
-                        remaining_timeout = max(0.0, float(timeout) - (time.time() - started_at))
-                        if remaining_timeout > 0:
-                            time.sleep(min(backoff_sleep, remaining_timeout))
-                    else:
-                        time.sleep(backoff_sleep)
-                continue
-            except litellm.ContextWindowExceededError as e:
-                logger.warning("Agent LLM context window exceeded on %s: %s", model, e)
-                last_error = e
-                continue
             except Exception as e:
                 if isinstance(e, _resolve_litellm_exception("RateLimitError")):
                     logger.warning("Agent LLM rate-limited on %s: %s", model, e)
