@@ -46,8 +46,14 @@ class FactChecker:
         # 3. 均线状态校验 (MA Status)
         real_ma_status = self.context.get("ma_status")
         if real_ma_status and result.trend_prediction:
-            # 如果真实状态是多头排列，但 AI 说是空头，则触发报警（忽略微小描述差异）
-            if "多头" in real_ma_status and "空头" in result.trend_prediction:
+            is_en = getattr(result, "report_language", "zh") == "en"
+            bull_keywords = {"多头", "Bullish", "Upward"} if is_en else {"多头"}
+            bear_keywords = {"空头", "Bearish", "Downward"} if is_en else {"空头"}
+            
+            real_is_bull = any(k in real_ma_status for k in bull_keywords)
+            ai_is_bear = any(k in result.trend_prediction for k in bear_keywords)
+            
+            if real_is_bull and ai_is_bear:
                 issues.append(f"技术面幻觉：当前均线为{real_ma_status}，但 AI 预测为{result.trend_prediction}")
 
         return len(issues) == 0, issues

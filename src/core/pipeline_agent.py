@@ -234,7 +234,8 @@ async def run_agent_analysis(
         query_id,
         getattr(report_type, "value", str(report_type)),
         news_context,
-        {},
+        None,
+        None,
         getattr(config, "save_context_snapshot", False),
     )
 

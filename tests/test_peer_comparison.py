@@ -27,7 +27,7 @@ class TestPeerComparison(unittest.IsolatedAsyncioTestCase):
         mock_ak = MagicMock()
         mock_ak.name = "AkshareFetcher"
         
-        self.mock_manager._fetchers = [mock_tushare, mock_ak]
+        self.mock_manager.fetchers = [mock_tushare, mock_ak]
 
         # 2. 模拟 Akshare 实时行情
         mock_spot.return_value = pd.DataFrame([
@@ -62,7 +62,7 @@ class TestPeerComparison(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_peer_comparison_industry_not_found(self):
         """测试行业信息缺失时的降级"""
-        self.mock_manager._fetchers = []
+        self.mock_manager.fetchers = []
         result = await self.pipeline.get_peer_comparison_context("999999")
         self.assertEqual(result["status"], "not_supported")
         self.assertIn("Industry information not found", result["errors"][0])

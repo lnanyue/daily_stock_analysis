@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import akshare as ak
 
-from .utils import normalize_stock_code, _market_tag, _is_etf_code, summarize_exception
+from .utils import normalize_stock_code, _market_tag, _is_etf_code, summarize_exception, run_async_sync
 from .exceptions import DataFetchError
 from .fundamental_adapter import AkshareFundamentalAdapter
 from .normalizers import normalize_source_chain, normalize_belong_boards
@@ -110,8 +110,20 @@ class FundamentalPipeline:
 
         # 3. Capital Flow / Dragon Tiger
         if not is_etf and remaining_seconds > 0:
-            ctx.capital_flow = await self.get_capital_flow_context_async(stock_code, min(fetch_timeout, remaining_seconds))
-            ctx.dragon_tiger = await self.get_dragon_tiger_context_async(stock_code, min(fetch_timeout, remaining_seconds))
+            cf_budget = min(fetch_timeout, remaining_seconds)
+            # 支持测试/插件通过 manager mock 覆盖
+            cf_override = getattr(self.manager, "__dict__", {}).get("get_capital_flow_context")
+            if cf_override is not None:
+                ctx.capital_flow = cf_override(stock_code, cf_budget)
+            else:
+                ctx.capital_flow = await self.get_capital_flow_context_async(stock_code, cf_budget)
+
+            dt_budget = min(fetch_timeout, remaining_seconds)
+            dt_override = getattr(self.manager, "__dict__", {}).get("get_dragon_tiger_context")
+            if dt_override is not None:
+                ctx.dragon_tiger = dt_override(stock_code, dt_budget)
+            else:
+                ctx.dragon_tiger = await self.get_dragon_tiger_context_async(stock_code, dt_budget)
             # 行业对标
             ctx.peer_comparison = await self.get_peer_comparison_context(stock_code)
         else:
@@ -119,10 +131,18 @@ class FundamentalPipeline:
             ctx.capital_flow = not_supported
             ctx.dragon_tiger = not_supported
 
-        ctx.boards = self.get_board_context(stock_code)
+        if is_etf:
+            ctx.boards = self._build_fundamental_block("not_supported", {}, [], ["etf not supported"])
+        else:
+            board_budget = min(fetch_timeout, remaining_seconds)
+            board_override = getattr(self.manager, "__dict__", {}).get("get_board_context")
+            if board_override is not None:
+                ctx.boards = board_override(stock_code, board_budget)
+            else:
+                ctx.boards = self.get_board_context(stock_code, board_budget)
         
         # 4. Status and Coverage
-        ctx.coverage = {k: getattr(ctx, k).status for k in ["valuation", "growth", "earnings", "institution", "capital_flow", "dragon_tiger", "boards"] if hasattr(ctx, k)}
+        ctx.coverage = {k: getattr(ctx, k).get("status", "not_supported") for k in ["valuation", "growth", "earnings", "institution", "capital_flow", "dragon_tiger", "boards"] if hasattr(ctx, k)}
         ctx.status = "ok" if all(v == "ok" for v in ctx.coverage.values()) else "partial"
         ctx.elapsed_ms = int((time.time() - start_ts) * 1000)
         
@@ -179,6 +199,12 @@ class FundamentalPipeline:
         res, err, ms = await asyncio.to_thread(self._run_with_timeout, lambda: self.adapter.get_dragon_tiger_flag(stock_code), budget_seconds, "dragon_tiger")
         if isinstance(res, dict): return self._build_fundamental_block(res.get("status", "ok"), {"is_on_list": res.get("is_on_list", False), "recent_count": res.get("recent_count", 0), "latest_date": res.get("latest_date")}, res.get("source_chain", []), res.get("errors", []))
         return self._build_fundamental_block("failed", {}, [], [err or "failed"])
+
+    def get_capital_flow_context(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
+        return run_async_sync(self.get_capital_flow_context_async, stock_code, budget_seconds)
+
+    def get_dragon_tiger_context(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
+        return run_async_sync(self.get_dragon_tiger_context_async, stock_code, budget_seconds)
 
     def get_board_context(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
         top, bottom, chain, err = self._get_sector_rankings_with_meta(5)
