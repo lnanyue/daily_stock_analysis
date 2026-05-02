@@ -257,22 +257,6 @@ class CustomWebhookSender(BaseNotificationSender):
             if idx < total - 1:
                 await asyncio.sleep(1)
 
-        return ok == total
-
-    
-    @staticmethod
-    def _is_dingtalk_webhook(url: str) -> bool:
-        url_lower = (url or "").lower()
-        return 'dingtalk' in url_lower or 'oapi.dingtalk.com' in url_lower
-
-    @staticmethod
-    def _is_discord_webhook(url: str) -> bool:
-        url_lower = (url or "").lower()
-        return (
-            'discord.com/api/webhooks' in url_lower
-            or 'discordapp.com/api/webhooks' in url_lower
-        )
-
     
     @staticmethod
     def _is_dingtalk_webhook(url: str) -> bool:

@@ -795,51 +795,6 @@ class DatabaseManager:
     def _is_file_sqlite_database(self) -> bool:
         database = (self._engine.url.database or "").strip()
         return bool(database) and database.lower() != ":memory:"
-
-    def _run_write_transaction(
-        self,
-        operation_name: str,
-        write_operation: Callable[[Session], T],
-    ) -> T:
-        max_retries = self._sqlite_write_retry_max if self._is_sqlite_engine else 0
-
-        for attempt in range(max_retries + 1):
-            session = self.get_session()
-            try:
-                if self._is_sqlite_engine:
-                    # Acquire the SQLite writer lock before any reads inside
-                    # `write_operation()` so pre-write existence checks and the
-                    # later upsert share one consistent write window.
-                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-                result = write_operation(session)
-                session.commit()
-                return result
-            except OperationalError as exc:
-                session.rollback()
-                if (
-                    self._is_sqlite_engine
-                    and self._is_sqlite_locked_error(exc)
-                    and attempt < max_retries
-                ):
-                    delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
-                    logger.warning(
-                        "SQLite 写入锁冲突，准备重试: %s (%s/%s, %.2fs)",
-                        operation_name,
-                        attempt + 1,
-                        max_retries,
-                        delay,
-                    )
-                    if delay > 0:
-                        time.sleep(delay)
-                    continue
-                raise
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
-
-    @staticmethod
     def _is_sqlite_locked_error(exc: OperationalError) -> bool:
         err_text = str(getattr(exc, "orig", exc)).lower()
         return any(
@@ -852,19 +807,6 @@ class DatabaseManager:
         )
 
     @staticmethod
-    def _normalize_daily_date(value: Any) -> Any:
-        if isinstance(value, str):
-            return datetime.strptime(value, '%Y-%m-%d').date()
-        if isinstance(value, pd.Timestamp):
-            return value.date()
-        if isinstance(value, datetime):
-            return value.date()
-        return value
-
-    @staticmethod
-    def _normalize_sql_value(value: Any) -> Any:
-        return None if pd.isna(value) else value
-    
     def get_session(self) -> Session:
         """
         获取数据库 Session。调用方可直接使用 ``with db.get_session()``，
@@ -1463,20 +1405,6 @@ class DatabaseManager:
             return "短期走弱 🔽"
         else:
             return "震荡整理 ↔️"
-
-    @staticmethod
-    def _parse_published_date(value: Optional[str]) -> Optional[datetime]:
-        """
-        解析发布时间字符串（失败返回 None）
-        """
-        if not value:
-            return None
-
-        def _write(session: Session) -> int:
-            session.add(snapshot)
-            return 1
-
-        return self._run_write_transaction(f"save_fundamental_snapshot[{code}]", _write)
 
     @staticmethod
     def _find_sniper_in_dashboard(payload: Dict[str, Any]) -> Dict[str, Any]:
