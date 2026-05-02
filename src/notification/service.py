@@ -282,10 +282,23 @@ class NotificationService:
 
     def save_report_to_file(self, content: str, filename: Optional[str] = None) -> str:
         from pathlib import Path
+        config = get_config()
+        now = datetime.now()
+        date_str = now.strftime("%Y%m%d")
+        folder_str = now.strftime("%Y-%m-%d")
+        
         if filename is None:
-            filename = f"report_{datetime.now().strftime('%Y%m%d')}.md"
-        reports_dir = Path(__file__).parent.parent.parent / 'report'
+            filename = f"report_{date_str}.md"
+            
+        # 1. 确定基础报告目录
+        base_dir = Path(config.report_dir)
+        if not base_dir.is_absolute():
+            base_dir = Path(__file__).resolve().parents[2] / base_dir
+            
+        # 2. 创建日期子目录
+        reports_dir = base_dir / folder_str
         reports_dir.mkdir(parents=True, exist_ok=True)
+        
         filepath = reports_dir / filename
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
