@@ -136,7 +136,7 @@ Phase 3 完成 → 大规模压力测试（1000 股票）
 ```
 Week 0:
   - 看 Real Python async IO 教程（1 小时）
-  - 运行 src/async_framework_example.py（了解范例）
+  - 了解 Python asyncio 基本概念（async/await、事件循环）
   - 讨论异步编程的陷阱（1 小时讨论会）
 
 Week 1-3:
@@ -385,7 +385,7 @@ Week 1-3:
    - 资源泄漏的表现
 
 3. **本项目异步架构**（1 小时）
-   - 走一遍 async_framework_example.py
+   - 了解 Python asyncio 基本概念
    - 理解 max_concurrent 的含义
 
 ### 参考资源库
@@ -465,4 +465,4 @@ A: 对数据获取层是的。但整个系统最终性能瓶颈可能是 LLM API
 
 ---
 
-**最后建议**: 先用 `src/async_framework_example.py` 运行一遍上手，确认理解后再开始改造。预计 3-4 周完成，期间需要 1-2 名高级开发人员主导。
+**最后建议**: 建议先了解 Python asyncio 基本概念（async/await、事件循环），确认理解后再开始改造。预计 3-4 周完成，期间需要 1-2 名高级开发人员主导。

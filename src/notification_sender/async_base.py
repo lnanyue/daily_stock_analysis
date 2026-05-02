@@ -21,6 +21,35 @@ async def get_sender_http_client():
     return await get_global_client()
 
 
+async def send_chunked(chunks, channel_name, send_one):
+    """发送内容分块，带日志记录和块间延迟。
+
+    Args:
+        chunks: 内容分块列表
+        channel_name: 渠道显示名（日志用）
+        send_one: 异步回调 (index, chunk) -> bool
+
+    Returns:
+        是否全部分块发送成功
+    """
+    total = len(chunks)
+    ok = 0
+    if total > 1:
+        logger.info("%s 分批发送：共 %s 批", channel_name, total)
+    for i, chunk in enumerate(chunks):
+        try:
+            if await send_one(i, chunk):
+                ok += 1
+                logger.info("%s 第 %s/%s 批发送成功", channel_name, i + 1, total)
+            else:
+                logger.error("%s 第 %s/%s 批发送失败", channel_name, i + 1, total)
+        except Exception:
+            logger.exception("%s 第 %s/%s 批发送异常", channel_name, i + 1, total)
+        if i < total - 1:
+            await asyncio.sleep(1)
+    return ok == total
+
+
 def _classify_http_error(exc: Exception) -> type:
     """Return RetryableError or NonRetryableError based on exception type/status."""
     # Already classified by the sender

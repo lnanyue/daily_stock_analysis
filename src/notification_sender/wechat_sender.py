@@ -175,29 +175,10 @@ class WechatSender(BaseNotificationSender):
         return False
 
     async def _send_wechat_chunked(self, content: str, max_bytes: int) -> bool:
-        """
-        分批发送长消息到企业微信
-
-        按股票分析块（以 --- 或 ### 分隔）智能分割，确保每批不超过限制
-
-        Args:
-            content: 完整消息内容
-            max_bytes: 单条消息最大字节数
-
-        Returns:
-            是否全部发送成功
-        """
+        from .async_base import send_chunked
         chunks = chunk_content_by_max_bytes(content, max_bytes, add_page_marker=True)
-        total_chunks = len(chunks)
-        success_count = 0
-        for i, chunk in enumerate(chunks):
-            if await self._send_wechat_message(chunk):
-                success_count += 1
-            else:
-                logger.error("企业微信第 %s/%s 批发送失败", i+1, total_chunks)
-            if i < total_chunks - 1:
-                await asyncio.sleep(1)
-        return success_count == len(chunks)
+        return await send_chunked(chunks, "企业微信",
+            lambda i, c: self._send_wechat_message(c))
 
     def _gen_wechat_payload(self, content: str) -> dict:
         """生成企业微信消息 payload"""

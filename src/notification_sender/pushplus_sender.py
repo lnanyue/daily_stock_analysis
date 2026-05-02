@@ -130,23 +130,11 @@ class PushplusSender(BaseNotificationSender):
         return False
 
     async def _send_pushplus_chunked(self, api_url: str, content: str, title: str, max_bytes: int) -> bool:
-        """分批发送长 PushPlus 消息，给 JSON payload 预留空间。"""
+        from .async_base import send_chunked
         budget = max(1000, max_bytes - 1500)
         chunks = chunk_content_by_max_bytes(content, budget, add_page_marker=True)
-        total_chunks = len(chunks)
-        success_count = 0
-
-        logger.info("PushPlus 分批发送：共 %s 批", total_chunks)
-
-        for i, chunk in enumerate(chunks):
-            chunk_title = f"{title} ({i+1}/{total_chunks})" if total_chunks > 1 else title
-            if await self._send_pushplus_message(api_url, chunk, chunk_title):
-                success_count += 1
-                logger.info("PushPlus 第 %s/%s 批发送成功", i+1, total_chunks)
-            else:
-                logger.error("PushPlus 第 %s/%s 批发送失败", i+1, total_chunks)
-
-            if i < total_chunks - 1:
-                await asyncio.sleep(1)
-
-        return success_count == total_chunks
+        total = len(chunks)
+        titles = [f"{title} ({i+1}/{total})" if total > 1 else title for i in range(total)]
+        async def _send(i, chunk):
+            return await self._send_pushplus_message(api_url, chunk, titles[i])
+        return await send_chunked(chunks, "PushPlus", _send)

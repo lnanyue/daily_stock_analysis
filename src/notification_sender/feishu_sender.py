@@ -107,30 +107,14 @@ class FeishuSender(BaseNotificationSender):
         return await self._send_feishu_message(formatted_content, effective_max_bytes)
 
     async def _send_feishu_chunked(self, content: str, max_bytes: int) -> bool:
+        from .async_base import send_chunked
         try:
             chunks = chunk_content_by_max_bytes(content, max_bytes, add_page_marker=True)
         except ValueError as e:
-            logger.error("飞书消息分片失败，单片预算不足以安全分页（关键词过长或 max_bytes 过小）: %s", e)
+            logger.error("飞书消息分片失败: %s", e)
             return False
-
-        total_chunks = len(chunks)
-        success_count = 0
-        logger.info("飞书分批发送：共 %s 批", total_chunks)
-
-        for i, chunk in enumerate(chunks):
-            try:
-                if await self._send_feishu_message(chunk, max_bytes):
-                    success_count += 1
-                    logger.info("飞书第 %s/%s 批发送成功", i+1, total_chunks)
-                else:
-                    logger.error("飞书第 %s/%s 批发送失败", i+1, total_chunks)
-            except Exception:
-                logger.exception("飞书第 %s/%s 批发送异常", i+1, total_chunks)
-
-            if i < total_chunks - 1:
-                await asyncio.sleep(1)
-
-        return success_count == total_chunks
+        return await send_chunked(chunks, "飞书",
+            lambda i, c: self._send_feishu_message(c, max_bytes))
 
     async def _send_feishu_message(self, content: str, _max_bytes: int = 0) -> bool:
         from .async_base import get_sender_http_client
