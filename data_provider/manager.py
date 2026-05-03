@@ -211,7 +211,7 @@ class DataFetcherManager:
                 continue
         return None, "None"
 
-    async def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+    async def get_realtime_quote(self, stock_code: str, **kwargs) -> Optional[UnifiedRealtimeQuote]:
         stock_code = normalize_stock_code(stock_code)
         if _is_hk_market(stock_code):
             lb = next((f for f in self._fetchers if f.name == "LongbridgeFetcher"), None)

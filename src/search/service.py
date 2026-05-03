@@ -547,10 +547,17 @@ class SearchService:
                 stock_code, stock_name, max_results=5, focus_keywords=[dim['query']]
             )
 
-        tasks = [_single_dimension_search(dim) for dim in search_dimensions]
-        results_list = await asyncio.gather(*tasks)
+        tasks = [asyncio.create_task(_single_dimension_search(dim)) for dim in search_dimensions]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
         
-        return {name: resp for name, resp in results_list}
+        final_results = []
+        for i, res in enumerate(results_list):
+            if isinstance(res, Exception):
+                logger.error(f"[搜索情报] 维度 {search_dimensions[i]['name']} 失败: {res}")
+                continue
+            final_results.append(res)
+
+        return {name: resp for name, resp in final_results}
 
     def search_stock_news(
         self,

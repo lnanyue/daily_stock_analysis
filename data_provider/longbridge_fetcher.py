@@ -216,6 +216,8 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
         return upper
     if upper.endswith(".HK"):
         return upper
+    if upper.endswith(".SH") or upper.endswith(".SZ"):
+        return upper
 
     if _is_us_market(code):
         return f"{upper}.US"
@@ -228,6 +230,13 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
             digits = upper
         digits = digits.lstrip("0") or "0"
         return f"{digits.zfill(4)}.HK"
+
+    # A-share Support (SH/SZ)
+    if len(code) == 6 and code.isdigit():
+        if code.startswith(('6', '9', '5')):  # 6: Main, 9: BJ (if supported), 5: ETF
+            return f"{code}.SH"
+        if code.startswith(('0', '3', '1')):  # 0: Main/SME, 3: GEM, 1: ETF
+            return f"{code}.SZ"
 
     return None
 
