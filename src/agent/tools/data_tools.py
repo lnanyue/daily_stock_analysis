@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _fetcher_manager_singleton = None
 _fetcher_manager_lock = Lock()
 _DAILY_HISTORY_DEFAULT_DAYS = 60
-_DAILY_HISTORY_MAX_DAYS = 365
+_DAILY_HISTORY_MAX_DAYS = 300  # Increased to support 252 trading days for MPT
 
 
 def _get_fetcher_manager():

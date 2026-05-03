@@ -23,10 +23,11 @@ Typical usage::
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from src.agent.agents.base_agent import BaseAgent
 from src.agent.protocols import AgentContext, AgentOpinion
+from src.agent.quantitative.portfolio_optimizer import PortfolioOptimizer
 from src.agent.runner import try_parse_json
 
 logger = logging.getLogger(__name__)
@@ -120,33 +121,122 @@ class PortfolioAgent(BaseAgent):
 
         return "\n".join(parts)
 
+    # ------------------------------------------------------------------
+    # Quantitative analysis helpers
+    # ------------------------------------------------------------------
+
+    def _fetch_historical_prices(self, ctx: AgentContext) -> Optional[Dict[str, List[Tuple[str, float]]]]:
+        """Fetch historical close prices for all stocks in the portfolio.
+
+        Returns:
+            {stock_code: [(date_str, close_price), ...]} or None if failed.
+        """
+        stock_opinions = ctx.data.get("stock_opinions", {})
+        stock_list = ctx.data.get("stock_list", [])
+        codes = list(stock_opinions.keys()) if stock_opinions else stock_list
+
+        if not codes:
+            logger.warning("[PortfolioAgent] No stocks found for quantitative analysis")
+            return None
+
+        # Try to get prices from context first (already fetched)
+        price_dict: Dict[str, List[Tuple[str, float]]] = {}
+        for code in codes:
+            prices_key = f"{code}_daily_prices"
+            if prices_key in ctx.data:
+                price_dict[code] = ctx.data[prices_key]
+            else:
+                # Fetch via DataFetcherManager
+                try:
+                    from data_provider.manager import DataFetcherManager
+                    manager = DataFetcherManager()
+                    df, _ = manager.get_daily_data_sync(code, days=252)
+                    if df is not None and not df.empty and "close" in df.columns:
+                        prices = [
+                            (row.name.strftime("%Y-%m-%d"), float(row["close"]))
+                            for _, row in df.iterrows()
+                            if pd.notna(row.get("close"))
+                        ]
+                        price_dict[code] = prices
+                except Exception as e:
+                    logger.warning("[PortfolioAgent] Failed to fetch prices for %s: %s", code, e)
+
+        if not price_dict:
+            logger.warning("[PortfolioAgent] No historical price data available")
+            return None
+
+        return price_dict
+
+    def _compute_quantitative_metrics(self, ctx: AgentContext) -> Dict[str, Any]:
+        """Run MPT and Risk Parity calculations.
+
+        Returns:
+            Dict with "mpt_analysis" and "risk_parity" keys, or {"error": ...}
+        """
+        price_dict = self._fetch_historical_prices(ctx)
+        if price_dict is None:
+            return {"error": "No historical price data available"}
+
+        optimizer = PortfolioOptimizer.from_price_dict(price_dict)
+        if optimizer is None:
+            return {"error": "Failed to create optimizer from price data"}
+
+        result: Dict[str, Any] = {}
+        mpt_result = optimizer.compute_mpt()
+        if "error" not in mpt_result:
+            result["mpt_analysis"] = mpt_result
+        else:
+            result["mpt_error"] = mpt_result["error"]
+
+        rp_result = optimizer.compute_risk_parity()
+        if "error" not in rp_result:
+            result["risk_parity"] = rp_result
+        else:
+            result["risk_parity_error"] = rp_result["error"]
+
+        return result
+
     def post_process(self, ctx: AgentContext, raw_response: str) -> Optional[AgentOpinion]:
         """Extract portfolio assessment and store in context."""
         data = try_parse_json(raw_response)
-        if data is None:
+        llm_success = data is not None
+
+        if not llm_success:
             logger.debug("[PortfolioAgent] post_process: failed to parse JSON")
-            return AgentOpinion(
-                agent_name="portfolio",
-                signal="hold",
-                confidence=0.3,
-                reasoning=raw_response[:500],
-                raw_data={"raw": raw_response[:1000]},
-            )
+            data = {"raw": raw_response[:1000]}
 
         # Store portfolio assessment in context
         ctx.data["portfolio_assessment"] = data
 
-        risk_score = data.get("portfolio_risk_score", 5)
-        signal = "hold"
-        if risk_score <= 3:
-            signal = "buy"
-        elif risk_score >= 7:
-            signal = "sell"
+        # Run quantitative analysis (MPT + Risk Parity)
+        quant_result = self._compute_quantitative_metrics(ctx)
+        if quant_result and "error" not in quant_result:
+            data["quantitative"] = quant_result
+            ctx.data["portfolio_quantitative"] = quant_result
+            logger.info("[PortfolioAgent] Quantitative analysis completed")
+        else:
+            logger.warning(
+                "[PortfolioAgent] Quantitative analysis skipped or failed: %s",
+                quant_result.get("error") if quant_result else "unknown error",
+            )
+
+        # Determine signal from LLM analysis or use default
+        if llm_success:
+            risk_score = data.get("portfolio_risk_score", 5)
+            signal = "hold"
+            if risk_score <= 3:
+                signal = "buy"
+            elif risk_score >= 7:
+                signal = "sell"
+            reasoning = data.get("summary", raw_response[:300])
+        else:
+            signal = "hold"
+            reasoning = raw_response[:500]
 
         return AgentOpinion(
             agent_name="portfolio",
             signal=signal,
-            confidence=0.6,
-            reasoning=data.get("summary", raw_response[:300]),
+            confidence=0.6 if llm_success else 0.3,
+            reasoning=reasoning,
             raw_data=data,
         )
