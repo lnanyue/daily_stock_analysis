@@ -58,3 +58,62 @@ def test_validate_no_error_when_valid():
     config_dict = {}
     # Should NOT raise
     ConfigValidator.validate_all(env_dict, config_dict)
+
+
+def test_validate_type_integer_valid():
+    """Integer type fields should accept valid integers"""
+    env_dict = {"GEMINI_API_KEY": "key12345678", "MAX_WORKERS": 3}
+    config_dict = {}
+    ConfigValidator.validate_all(env_dict, config_dict)  # Should not raise
+
+
+def test_validate_type_integer_invalid():
+    """Integer type fields should reject non-integer values"""
+    env_dict = {"GEMINI_API_KEY": "key12345678", "MAX_WORKERS": "abc"}
+    config_dict = {}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        ConfigValidator.validate_all(env_dict, config_dict)
+    assert any("MAX_WORKERS" in m and "integer" in m.lower() for m in exc_info.value.messages)
+
+
+def test_validate_enum_valid():
+    """Enum fields should accept values in the enum list"""
+    env_dict = {"GEMINI_API_KEY": "key12345678", "REPORT_TYPE": "simple"}
+    config_dict = {}
+    ConfigValidator.validate_all(env_dict, config_dict)  # Should not raise
+
+
+def test_validate_enum_invalid():
+    """Enum fields should reject values not in the enum list"""
+    env_dict = {"GEMINI_API_KEY": "key12345678", "REPORT_TYPE": "invalid_type"}
+    config_dict = {}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        ConfigValidator.validate_all(env_dict, config_dict)
+    assert any("REPORT_TYPE" in m and "invalid_type" in m for m in exc_info.value.messages)
+
+
+def test_validate_range_below_min():
+    """Range check should catch values below minimum"""
+    env_dict = {"GEMINI_API_KEY": "key12345678", "BIAS_THRESHOLD": -1.0}
+    config_dict = {}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        ConfigValidator.validate_all(env_dict, config_dict)
+    assert any("BIAS_THRESHOLD" in m and "below minimum" in m for m in exc_info.value.messages)
+
+
+def test_validate_range_exceeds_max():
+    """Range check should catch values above maximum"""
+    env_dict = {"GEMINI_API_KEY": "key12345678", "BIAS_THRESHOLD": 60.0}
+    config_dict = {}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        ConfigValidator.validate_all(env_dict, config_dict)
+    assert any("BIAS_THRESHOLD" in m and "exceeds maximum" in m for m in exc_info.value.messages)
+
+
+def test_validate_sensitive_key_short():
+    """Sensitive keys should be at least 8 characters"""
+    env_dict = {"GEMINI_API_KEY": "short"}
+    config_dict = {}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        ConfigValidator.validate_all(env_dict, config_dict)
+    assert any("GEMINI_API_KEY" in m and "too short" in m for m in exc_info.value.messages)
