@@ -19,7 +19,19 @@ from src.analyzer.utils import build_market_snapshot
 from src.report_language import normalize_report_language
 from src.schemas.analysis_result import apply_placeholder_fill, check_content_integrity
 
+# Agent integration imports
+from src.agent.factory import get_tool_registry
+from src.agent.llm_adapter import LLMToolAdapter
+from src.agent.agents.technical_agent import TechnicalAgent
+from src.agent.agents.intel_agent import IntelAgent
+from src.agent.protocols import AgentContext
+
 logger = logging.getLogger(__name__)
+
+
+async def _run_agent_async(agent, ctx):
+    """Wrap synchronous BaseAgent.run() as an async call."""
+    return await asyncio.to_thread(agent.run, ctx)
 
 
 def _quote_value(quote: Any, field: str) -> Any:
@@ -75,38 +87,108 @@ async def run_agent_analysis(
         peer_comparison,
     )
 
-    emit_progress(68, f"{stock_name}：专家组正在并行会诊")
+    emit_progress(68, f"{stock_name}：智能体正在并行分析")
 
-    async def _run_expert(persona: str) -> str:
-        expert_prompt = format_analysis_prompt(
+    # Create agents
+    registry = get_tool_registry()
+    llm_adapter = LLMToolAdapter(config)
+
+    tech_agent = TechnicalAgent(
+        tool_registry=registry,
+        llm_adapter=llm_adapter,
+        skill_instructions="",
+        technical_skill_policy="",
+    )
+    intel_agent = IntelAgent(
+        tool_registry=registry,
+        llm_adapter=llm_adapter,
+    )
+
+    # Create shared context
+    ctx = AgentContext(
+        stock_code=code,
+        stock_name=stock_name or code,
+        query=f"Analysis for {stock_name or code}",
+        meta={"report_language": report_language},
+    )
+
+    # Run agents in parallel using asyncio.to_thread to wrap sync BaseAgent.run()
+    tech_result, intel_result = await asyncio.gather(
+        _run_agent_async(tech_agent, ctx),
+        _run_agent_async(intel_agent, ctx),
+        return_exceptions=True,
+    )
+
+    # Build expert_map from agent opinions
+    expert_map = {}
+
+    if not isinstance(tech_result, Exception) and tech_result.opinion:
+        expert_map["technical"] = tech_result.opinion.raw_data
+        ctx.add_opinion(tech_result.opinion)
+        logger.info("[%s] TechnicalAgent signal: %s (confidence: %.2f)",
+                    code, tech_result.opinion.signal, tech_result.opinion.confidence)
+
+    if not isinstance(intel_result, Exception) and intel_result.opinion:
+        expert_map["intel"] = intel_result.opinion.raw_data
+        ctx.add_opinion(intel_result.opinion)
+        logger.info("[%s] IntelAgent signal: %s (confidence: %.2f)",
+                    code, intel_result.opinion.signal, intel_result.opinion.confidence)
+
+    # Fallback to direct LLM call if agents failed
+    if "technical" not in expert_map:
+        logger.warning("[%s] TechnicalAgent failed, falling back to direct LLM call", code)
+        try:
+            tech_out, _, _ = await analyzer._call_litellm_async(
+                format_analysis_prompt(
+                    context=enhanced_context,
+                    name=prompt_name,
+                    news_context=None,
+                    report_language=report_language,
+                    use_legacy_default_prompt=False,
+                    output_format="standard",
+                ) + "\n\n" + format_expert_instruction("technical", prompt_name, code, report_language),
+                {"max_tokens": 2048, "temperature": 0.3},
+                system_prompt=get_persona_system_prompt("technical", report_language),
+            )
+            expert_map["technical"] = tech_out
+        except Exception as exc:
+            logger.warning("[%s] Technical fallback failed: %s", code, exc)
+            expert_map["technical"] = {"signal": "hold", "confidence": 0.5, "reasoning": "Agent failed"}
+
+    if "intel" not in expert_map:
+        logger.warning("[%s] IntelAgent failed, falling back to direct LLM call", code)
+        try:
+            intel_out, _, _ = await analyzer._call_litellm_async(
+                format_analysis_prompt(
+                    context=enhanced_context,
+                    name=prompt_name,
+                    news_context=news_context,
+                    report_language=report_language,
+                    use_legacy_default_prompt=False,
+                    output_format="standard",
+                ) + "\n\n" + format_expert_instruction("intel", prompt_name, code, report_language),
+                {"max_tokens": 2048, "temperature": 0.3},
+                system_prompt=get_persona_system_prompt("intel", report_language),
+            )
+            expert_map["intel"] = intel_out
+        except Exception as exc:
+            logger.warning("[%s] Intel fallback failed: %s", code, exc)
+            expert_map["intel"] = {"signal": "hold", "confidence": 0.5, "reasoning": "Agent failed"}
+
+    # Keep risk expert call (will integrate RiskAgent later)
+    risk_out, _, _ = await analyzer._call_litellm_async(
+        format_analysis_prompt(
             context=enhanced_context,
             name=prompt_name,
-            news_context=news_context if persona == "risk" else None,
+            news_context=news_context,
             report_language=report_language,
             use_legacy_default_prompt=False,
             output_format="standard",
-        )
-        expert_prompt += "\n\n" + format_expert_instruction(persona, prompt_name, code, report_language)
-        try:
-            out, _, _ = await analyzer._call_litellm_async(
-                expert_prompt,
-                {"max_tokens": 2048, "temperature": 0.3},
-                system_prompt=get_persona_system_prompt(persona, report_language),
-            )
-            return out
-        except Exception as exc:
-            logger.warning("[%s] %s 专家调用失败: %s", code, persona, exc)
-            return f"Analysis failed: {exc}"
-
-    expert_results = await asyncio.gather(
-        _run_expert("technical"),
-        _run_expert("risk"),
-        return_exceptions=True,
+        ) + "\n\n" + format_expert_instruction("risk", prompt_name, code, report_language),
+        {"max_tokens": 2048, "temperature": 0.3},
+        system_prompt=get_persona_system_prompt("risk", report_language),
     )
-    expert_map = {
-        "technical": expert_results[0] if not isinstance(expert_results[0], Exception) else str(expert_results[0]),
-        "risk": expert_results[1] if not isinstance(expert_results[1], Exception) else str(expert_results[1]),
-    }
+    expert_map["risk"] = risk_out
 
     emit_progress(82, f"{stock_name}：首席策略师正在汇总")
     synthesis_prompt = build_chief_synthesizer_prompt(

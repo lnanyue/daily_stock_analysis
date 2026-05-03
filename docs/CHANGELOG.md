@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 个股分析评分解析不再大量回退到默认 50 分；常规分析会使用决策仪表盘 system prompt，解析层可从 `system_score`、`signal_score`、嵌套摘要与“系统评分 77/100”等文本中恢复真实评分。
 - [修复] 大盘复盘成交额字段统一为 `volume_total/total_amount` 双字段（单位：亿元），并恢复 `DataFetcherManager()` 默认内置数据源加载，避免真实全市场统计未执行或被误判为空后降级为自选股样本成交额；`EfinanceFetcher` 遵守 `ENABLE_EASTMONEY_PATCH` 开关，并在市场统计/指数行情接口失败后进入短期冷却后交给后续数据源兜底。
 - [新增] 搜索服务可选接入 OpenBB 公司新闻源；配置 `OPENBB_NEWS_ENABLED=true` 后通过 `obb.news.company` 拉取结构化公司新闻，并在失败或未安装 OpenBB 时继续使用其它搜索源兜底。
+- [新功能] 集成 TechnicalAgent 和 IntelAgent 到 pipeline 分析流程，使用 BaseAgent 架构替代直接 LLM 调用，支持工具调用获取实时数据
 
 ## [3.12.0] - 2026-04-01
 
