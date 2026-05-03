@@ -333,6 +333,9 @@ class SearchService:
 
         return None
 
+    # 最少需要的新闻条数，低于此数量会触发降级
+    MIN_NEWS_COUNT = 3
+
     def _apply_date_filter(
         self,
         results: List[SearchResult],
@@ -378,10 +381,10 @@ class SearchService:
         # 第一次过滤：使用原始 search_days
         filtered = self._apply_date_filter(response.results, search_days, max_results)
 
-        # 降级策略：如果过滤后为空，逐步放宽时间窗口
+        # 降级策略：如果过滤后为空或太少，逐步放宽时间窗口
         fallback_windows = [7, 14, 30]
         used_window = search_days
-        if not filtered:
+        if not filtered or len(filtered) < self.MIN_NEWS_COUNT:
             for window in fallback_windows:
                 if window <= search_days:
                     continue

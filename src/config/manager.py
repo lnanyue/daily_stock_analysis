@@ -94,8 +94,8 @@ class Config:
     stock_config_path: str = "stocks.yaml"
 
     report_language: str = "zh"
-    news_max_age_days: int = 3
-    news_strategy_profile: str = "short"
+    news_max_age_days: int = 7
+    news_strategy_profile: str = "medium"
     bias_threshold: float = 5.0
     gemini_request_delay: float = 2.0
     report_integrity_enabled: bool = True
