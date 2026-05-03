@@ -469,17 +469,20 @@ class AkshareFundamentalAdapter:
         if fin_df is not None:
             row = _extract_latest_row(fin_df, symbol)
             if row is not None:
-                revenue_yoy = _safe_float(_pick_by_keywords(row, ["营业收入同比", "营收同比", "收入同比", "同比增长"]))
-                profit_yoy = _safe_float(_pick_by_keywords(row, ["净利润同比", "净利同比", "归母净利润同比"]))
-                # 增加对 "净资产收益率(ROE)" 的优先匹配支持
-                roe = _safe_float(_pick_by_keywords(row, ["净资产收益率(ROE)", "净资产收益率", "ROE", "净资产收益"]))
-                gross_margin = _safe_float(_pick_by_keywords(row, ["毛利率"]))
-                report_date = _normalize_report_date(_pick_by_keywords(row, _DIVIDEND_KEYWORD_MAP["report_date"]))
-                revenue = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
-                net_profit_parent = _safe_float(_pick_by_keywords(row, ["归母净利润", "母公司股东净利润", "净利润"]))
-                operating_cash_flow = _safe_float(
-                    _pick_by_keywords(row, ["经营活动产生的现金流量净额", "经营现金流", "经营活动现金流"])
-                )
+                # 利润增速：从"归属母公司净利润增长率"获取
+                profit_yoy = _safe_float(_pick_by_keywords(row, ["归属母公司净利润增长率", "净利润增长率", "归母净利润增长率"]))
+                # 营收增速：手动计算（用最近两期的营收数据）
+                revenue_current = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
+                revenue_yoy = None
+                if revenue_current is not None:
+                    # 找到前一期的报告期
+                    prev_dates = sorted([c for c in fin_df.columns if isinstance(c, str) and len(c) == 8 and c.isdigit() and c != latest_date], reverse=True)
+                    if prev_dates:
+                        prev_row = fin_df[fin_df['报告期'] == prev_dates[0]].iloc[0] if '报告期' in fin_df.columns else None
+                        if prev_row is not None:
+                            revenue_prev = _safe_float(prev_row.get('营业总收入', prev_row.get('营业收入', prev_row.get('营收'))))
+                            if revenue_prev is not None and revenue_prev != 0:
+                                revenue_yoy = round((revenue_current - revenue_prev) / abs(revenue_prev) * 100, 2)
                 result["growth"] = {
                     "revenue_yoy": revenue_yoy,
                     "net_profit_yoy": profit_yoy,
