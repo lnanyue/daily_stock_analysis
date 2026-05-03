@@ -61,6 +61,7 @@ You will receive:
 2. Intelligence analysis (news, sentiment, catalysts)
 3. Risk assessment flags (severity, categories, descriptions)
 4. Portfolio context (current positions, available cash, risk tolerance)
+5. Current market price (from context meta)
 
 ## Your Output: Trading Decision Dashboard
 
@@ -71,38 +72,44 @@ Produce a JSON object with:
   "signal": "buy|sell|hold",
   "conviction": "high|medium|low",
   "position_sizing": {
-    "recommended_pct": 30,
-    "max_position_pct": 40,
-    "reasoning": "Strong fundamentals + technical breakout"
+    "recommended_pct": <CALCULATE_BASED_ON_SIGNAL_AND_RISK>,
+    "max_position_pct": <CALCULATE_MAX>,
+    "reasoning": "<EXPLAIN_SIZING_DECISION>"
   },
   "entry_plan": {
-    "ideal_entry": 188.50,
-    "secondary_entry": 185.00,
-    "current_price": 190.20,
-    "entry_strategy": "Scale in: 50% at ideal, 50% at secondary"
+    "ideal_entry": <CALCULATE_FROM_TECHNICAL>,
+    "secondary_entry": <CALCULATE_SUPPORT_LEVEL>,
+    "current_price": <MUST_USE_ACTUAL_PRICE_FROM_META>,
+    "entry_strategy": "<DESCRIBE_ENTRY_STRATEGY>"
   },
   "exit_plan": {
-    "stop_loss": 180.00,
-    "take_profit_1": 210.00,
-    "take_profit_2": 230.00,
-    "trailing_stop_pct": 8.0
+    "stop_loss": <CALCULATE_FROM_ATR_OR_SUPPORT>,
+    "take_profit_1": <CALCULATE_TARGET_1>,
+    "take_profit_2": <CALCULATE_TARGET_2>,
+    "trailing_stop_pct": <CALCULATE_TRAILING>
   },
   "holding_period": {
-    "expected_days": 15,
-    "time_horizon": "short_term",
-    "rationale": "Awaiting Q3 earnings catalyst"
+    "expected_days": <CALCULATE_BASED_ON_CATALYSTS_AND_TREND>,
+    "time_horizon": "<short_term|medium_term|long_term>",
+    "rationale": "<EXPLAIN_HOLDING_PERIOD>"
   },
   "risk_assessment": {
-    "max_loss_pct": 5.0,
-    "risk_reward_ratio": 3.2,
-    "portfolio_risk_impact": "medium"
+    "max_loss_pct": <CALCULATE_MAX_LOSS>,
+    "risk_reward_ratio": <CALCULATE_RR_RATIO>,
+    "portfolio_risk_impact": "<low|medium|high>"
   },
-  "rationale": "Strong technical breakout with positive news catalyst...",
-  "key_triggers": ["Earnings beat", "Sector rotation continues"]
+  "rationale": "<EXPLAIN_DECISION_BASED_ON_ALL_INPUTS>",
+  "key_triggers": ["<CATALYST_1>", "<CATALYST_2>"]
 }
 ```
 
-## Rules
+## Critical Rules
+- **MUST use actual market data**: All price fields (current_price, ideal_entry, stop_loss, etc.) MUST be calculated from the real-time quote provided in context meta, NOT from examples
+- **NO copy-paste from examples**: The placeholder values like <CALCULATE_...> are NOT real values - replace them with actual calculations
+- **Current price**: ALWAYS use the actual current_price from context meta, never guess or use example values like 190.20
+- **Holding period**: Calculate expected_days based on actual technical patterns and catalysts, NOT example values like 15
+
+## Trading Rules
 - **Risk override**: If high-severity risk flags exist, cap signal at "hold" or "sell"
 - **Position sizing**: New position ≤ 40%, additional position ≤ 25%
 - **Stop loss**: Must be provided for all BUY/SELL signals
@@ -118,6 +125,21 @@ Produce a JSON object with:
             f"Stock: {ctx.stock_code} ({ctx.stock_name})" if ctx.stock_name else f"Stock: {ctx.stock_code}",
             "",
         ]
+
+        # Inject real-time price from meta
+        current_price = ctx.meta.get("current_price")
+        yesterday_close = ctx.meta.get("yesterday_close")
+        if current_price is not None:
+            parts.append(f"## Real-Time Market Data")
+            parts.append(f"- **Current Price**: ¥{current_price:.2f}")
+            if yesterday_close is not None:
+                change = current_price - yesterday_close
+                change_pct = (change / yesterday_close * 100) if yesterday_close else 0
+                parts.append(f"- **Yesterday Close**: ¥{yesterday_close:.2f}")
+                parts.append(f"- **Change**: ¥{change:+.2f} ({change_pct:+.2f}%)")
+            parts.append("")
+            parts.append("**IMPORTANT**: You MUST use the current price above (¥{:.2f}) for all price calculations. Do NOT use example values like 190.20.".format(current_price))
+            parts.append("")
 
         # Feed prior opinions
         if ctx.opinions:

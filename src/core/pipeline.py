@@ -499,6 +499,7 @@ class StockAnalysisPipeline:
                         news_context=final_news,
                         route_reasons=route_reasons,
                         result=result,
+                        realtime_quote=realtime_quote,
                     )
 
                 await self.db.save_analysis_history_async(result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
@@ -1144,6 +1145,7 @@ class StockAnalysisPipeline:
         news_context: str = "",
         route_reasons: Optional[List[str]] = None,
         result: Optional[Any] = None,
+        realtime_quote: Optional[Any] = None,
     ) -> None:
         """Run TraderAgent to produce final trading decision and fill result."""
         try:
@@ -1153,13 +1155,34 @@ class StockAnalysisPipeline:
 
             # Build context for trader
             from src.agent.protocols import AgentContext
+
+            # Extract real-time price from multiple sources
+            current_price = None
+            yesterday_close = None
+            today_data = enhanced_context.get("today", {})
+            if isinstance(today_data, dict):
+                current_price = today_data.get("close")
+                yesterday_close = enhanced_context.get("yesterday", {}).get("close") if isinstance(enhanced_context.get("yesterday"), dict) else None
+
+            # Override with realtime_quote if available (more accurate)
+            if realtime_quote is not None:
+                rt_price = getattr(realtime_quote, "price", None)
+                if rt_price is not None:
+                    current_price = rt_price
+
+            trader_meta = {
+                "report_language": getattr(self.config, "report_language", "zh"),
+            }
+            if current_price is not None:
+                trader_meta["current_price"] = float(current_price)
+            if yesterday_close is not None:
+                trader_meta["yesterday_close"] = float(yesterday_close)
+
             trader_ctx = AgentContext(
                 stock_code=code,
                 stock_name=stock_name or "",
                 query=f"Trading decision for {code}",
-                meta={
-                    "report_language": getattr(self.config, "report_language", "zh"),
-                },
+                meta=trader_meta,
             )
 
             # Build prior opinions from result if available
