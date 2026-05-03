@@ -28,7 +28,8 @@ class GuruAnalyzer:
         code = context.get('code', '未知代码')
         
         # 准备财务质量数据
-        metrics = context.get('fundamental', {}).get('quality_metrics', {})
+        fundamental = context.get('fundamental') or {}
+        metrics = fundamental.get('quality_metrics', {})
         roe_status = f"{metrics.get('avg_roe', 0):.2f}%" if metrics else "未知"
         margin_status = f"毛利 {metrics.get('avg_gross_margin', 0):.2f}% / 净利 {metrics.get('avg_net_margin', 0):.2f}%" if metrics else "未知"
 

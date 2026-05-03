@@ -317,10 +317,12 @@ class StockAnalysisPipeline:
             self._emit_progress(32, f"{stock_name}：正在聚合基本面与趋势数据")
 
             # Step 2.5: 基本面与对标能力聚合
-            fundamental_context = None
+            fundamental_context = {}
             peer_comparison = None
             try:
-                fundamental_context = await self.fetcher_manager.get_fundamental_context(code)
+                ctx = await self.fetcher_manager.get_fundamental_context(code)
+                if ctx:
+                    fundamental_context = ctx
                 # 获取行业对标数据 (P2)
                 peer_comparison = await self.fetcher_manager.get_peer_comparison_context(code)
             except Exception as e:
