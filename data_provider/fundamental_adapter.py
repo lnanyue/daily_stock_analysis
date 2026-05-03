@@ -91,6 +91,10 @@ def _normalize_code(raw: Any) -> str:
     return s
 
 
+def _non_empty(val) -> bool:
+    return val is not None and str(val).strip() not in ("", "-", "nan", "None")
+
+
 def _pick_by_keywords(row: pd.Series, keywords: List[str], exact_first: bool = True) -> Optional[Any]:
     """
     Return first non-empty row value whose column name matches a keyword.
@@ -98,16 +102,7 @@ def _pick_by_keywords(row: pd.Series, keywords: List[str], exact_first: bool = T
     When exact_first=True (default), exact column-name matches are tried before
     substring matches, preventing short/generic keywords from grabbing wrong columns.
     """
-    def _non_empty(val):
-        return val is not None and str(val).strip() not in ("", "-", "nan", "None")
-
-    if exact_first:
-        for col in row.index:
-            col_s = str(col)
-            if col_s in keywords:
-                val = row.get(col)
-                if _non_empty(val):
-                    return val
+    if not exact_first:
         for col in row.index:
             col_s = str(col)
             if any(k in col_s for k in keywords):
@@ -116,6 +111,14 @@ def _pick_by_keywords(row: pd.Series, keywords: List[str], exact_first: bool = T
                     return val
         return None
 
+    # Build set for O(1) exact match lookups
+    keyword_set = set(keywords)
+    for col in row.index:
+        col_s = str(col)
+        if col_s in keyword_set:
+            val = row.get(col)
+            if _non_empty(val):
+                return val
     for col in row.index:
         col_s = str(col)
         if any(k in col_s for k in keywords):

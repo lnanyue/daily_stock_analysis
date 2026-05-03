@@ -196,18 +196,14 @@ class FundamentalPipeline:
         _slots = slots if slots is not None else self._timeout_slots
         if _slots is not None and not _slots.acquire(blocking=False):
             return None, "worker pool exhausted", 0
+        start = time.time()
         try:
-            start = time.time()
-            try:
-                result = await asyncio.wait_for(asyncio.to_thread(func), timeout=timeout)
-                elapsed_ms = int((time.time() - start) * 1000)
-                return result, None, elapsed_ms
-            except asyncio.TimeoutError:
-                elapsed_ms = int((time.time() - start) * 1000)
-                return None, f"{label} timeout", elapsed_ms
-            except Exception as e:
-                elapsed_ms = int((time.time() - start) * 1000)
-                return None, str(e), elapsed_ms
+            result = await asyncio.wait_for(asyncio.to_thread(func), timeout=timeout)
+            return result, None, int((time.time() - start) * 1000)
+        except asyncio.TimeoutError:
+            return None, f"{label} timeout", int((time.time() - start) * 1000)
+        except Exception as e:
+            return None, str(e), int((time.time() - start) * 1000)
         finally:
             if _slots is not None:
                 _slots.release()

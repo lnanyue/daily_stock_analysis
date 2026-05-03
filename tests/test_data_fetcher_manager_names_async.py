@@ -115,10 +115,7 @@ class TestDataFetcherManagerAsyncNames(unittest.TestCase):
         # Set unblock before asyncio.run() completes so the background thread
         # parked in to_thread can finish before shutdown_default_executor.
         unblock.set()
-        try:
-            name = asyncio.run(manager.get_stock_name("123456"))
-        finally:
-            time.sleep(0.02)
+        name = asyncio.run(manager.get_stock_name("123456"))
         elapsed = time.monotonic() - started
 
         self.assertEqual(name, "示例股票")
