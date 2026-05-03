@@ -7,7 +7,7 @@ import asyncio
 import logging
 import time
 import inspect
-from threading import RLock, Thread
+from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple, Iterable
 
 import pandas as pd
@@ -343,20 +343,10 @@ class DataFetcherManager:
         method = fetcher.get_stock_name
         if inspect.iscoroutinefunction(method):
             return await asyncio.wait_for(method(stock_code), timeout=timeout)
-
-        outcome: Dict[str, Any] = {}
-        def _target():
-            try: outcome["value"] = method(stock_code)
-            except Exception as exc: outcome["error"] = exc
-
-        thread = Thread(target=_target, daemon=True)
-        thread.start()
-        deadline = time.monotonic() + timeout
-        while thread.is_alive() and time.monotonic() < deadline:
-            await asyncio.sleep(0.001)
-        if thread.is_alive(): return None
-        if "error" in outcome: raise outcome["error"]
-        return outcome.get("value")
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(method, stock_code), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
 
     def get_stock_name_sync(self, stock_code: str, allow_realtime: bool = True) -> Optional[str]:
         return run_async_sync(self.get_stock_name, stock_code, allow_realtime)

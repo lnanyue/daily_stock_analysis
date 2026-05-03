@@ -77,10 +77,10 @@ from ._async_client import get_async_client
 USER_AGENTS = DEFAULT_USER_AGENTS
 
 # 缓存实例 — 通过 dict-like 访问兼容现有 cache['data'] 调用
-_realtime_cache = RealtimeCache(ttl=1200).data or {'data': None, 'timestamp': 0, 'ttl': 1200}
-_etf_realtime_cache = {'data': None, 'timestamp': 0, 'ttl': 1200}
+_realtime_cache = RealtimeCache(ttl=600).data or {'data': None, 'timestamp': 0, 'ttl': 600}
+_etf_realtime_cache = {'data': None, 'timestamp': 0, 'ttl': 600}
 # 注意：以上仍使用 dict 格式以保持现有 _realtime_cache['data'] 访问方式兼容性
-# 后续可逐步改用 RealtimeCache(ttl=1200) 实例
+# 后续可逐步改用 RealtimeCache(ttl=600) 实例
 
 
 def _is_etf_code(stock_code: str) -> bool:

@@ -91,15 +91,36 @@ def _normalize_code(raw: Any) -> str:
     return s
 
 
-def _pick_by_keywords(row: pd.Series, keywords: List[str]) -> Optional[Any]:
+def _pick_by_keywords(row: pd.Series, keywords: List[str], exact_first: bool = True) -> Optional[Any]:
     """
-    Return first non-empty row value whose column name contains any keyword.
+    Return first non-empty row value whose column name matches a keyword.
+
+    When exact_first=True (default), exact column-name matches are tried before
+    substring matches, preventing short/generic keywords from grabbing wrong columns.
     """
+    def _non_empty(val):
+        return val is not None and str(val).strip() not in ("", "-", "nan", "None")
+
+    if exact_first:
+        for col in row.index:
+            col_s = str(col)
+            if col_s in keywords:
+                val = row.get(col)
+                if _non_empty(val):
+                    return val
+        for col in row.index:
+            col_s = str(col)
+            if any(k in col_s for k in keywords):
+                val = row.get(col)
+                if _non_empty(val):
+                    return val
+        return None
+
     for col in row.index:
         col_s = str(col)
         if any(k in col_s for k in keywords):
             val = row.get(col)
-            if val is not None and str(val).strip() not in ("", "-", "nan", "None"):
+            if _non_empty(val):
                 return val
     return None
 
@@ -479,7 +500,7 @@ class AkshareFundamentalAdapter:
             row = _extract_latest_row(forecast_df, stock_code)
             if row is not None:
                 result["earnings"]["forecast_summary"] = _safe_str(
-                    _pick_by_keywords(row, ["预告", "业绩变动", "内容", "摘要", "公告"])
+                    _pick_by_keywords(row, ["业绩变动", "业绩预告", "预告内容", "预告摘要", "变动原因", "摘要", "内容"])
                 )[:200]
                 result["source_chain"].append(f"earnings_forecast:{forecast_source}")
 
@@ -493,7 +514,7 @@ class AkshareFundamentalAdapter:
             row = _extract_latest_row(quick_df, stock_code)
             if row is not None:
                 result["earnings"]["quick_report_summary"] = _safe_str(
-                    _pick_by_keywords(row, ["快报", "摘要", "公告", "说明"])
+                    _pick_by_keywords(row, ["快报内容", "快报摘要", "快报说明", "快报", "摘要", "说明"])
                 )[:200]
                 result["source_chain"].append(f"earnings_quick:{quick_source}")
 
@@ -519,7 +540,7 @@ class AkshareFundamentalAdapter:
         if inst_df is not None:
             row = _extract_latest_row(inst_df, stock_code)
             if row is not None:
-                inst_change = _safe_float(_pick_by_keywords(row, ["增减", "变化", "变动", "持股变化"]))
+                inst_change = _safe_float(_pick_by_keywords(row, ["持股变动", "持股变化", "增减持", "增减变动", "增减"]))
                 result["institution"]["institution_holding_change"] = inst_change
                 result["source_chain"].append(f"institution:{inst_source}")
 
@@ -533,7 +554,7 @@ class AkshareFundamentalAdapter:
         if top10_df is not None:
             row = _extract_latest_row(top10_df, stock_code)
             if row is not None:
-                holder_change = _safe_float(_pick_by_keywords(row, ["增减", "变化", "持股变化", "变动"]))
+                holder_change = _safe_float(_pick_by_keywords(row, ["持股变动", "持股变化", "增减持", "增减变动", "增减"]))
                 result["institution"]["top10_holder_change"] = holder_change
                 result["source_chain"].append(f"top10:{top10_source}")
 
@@ -564,7 +585,7 @@ class AkshareFundamentalAdapter:
         if stock_df is not None:
             row = _extract_latest_row(stock_df, stock_code)
             if row is not None:
-                net_inflow = _safe_float(_pick_by_keywords(row, ["主力净流入", "净流入", "净额"]))
+                net_inflow = _safe_float(_pick_by_keywords(row, ["主力净流入", "主力净额", "净流入", "净额"]))
                 inflow_5d = _safe_float(_pick_by_keywords(row, ["5日", "五日"]))
                 inflow_10d = _safe_float(_pick_by_keywords(row, ["10日", "十日"]))
                 result["stock_flow"] = {

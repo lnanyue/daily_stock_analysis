@@ -90,7 +90,7 @@ class FundamentalPipeline:
 
         # 2. Bundle (Growth, Earnings, Institution)
         if remaining_seconds > 0:
-            bundle_payload, bundle_err, bundle_ms = await asyncio.to_thread(self._run_with_timeout, lambda: self.adapter.get_fundamental_bundle(stock_code), min(fetch_timeout, remaining_seconds), "fundamental_bundle")
+            bundle_payload, bundle_err, bundle_ms = await self._run_with_timeout_async(lambda: self.adapter.get_fundamental_bundle(stock_code), min(fetch_timeout, remaining_seconds), "fundamental_bundle")
             _consume_budget(bundle_ms)
             if isinstance(bundle_payload, dict):
                 bundle_status = str(bundle_payload.get("status", "partial"))
@@ -173,6 +173,7 @@ class FundamentalPipeline:
         return {"market": _market_tag(stock_code), "status": "failed", "errors": [reason]}
 
     def _run_with_timeout(self, func: Callable, timeout: float, label: str, slots=None) -> Tuple[Any, Any, int]:
+        """同步版：保留给非异步调用方使用（如 manager._run_with_timeout）。"""
         _slots = slots if slots is not None else self._timeout_slots
         start = time.time()
         if _slots is not None and not _slots.acquire(blocking=False):
@@ -190,13 +191,34 @@ class FundamentalPipeline:
         if t.is_alive(): return None, f"{label} timeout", elapsed_ms
         return outcome.get("res"), outcome.get("err"), elapsed_ms
 
+    async def _run_with_timeout_async(self, func: Callable, timeout: float, label: str, slots=None) -> Tuple[Any, Any, int]:
+        """异步版：使用 asyncio.wait_for + to_thread 实现可取消的超时控制。"""
+        _slots = slots if slots is not None else self._timeout_slots
+        if _slots is not None and not _slots.acquire(blocking=False):
+            return None, "worker pool exhausted", 0
+        try:
+            start = time.time()
+            try:
+                result = await asyncio.wait_for(asyncio.to_thread(func), timeout=timeout)
+                elapsed_ms = int((time.time() - start) * 1000)
+                return result, None, elapsed_ms
+            except asyncio.TimeoutError:
+                elapsed_ms = int((time.time() - start) * 1000)
+                return None, f"{label} timeout", elapsed_ms
+            except Exception as e:
+                elapsed_ms = int((time.time() - start) * 1000)
+                return None, str(e), elapsed_ms
+        finally:
+            if _slots is not None:
+                _slots.release()
+
     async def get_capital_flow_context_async(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
-        res, err, ms = await asyncio.to_thread(self._run_with_timeout, lambda: self.adapter.get_capital_flow(stock_code), budget_seconds, "capital_flow")
+        res, err, ms = await self._run_with_timeout_async(lambda: self.adapter.get_capital_flow(stock_code), budget_seconds, "capital_flow")
         if isinstance(res, dict): return self._build_fundamental_block(res.get("status", "ok"), {"stock_flow": res.get("stock_flow", {}), "sector_rankings": res.get("sector_rankings", {})}, res.get("source_chain", []), res.get("errors", []))
         return self._build_fundamental_block("failed", {}, [], [err or "failed"])
 
     async def get_dragon_tiger_context_async(self, stock_code: str, budget_seconds: float = 1.0) -> Dict[str, Any]:
-        res, err, ms = await asyncio.to_thread(self._run_with_timeout, lambda: self.adapter.get_dragon_tiger_flag(stock_code), budget_seconds, "dragon_tiger")
+        res, err, ms = await self._run_with_timeout_async(lambda: self.adapter.get_dragon_tiger_flag(stock_code), budget_seconds, "dragon_tiger")
         if isinstance(res, dict): return self._build_fundamental_block(res.get("status", "ok"), {"is_on_list": res.get("is_on_list", False), "recent_count": res.get("recent_count", 0), "latest_date": res.get("latest_date")}, res.get("source_chain", []), res.get("errors", []))
         return self._build_fundamental_block("failed", {}, [], [err or "failed"])
 
@@ -221,7 +243,7 @@ class FundamentalPipeline:
         fetchers = self.manager.fetchers
         for fetcher in fetchers:
             if fetcher.name == "TushareFetcher" and hasattr(fetcher, "get_stock_list"):
-                all_stocks = fetcher.get_stock_list()
+                all_stocks = await asyncio.to_thread(fetcher.get_stock_list)
                 if all_stocks is not None and not all_stocks.empty:
                     row = all_stocks[all_stocks['code'] == stock_code]
                     if not row.empty:

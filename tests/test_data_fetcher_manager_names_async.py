@@ -98,7 +98,7 @@ class TestDataFetcherManagerAsyncNames(unittest.TestCase):
         unblock = Event()
 
         def _slow_name_lookup(_stock_code: str) -> None:
-            unblock.wait(timeout=0.2)
+            unblock.wait(timeout=5.0)
             return None
 
         slow_fetcher.get_stock_name.side_effect = _slow_name_lookup
@@ -112,10 +112,12 @@ class TestDataFetcherManagerAsyncNames(unittest.TestCase):
         manager._stock_name_timeout_seconds = 0.01
 
         started = time.monotonic()
+        # Set unblock before asyncio.run() completes so the background thread
+        # parked in to_thread can finish before shutdown_default_executor.
+        unblock.set()
         try:
             name = asyncio.run(manager.get_stock_name("123456"))
         finally:
-            unblock.set()
             time.sleep(0.02)
         elapsed = time.monotonic() - started
 
