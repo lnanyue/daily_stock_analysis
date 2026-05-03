@@ -68,11 +68,21 @@ python main.py --market-review
 python main.py --schedule
 ```
 
+### 配置验证
+
+```bash
+# 验证配置（strict 模式，失败会抛出异常）
+python -c "from src.config import get_config; get_config()"
+
+# 查看当前配置加载结果
+python -c "from src.config import get_config; import json; print(json.dumps(get_config(), indent=2, default=str))"
+```
+
 ### 后端验证
 
 ```bash
 pip install -r requirements.txt
-pip install flake8 pytest
+pip install flake8 pytest pyyaml python-dotenv
 ./scripts/ci_gate.sh
 python -m pytest -m "not network"
 python -m py_compile <changed_python_files>
@@ -90,6 +100,8 @@ gh run view <run_id> --log-failed
 
 1. 先判断任务类型：`fix / feat / refactor / docs / chore / test / review`
 2. 先读现有实现、配置、测试、脚本、工作流和文档，再动手修改。
+   - 配置读取顺序：`.env`（敏感 Key）→ `config.yaml`（业务参数）→ 环境变量覆盖
+   - `settings.yaml` 和 `litellm_config.yaml` 已废弃，请迁移到 `config.yaml`
 3. 识别改动边界：后端 / API / Workflow / Docs / AI 协作资产。
 4. 先判断是否命中高风险区域：配置语义、API / Schema、数据源 fallback、报告结构、认证、调度、发布流程。
 5. 只做和当前任务直接相关的最小改动，不顺手夹带无关重构。
