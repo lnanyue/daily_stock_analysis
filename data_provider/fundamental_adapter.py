@@ -311,7 +311,7 @@ def _pivot_financial_abstract(df: pd.DataFrame) -> pd.DataFrame:
     for date_col in date_cols:
         row = {"报告期": date_col}
         for _, r in df.iterrows():
-            indicator = str(r.get("指标", ""))
+            indicator = str(r.get("指标", "")).strip()
             row[indicator] = r.get(date_col)
         rows.append(row)
 
@@ -444,6 +444,11 @@ class AkshareFundamentalAdapter:
         """
         Return normalized fundamental blocks from AkShare with partial tolerance.
         """
+        from .utils import normalize_stock_code
+
+        # 标准化 A 股代码 (移除 .SH/.SZ 等)
+        symbol = normalize_stock_code(stock_code)
+
         result: Dict[str, Any] = {
             "status": "not_supported",
             "growth": {},
@@ -455,18 +460,19 @@ class AkshareFundamentalAdapter:
 
         # Financial indicators
         fin_df, fin_source, fin_errors = self._call_df_candidates([
-            ("stock_financial_abstract", {"symbol": stock_code}),
-            ("stock_financial_analysis_indicator", {"symbol": stock_code}),
+            ("stock_financial_abstract", {"symbol": symbol}),
+            ("stock_financial_analysis_indicator", {"symbol": symbol}),
             ("stock_financial_analysis_indicator", {}),
         ])
         result["errors"].extend(fin_errors)
         fin_df = _pivot_financial_abstract(fin_df)
         if fin_df is not None:
-            row = _extract_latest_row(fin_df, stock_code)
+            row = _extract_latest_row(fin_df, symbol)
             if row is not None:
                 revenue_yoy = _safe_float(_pick_by_keywords(row, ["营业收入同比", "营收同比", "收入同比", "同比增长"]))
                 profit_yoy = _safe_float(_pick_by_keywords(row, ["净利润同比", "净利同比", "归母净利润同比"]))
-                roe = _safe_float(_pick_by_keywords(row, ["净资产收益率", "ROE", "净资产收益"]))
+                # 增加对 "净资产收益率(ROE)" 的优先匹配支持
+                roe = _safe_float(_pick_by_keywords(row, ["净资产收益率(ROE)", "净资产收益率", "ROE", "净资产收益"]))
                 gross_margin = _safe_float(_pick_by_keywords(row, ["毛利率"]))
                 report_date = _normalize_report_date(_pick_by_keywords(row, _DIVIDEND_KEYWORD_MAP["report_date"]))
                 revenue = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
@@ -498,7 +504,7 @@ class AkshareFundamentalAdapter:
         ])
         result["errors"].extend(forecast_errors)
         if forecast_df is not None:
-            row = _extract_latest_row(forecast_df, stock_code)
+            row = _extract_latest_row(forecast_df, symbol)
             if row is not None:
                 result["earnings"]["forecast_summary"] = _safe_str(
                     _pick_by_keywords(row, ["业绩变动", "业绩预告", "预告内容", "预告摘要", "变动原因", "摘要", "内容"])
@@ -512,7 +518,7 @@ class AkshareFundamentalAdapter:
         ])
         result["errors"].extend(quick_errors)
         if quick_df is not None:
-            row = _extract_latest_row(quick_df, stock_code)
+            row = _extract_latest_row(quick_df, symbol)
             if row is not None:
                 result["earnings"]["quick_report_summary"] = _safe_str(
                     _pick_by_keywords(row, ["快报内容", "快报摘要", "快报说明", "快报", "摘要", "说明"])
@@ -521,38 +527,38 @@ class AkshareFundamentalAdapter:
 
         # Dividend details (cash dividend, pre-tax)
         dividend_df, dividend_source, dividend_errors = self._call_df_candidates([
-            ("stock_fhps_detail_em", {"symbol": stock_code}),
-            ("stock_history_dividend_detail", {"symbol": stock_code, "indicator": "分红", "date": ""}),
-            ("stock_dividend_cninfo", {"symbol": stock_code}),
+            ("stock_fhps_detail_em", {"symbol": symbol}),
+            ("stock_history_dividend_detail", {"symbol": symbol, "indicator": "分红", "date": ""}),
+            ("stock_dividend_cninfo", {"symbol": symbol}),
         ])
         result["errors"].extend(dividend_errors)
         if dividend_df is not None:
-            dividend_payload = _build_dividend_payload(dividend_df, stock_code, max_events=5)
+            dividend_payload = _build_dividend_payload(dividend_df, symbol, max_events=5)
             if dividend_payload:
                 result["earnings"]["dividend"] = dividend_payload
                 result["source_chain"].append(f"dividend:{dividend_source}")
 
         # Institution / top shareholders
         inst_df, inst_source, inst_errors = self._call_df_candidates([
-            ("stock_institute_hold", {"symbol": stock_code}),
+            ("stock_institute_hold", {"symbol": symbol}),
             ("stock_institute_hold", {}),
         ])
         result["errors"].extend(inst_errors)
         if inst_df is not None:
-            row = _extract_latest_row(inst_df, stock_code)
+            row = _extract_latest_row(inst_df, symbol)
             if row is not None:
                 inst_change = _safe_float(_pick_by_keywords(row, ["持股变动", "持股变化", "增减持", "增减变动", "增减"]))
                 result["institution"]["institution_holding_change"] = inst_change
                 result["source_chain"].append(f"institution:{inst_source}")
 
         top10_df, top10_source, top10_errors = self._call_df_candidates([
-            ("stock_gdfx_top_10_em", {"symbol": stock_code, "date": "20260331"}),
-            ("stock_gdfx_top_10_em", {"symbol": stock_code}),
-            ("stock_zh_a_gdhs_detail_em", {"symbol": stock_code}),
+            ("stock_gdfx_top_10_em", {"symbol": symbol, "date": "20260331"}),
+            ("stock_gdfx_top_10_em", {"symbol": symbol}),
+            ("stock_zh_a_gdhs_detail_em", {"symbol": symbol}),
         ])
         result["errors"].extend(top10_errors)
         if top10_df is not None:
-            row = _extract_latest_row(top10_df, stock_code)
+            row = _extract_latest_row(top10_df, symbol)
             if row is not None:
                 holder_change = _safe_float(_pick_by_keywords(row, ["持股变动", "持股变化", "增减持", "增减变动", "增减"]))
                 result["institution"]["top10_holder_change"] = holder_change
