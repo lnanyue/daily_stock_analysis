@@ -40,8 +40,8 @@ def test_validate_required_field_missing(monkeypatch):
             "is_sensitive": False,
         }
 
-    monkeypatch.setattr("src.config.validator.get_registered_field_keys", mock_get_registered_field_keys)
-    monkeypatch.setattr("src.config.validator.get_field_definition", mock_get_field_definition)
+    monkeypatch.setattr("src.core.config_registry.get_registered_field_keys", mock_get_registered_field_keys)
+    monkeypatch.setattr("src.core.config_registry.get_field_definition", mock_get_field_definition)
 
     env_dict = {}
     config_dict = {}

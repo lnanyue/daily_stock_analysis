@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 
 from .manager import Config, get_config, get_api_keys_for_model, extra_litellm_params
+from .validator import ConfigValidator, ConfigValidationError
+from .loader import UnifiedConfigLoader
 from .models import ConfigIssue, LLMChannelConfig
 from .utils import (
     AGENT_MAX_STEPS_DEFAULT,
@@ -46,6 +48,9 @@ __all__ = [
     "extra_litellm_params",
     "ConfigIssue",
     "LLMChannelConfig",
+    "ConfigValidator",
+    "ConfigValidationError",
+    "UnifiedConfigLoader",
     "AGENT_MAX_STEPS_DEFAULT",
     "SUPPORTED_LLM_CHANNEL_PROTOCOLS",
     "_get_litellm_provider",

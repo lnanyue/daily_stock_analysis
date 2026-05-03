@@ -2,11 +2,6 @@
 
 from typing import Any, Dict
 
-from src.core.config_registry import (
-    get_registered_field_keys,
-    get_field_definition,
-)
-
 
 class ConfigValidationError(Exception):
     """Raised when configuration validation fails (strict mode)."""
@@ -48,6 +43,7 @@ class ConfigValidator:
         cls, env_dict: Dict[str, Any], config_dict: Dict[str, Any]
     ) -> list:
         """Check that required fields are present and not empty."""
+        from src.core.config_registry import get_registered_field_keys, get_field_definition
         messages = []
         # Only check fields marked as required in registry
         for key in get_registered_field_keys():
@@ -63,6 +59,7 @@ class ConfigValidator:
     @classmethod
     def _check_types(cls, env_dict: Dict[str, Any], config_dict: Dict[str, Any]) -> list:
         """Check data types match field definitions."""
+        from src.core.config_registry import get_registered_field_keys, get_field_definition
         messages = []
         for key in get_registered_field_keys():
             field = get_field_definition(key)
@@ -86,6 +83,7 @@ class ConfigValidator:
     @classmethod
     def _check_enums(cls, env_dict: Dict[str, Any], config_dict: Dict[str, Any]) -> list:
         """Check enum fields have valid values."""
+        from src.core.config_registry import get_registered_field_keys, get_field_definition
         messages = []
         for key in get_registered_field_keys():
             field = get_field_definition(key)
@@ -103,6 +101,7 @@ class ConfigValidator:
     @classmethod
     def _check_ranges(cls, env_dict: Dict[str, Any], config_dict: Dict[str, Any]) -> list:
         """Check numeric fields are within valid ranges."""
+        from src.core.config_registry import get_registered_field_keys, get_field_definition
         messages = []
         for key in get_registered_field_keys():
             field = get_field_definition(key)
@@ -127,6 +126,7 @@ class ConfigValidator:
     @classmethod
     def _check_sensitive_keys(cls, env_dict: Dict[str, Any], config_dict: Dict[str, Any]) -> list:
         """Check sensitive keys have valid format (e.g., API key length >= 8)."""
+        from src.core.config_registry import get_registered_field_keys, get_field_definition
         messages = []
         for key in get_registered_field_keys():
             field = get_field_definition(key)
