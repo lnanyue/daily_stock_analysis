@@ -886,11 +886,12 @@ class DatabaseManager:
 
     # --- Data Access Methods ---
 
-    def has_today_data(self, code: str) -> bool:
-        today = date.today()
+    def has_today_data(self, code: str, target_date: Optional[date] = None) -> bool:
+        if target_date is None:
+            target_date = date.today()
         with self.get_session() as session:
             result = session.execute(
-                select(StockDaily.id).where(and_(StockDaily.code == code, StockDaily.date == today)).limit(1)
+                select(StockDaily.id).where(and_(StockDaily.code == code, StockDaily.date == target_date)).limit(1)
             ).scalar()
             return result is not None
 
