@@ -333,38 +333,24 @@ class SearchService:
 
         return None
 
-    def _filter_news_response(
+    def _apply_date_filter(
         self,
-        response: SearchResponse,
-        *,
+        results: List[SearchResult],
         search_days: int,
         max_results: int,
-        log_scope: str,
-    ) -> SearchResponse:
-        if not response.success or not response.results:
-            return response
-
+    ) -> List[SearchResult]:
+        """按日期窗口过滤新闻。"""
         today = datetime.now().date()
         earliest = today - timedelta(days=max(0, int(search_days) - 1))
         latest = today + timedelta(days=self.FUTURE_TOLERANCE_DAYS)
 
         filtered: List[SearchResult] = []
-        dropped_unknown = 0
-        dropped_old = 0
-        dropped_future = 0
-
-        for item in response.results:
+        for item in results:
             published = self._normalize_news_publish_date(item.published_date)
             if published is None:
-                dropped_unknown += 1
                 continue
-            if published < earliest:
-                dropped_old += 1
+            if published < earliest or published > latest:
                 continue
-            if published > latest:
-                dropped_future += 1
-                continue
-
             filtered.append(
                 SearchResult(
                     title=item.title,
@@ -376,19 +362,53 @@ class SearchService:
             )
             if len(filtered) >= max_results:
                 break
+        return filtered
 
-        if dropped_unknown or dropped_old or dropped_future:
+    def _filter_news_response(
+        self,
+        response: SearchResponse,
+        *,
+        search_days: int,
+        max_results: int,
+        log_scope: str,
+    ) -> SearchResponse:
+        if not response.success or not response.results:
+            return response
+
+        # 第一次过滤：使用原始 search_days
+        filtered = self._apply_date_filter(response.results, search_days, max_results)
+
+        # 降级策略：如果过滤后为空，逐步放宽时间窗口
+        fallback_windows = [7, 14, 30]
+        used_window = search_days
+        if not filtered:
+            for window in fallback_windows:
+                if window <= search_days:
+                    continue
+                filtered = self._apply_date_filter(response.results, window, max_results)
+                if filtered:
+                    used_window = window
+                    logger.info(
+                        "[新闻过滤] %s: 原始窗口 %s天无结果，放宽到 %s天获得 %s 条新闻",
+                        log_scope, search_days, window, len(filtered)
+                    )
+                    break
+
+        # 最终降级：如果所有时间窗口都为空，保留所有新闻（不过滤日期）
+        if not filtered:
+            filtered = [
+                SearchResult(
+                    title=item.title,
+                    snippet=item.snippet,
+                    url=item.url,
+                    source=item.source,
+                    published_date=item.published_date,
+                )
+                for item in response.results[:max_results]
+            ]
             logger.info(
-                "[新闻过滤] %s: provider=%s, total=%s, kept=%s, drop_unknown=%s, drop_old=%s, drop_future=%s, window=[%s,%s]",
-                log_scope,
-                response.provider,
-                len(response.results),
-                len(filtered),
-                dropped_unknown,
-                dropped_old,
-                dropped_future,
-                earliest.isoformat(),
-                latest.isoformat(),
+                "[新闻过滤] %s: 所有时间窗口均无结果，保留 %s 条新闻（不过滤日期）",
+                log_scope, len(filtered)
             )
 
         return SearchResponse(
@@ -501,6 +521,12 @@ class SearchService:
                 'query': f"{stock_name} {stock_code} risk insider selling lawsuit" if not is_index_etf else f"{stock_name} tracking error outlook",
                 'desc': '风险排查',
                 'strict_freshness': not is_index_etf,
+            },
+            {
+                'name': 'bearish_check',
+                'query': f"{stock_name} {stock_code} 利空 风险 下跌 处罚 诉讼 预警" if not is_index_etf else f"{stock_name} downside risk warning",
+                'desc': '利空排查',
+                'strict_freshness': True,
             },
             {
                 'name': 'earnings',
@@ -826,13 +852,14 @@ class SearchService:
     def format_intel_report(self, intel_results: Dict[str, SearchResponse], stock_name: str) -> str:
         lines = [f"【{stock_name} 情报搜索结果】"]
         
-        display_order = ['latest_news', 'announcements', 'market_analysis', 'risk_check', 'earnings', 'industry']
+        display_order = ['latest_news', 'announcements', 'market_analysis', 'risk_check', 'bearish_check', 'earnings', 'industry']
 
         dim_labels = {
             'latest_news': '📰 最新消息',
             'announcements': '📋 公司公告',
             'market_analysis': '📈 机构分析',
             'risk_check': '⚠️ 风险排查',
+            'bearish_check': '🐻 利空排查',
             'earnings': '📊 业绩预期',
             'industry': '🏭 行业分析',
         }
