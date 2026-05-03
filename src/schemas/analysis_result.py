@@ -154,6 +154,23 @@ class AnalysisResult(BaseModel):
     # ========== 同行业横向对比 ==========
     peer_comparison: Optional[Dict[str, Any]] = None
 
+    # ========== Trader Agent 输出 (新增) ==========
+    trader_decision: Optional[Dict[str, Any]] = None  # Trader Agent 的完整决策
+    position_sizing_pct: Optional[float] = None  # 建议仓位百分比 (0-100)
+    holding_period_days: Optional[int] = None  # 建议持有天数
+    risk_reward_ratio: Optional[float] = None  # 风险回报比
+
+    # ========== 辩论分析结果 (新增) ==========
+    debate_history: Optional[List[Dict[str, Any]]] = None  # 多轮辩论历史
+    judge_score: Optional[Dict[str, Any]] = None  # 裁判评分 (bull_score, bear_score, confidence)
+    debate_rounds: int = 0  # 实际辩论轮数
+
+    # ========== Risk Agent 增强输出 (新增) ==========
+    risk_breakdown: Optional[Dict[str, Any]] = None  # 多维风险评分 (market, liquidity, concentration, sentiment)
+    var_estimate: Optional[Dict[str, Any]] = None  # VaR 估算 (95%, 99%)
+    stress_test: Optional[Dict[str, Any]] = None  # 压力测试结果
+    correlation_risk: Optional[Dict[str, Any]] = None  # 相关性风险分析
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return self.model_dump()

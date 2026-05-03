@@ -173,6 +173,9 @@ class ReportRenderer:
         self._append_market_snapshot(lines, result)
         self._append_data_perspective(lines, result)
         self._append_battle_plan(lines, result)
+        self._append_trader_decision(lines, result)
+        self._append_debate_summary(lines, result)
+        self._append_risk_analysis(lines, result)
         self._append_historical_performance(lines, result)
         self._append_peer_comparison(lines, result)
         self._append_analysis_sections(lines, result)
@@ -428,6 +431,157 @@ class ReportRenderer:
                 lines.append(f"- {item}")
             lines.append("")
 
+    def _append_trader_decision(self, lines: List[str], result: AnalysisResult) -> None:
+        """Append Trader Agent's decision to the report."""
+        if not getattr(result, "trader_decision", None):
+            return
+
+        decision = result.trader_decision
+        if not isinstance(decision, dict):
+            return
+
+        report_language = self._get_report_language(result)
+        labels = get_report_labels(report_language)
+
+        # Title
+        trader_title = "🎯 交易决策（Trader Agent）" if report_language == "zh" else "🎯 Trading Decision (Trader Agent)"
+        lines.extend([
+            f"### {trader_title}",
+            "",
+        ])
+
+        # Signal
+        signal = decision.get("signal", "hold")
+        signal_map_zh = {"buy": "📈 买入", "sell": "📉 卖出", "hold": "⏸ 持有"}
+        signal_map_en = {"buy": "📈 Buy", "sell": "📉 Sell", "hold": "⏸ Hold"}
+        signal_map = signal_map_zh if report_language == "zh" else signal_map_en
+        lines.append(f"**{labels.get('signal_label', '信号')}**: {signal_map.get(signal, signal_map['hold'])}")
+
+        # Position sizing
+        pos = decision.get("position_sizing")
+        if isinstance(pos, dict):
+            rec_pct = pos.get("recommended_pct")
+            max_pct = pos.get("max_position_pct")
+            if rec_pct is not None:
+                pos_text = f"**{labels.get('position_sizing_label', '建议仓位')}**: {rec_pct}%"
+                if max_pct is not None:
+                    pos_text += f" ({labels.get('max_label', '最高')} {max_pct}%)"
+                lines.append(pos_text)
+
+        # Entry plan
+        entry = decision.get("entry_plan")
+        if isinstance(entry, dict):
+            ideal = entry.get("ideal_entry")
+            secondary = entry.get("secondary_entry")
+            current = entry.get("current_price")
+            if ideal is not None or secondary is not None:
+                lines.append(f"**{labels.get('entry_plan_label', '入场计划')}**")
+                if current is not None:
+                    lines.append(f"- {labels.get('current_price_label', '当前价')}: ¥{self._format_number(current)}")
+                if ideal is not None:
+                    lines.append(f"- {labels.get('ideal_entry_label', '理想入场')}: ¥{self._format_number(ideal)}")
+                if secondary is not None:
+                    lines.append(f"- {labels.get('secondary_entry_label', '次级入场')}: ¥{self._format_number(secondary)}")
+
+        # Exit plan
+        exit_plan = decision.get("exit_plan")
+        if isinstance(exit_plan, dict):
+            stop_loss = exit_plan.get("stop_loss")
+            take_profit_1 = exit_plan.get("take_profit_1")
+            if stop_loss is not None or take_profit_1 is not None:
+                lines.append(f"**{labels.get('exit_plan_label', '出场计划')}**")
+                if stop_loss is not None:
+                    lines.append(f"- {labels.get('stop_loss_label', '止损位')}: ¥{self._format_number(stop_loss)}")
+                if take_profit_1 is not None:
+                    lines.append(f"- {labels.get('take_profit_label', '止盈位')}: ¥{self._format_number(take_profit_1)}")
+
+        # Holding period
+        holding = decision.get("holding_period")
+        if isinstance(holding, dict):
+            expected_days = holding.get("expected_days")
+            time_horizon = holding.get("time_horizon")
+            if expected_days is not None:
+                holding_text = f"**{labels.get('holding_period_label', '预计持有')}**: {expected_days} {labels.get('days_label', '天')}"
+                if time_horizon:
+                    holding_text += f" ({time_horizon})"
+                lines.append(holding_text)
+
+        # Risk assessment
+        risk = decision.get("risk_assessment")
+        if isinstance(risk, dict):
+            risk_reward = risk.get("risk_reward_ratio")
+            if risk_reward is not None:
+                lines.append(f"**{labels.get('risk_reward_label', '风险回报比')}**: {self._format_number(risk_reward, 1)}")
+
+        # Rationale
+        rationale = decision.get("rationale")
+        if self._has_content(rationale):
+            lines.extend([
+                "",
+                f"**{labels.get('rationale_label', '决策理由')}**:",
+                self._clean_text(rationale),
+            ])
+
+        lines.append("")
+
+    def _append_debate_summary(self, lines: List[str], result: AnalysisResult) -> None:
+        """Append debate summary to the report."""
+        debate_history = getattr(result, "debate_history", None)
+        if not debate_history:
+            return
+
+        dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+        judge_score = result.judge_score if isinstance(result.judge_score, dict) else dashboard.get("judge_score", {})
+
+        if not debate_history:
+            return
+
+        report_language = self._get_report_language(result)
+        labels = get_report_labels(report_language)
+
+        # Title
+        debate_title = "🏛️ 多空辩论总结" if report_language == "zh" else "🏛️ Bull/Bear Debate Summary"
+        lines.extend([f"### {debate_title}", ""])
+
+        # Judge scores
+        if judge_score:
+            bull_score = judge_score.get("bull_score", 0)
+            bear_score = judge_score.get("bear_score", 0)
+            confidence = judge_score.get("confidence", 0)
+            score_text = f"**{labels.get('judge_score_label', '裁判评分')}**: "
+            score_text += f"{labels.get('bull_score_label', '多头')} {bull_score} : "
+            score_text += f"{labels.get('bear_score_label', '空头')} {bear_score}"
+            if confidence:
+                score_text += f" ({labels.get('confidence_label', '置信度')}: {confidence:.1%})"
+            lines.append(score_text)
+            lines.append("")
+
+        # Debate rounds (show summary only to avoid too long)
+        max_rounds_display = 2  # Only show last 2 rounds in detail
+        display_rounds = debate_history[-max_rounds_display:] if len(debate_history) > max_rounds_display else debate_history
+
+        for round_data in display_rounds:
+            round_num = round_data.get("round", 1)
+            lines.extend([
+                f"**{labels.get('round_label', '第')} {round_num} {labels.get('round_label', '轮辩论')}**",
+                "",
+                f"🔴 **{labels.get('bull_label', '红方(多头)')}**: {str(round_data.get('bull_view', ''))[:200]}...",
+                "",
+                f"🔵 **{labels.get('bear_label', '蓝方(空头)')}**: {str(round_data.get('bear_view', ''))[:200]}...",
+                "",
+            ])
+
+        # Key points
+        key_points = dashboard.get("key_points", [])
+        if key_points and isinstance(key_points, list):
+            lines.extend([
+                f"**{labels.get('key_points_label', '关键要点')}**",
+                "",
+            ])
+            for point in key_points[:5]:
+                lines.append(f"- {point}")
+            lines.append("")
+
     def _append_historical_performance(self, lines: List[str], result: AnalysisResult) -> None:
         perf = getattr(result, "historical_performance", None)
         if not perf or not (perf.get("stock") or perf.get("overall")):
@@ -458,7 +612,86 @@ class ReportRenderer:
                 f"| {system_label} | {overall_perf.get('win_rate_pct', 'N/A')}% | "
                 f"{overall_perf.get('direction_accuracy_pct', 'N/A')}% | {overall_perf.get('total_evaluations', 0)} |"
             )
+
+            # 新增：展示风险指标
+            sharpe = overall_perf.get("sharpe_ratio")
+            if sharpe is not None:
+                lines.append(f"**{labels.get('sharpe_label', '夏普比率')}**: {sharpe:.2f}")
+
+            avg_dd = overall_perf.get("avg_max_drawdown_pct")
+            if avg_dd is not None:
+                lines.append(f"**{labels.get('max_drawdown_label', '平均最大回撤')}**: {avg_dd:.2f}%")
+
+            worst_dd = overall_perf.get("worst_max_drawdown_pct")
+            if worst_dd is not None:
+                lines.append(f"**{labels.get('worst_drawdown_label', '最差回撤')}**: {worst_dd:.2f}%")
+
+            ann_return = overall_perf.get("annualized_return_pct")
+            if ann_return is not None:
+                lines.append(f"**{labels.get('annualized_return_label', '年化回报')}**: {ann_return:.2f}%")
+
         lines.append("")
+
+    def _append_risk_analysis(self, lines: List[str], result: AnalysisResult) -> None:
+        """Append enhanced risk analysis to the report."""
+        has_risk_breakdown = getattr(result, "risk_breakdown", None) is not None
+        has_var = getattr(result, "var_estimate", None) is not None
+        has_stress = getattr(result, "stress_test", None) is not None
+        has_corr = getattr(result, "correlation_risk", None) is not None
+
+        if not (has_risk_breakdown or has_var or has_stress or has_corr):
+            return
+
+        report_language = self._get_report_language(result)
+        labels = get_report_labels(report_language)
+
+        # Title
+        risk_title = "⚠️ 多维风险分析" if report_language == "zh" else "⚠️ Multi-Dimensional Risk Analysis"
+        lines.extend([f"### {risk_title}", ""])
+
+        # Risk Breakdown
+        breakdown = getattr(result, "risk_breakdown", None)
+        if breakdown and isinstance(breakdown, dict):
+            lines.append(f"**{labels.get('risk_breakdown_label', '风险细分')}**")
+            for risk_type, data in breakdown.items():
+                if isinstance(data, dict):
+                    score = data.get("score", 0)
+                    lines.append(f"- {risk_type}: {score}/100")
+            lines.append("")
+
+        # VaR Estimate
+        var_est = getattr(result, "var_estimate", None)
+        if var_est and isinstance(var_est, dict):
+            lines.append(f"**{labels.get('var_label', 'VaR 估算')}**")
+            var_95 = var_est.get("var_95")
+            var_99 = var_est.get("var_99")
+            if var_95 is not None:
+                lines.append(f"- VaR (95%): {var_95:.1f}%")
+            if var_99 is not None:
+                lines.append(f"- VaR (99%): {var_99:.1f}%")
+            lines.append("")
+
+        # Stress Test
+        stress = getattr(result, "stress_test", None)
+        if stress and isinstance(stress, dict):
+            scenarios = stress.get("scenarios", [])
+            if scenarios:
+                lines.append(f"**{labels.get('stress_test_label', '压力测试')}**")
+                for scenario in scenarios[:3]:  # Show top 3
+                    name = scenario.get("name", "")
+                    impact = scenario.get("impact_pct", 0)
+                    lines.append(f"- {name}: {impact:.1f}%")
+                lines.append("")
+
+        # Correlation Risk
+        corr = getattr(result, "correlation_risk", None)
+        if corr and isinstance(corr, dict):
+            warnings = corr.get("high_correlation_warnings", [])
+            if warnings:
+                lines.append(f"**{labels.get('correlation_risk_label', '相关性风险')}**")
+                for warning in warnings[:3]:
+                    lines.append(f"- ⚠️ {warning}")
+                lines.append("")
 
     def _append_peer_comparison(self, lines: List[str], result: AnalysisResult) -> None:
         """添加行业对标分析区块。"""

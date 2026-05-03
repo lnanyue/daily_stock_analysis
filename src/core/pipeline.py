@@ -483,6 +483,22 @@ class StockAnalysisPipeline:
                 result.peer_comparison = peer_comparison
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 fill_chip_structure_if_needed(result, chip_data)
+
+                # 调用 TraderAgent 补充交易决策
+                if getattr(self.config, 'trader_agent_enabled', True):
+                    self._emit_progress(95, f"{stock_name}：正在生成交易决策（Trader Agent）")
+                    await self._run_trader_agent(
+                        code=code,
+                        stock_name=stock_name,
+                        enhanced_context=enhanced_context,
+                        query_id=query_id,
+                        report_type=report_type,
+                        trend_result=trend_result,
+                        news_context=final_news,
+                        route_reasons=route_reasons,
+                        result=result,
+                    )
+
                 await self.db.save_analysis_history_async(result, query_id, report_type.value, final_news, {}, self.save_context_snapshot)
 
             return result
@@ -491,7 +507,7 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] AI 分析失败: {e}", exc_info=True)
             return None
 
-    async def run(self, stock_codes=None, dry_run=False, send_notification=True, merge_notification=False):
+    async def run(self, stock_codes=None, dry_run=False, send_notification=True, merge_notification=False) -> List[AnalysisResult]:
         if stock_codes is None: stock_codes = self.config.stock_list
         if not stock_codes: return []
 
@@ -527,7 +543,7 @@ class StockAnalysisPipeline:
             await self.notifier.send(report_text, email_stock_codes=stock_codes)
         return results
 
-    def _enhance_context(self, context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context=None, market_overview=None, peer_comparison=None):
+    def _enhance_context(self, context, realtime_quote, chip_data, trend_result, stock_name, fundamental_context=None, market_overview=None, peer_comparison=None) -> Dict[str, Any]:
         return enhance_analysis_context(
             context=context,
             realtime_quote=realtime_quote,
@@ -1113,6 +1129,80 @@ class StockAnalysisPipeline:
         except Exception as e:
             stock_code = getattr(result, "code", None) or fallback_code or "unknown"
             logger.error(f"[{stock_code}] 单股推送异常: {e}")
+
+    async def _run_trader_agent(
+        self,
+        code: str,
+        stock_name: str,
+        enhanced_context: Dict[str, Any],
+        query_id: str,
+        report_type: Any,
+        trend_result: Any = None,
+        news_context: str = "",
+        route_reasons: Optional[List[str]] = None,
+        result: Optional[Any] = None,
+    ) -> None:
+        """Run TraderAgent to produce final trading decision and fill result."""
+        try:
+            from src.agent.agents.trader_agent import TraderAgent
+
+            agent = TraderAgent(analyzer=self.analyzer, config=self.config)
+
+            # Build context for trader
+            from src.agent.protocols import AgentContext
+            trader_ctx = AgentContext(
+                stock_code=code,
+                stock_name=stock_name or "",
+                query=f"Trading decision for {code}",
+                meta={
+                    "report_language": getattr(self.config, "report_language", "zh"),
+                },
+            )
+
+            # Build prior opinions from result if available
+            if result is not None:
+                from src.agent.protocols import AgentOpinion
+                # Add technical opinion if available
+                if result.technical_analysis:
+                    trader_ctx.add_opinion(AgentOpinion(
+                        agent_name="technical",
+                        signal=result.decision_type or "hold",
+                        confidence=result.sentiment_score / 100.0 if result.sentiment_score else 0.5,
+                        reasoning=result.technical_analysis[:200] if result.technical_analysis else "",
+                    ))
+                # Add fundamental opinion if available
+                if result.fundamental_analysis:
+                    trader_ctx.add_opinion(AgentOpinion(
+                        agent_name="fundamental",
+                        signal=result.decision_type or "hold",
+                        confidence=0.6,
+                        reasoning=result.fundamental_analysis[:200] if result.fundamental_analysis else "",
+                    ))
+                # Add news/intel opinion if available
+                if result.news_summary:
+                    trader_ctx.add_opinion(AgentOpinion(
+                        agent_name="intel",
+                        signal="hold",
+                        confidence=0.5,
+                        reasoning=result.news_summary[:200] if result.news_summary else "",
+                    ))
+
+            opinion = await agent.run(trader_ctx)
+            if opinion is None:
+                logger.warning(f"[{code}] TraderAgent returned None")
+                return
+
+            # Fill result with trader's decision
+            if result is not None:
+                result.trader_decision = opinion.raw_data
+                if opinion.raw_data:
+                    result.position_sizing_pct = opinion.raw_data.get("position_sizing", {}).get("recommended_pct")
+                    result.holding_period_days = opinion.raw_data.get("holding_period", {}).get("expected_days")
+                    result.risk_reward_ratio = opinion.raw_data.get("risk_assessment", {}).get("risk_reward_ratio")
+
+        except Exception as e:
+            logger.error(f"[{code}] TraderAgent failed: {e}", exc_info=True)
+
 
     async def _send_single_stock_notification_async(
         self,

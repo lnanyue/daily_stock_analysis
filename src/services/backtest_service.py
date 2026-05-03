@@ -391,6 +391,9 @@ class BacktestService:
             "simulated_exit_price": row.simulated_exit_price,
             "simulated_exit_reason": row.simulated_exit_reason,
             "simulated_return_pct": row.simulated_return_pct,
+            # 新增风险指标
+            "sharpe_ratio": getattr(row, 'sharpe_ratio', None),
+            "max_drawdown_pct": getattr(row, 'max_drawdown_pct', None),
         }
 
     @staticmethod
@@ -420,6 +423,11 @@ class BacktestService:
             "avg_days_to_first_hit": row.avg_days_to_first_hit,
             "advice_breakdown": json.loads(row.advice_breakdown_json) if row.advice_breakdown_json else {},
             "diagnostics": json.loads(row.diagnostics_json) if row.diagnostics_json else {},
+            # 新增风险指标
+            "sharpe_ratio": getattr(row, 'sharpe_ratio', None),
+            "avg_max_drawdown_pct": getattr(row, 'avg_max_drawdown_pct', None),
+            "worst_max_drawdown_pct": getattr(row, 'worst_max_drawdown_pct', None),
+            "annualized_return_pct": getattr(row, 'annualized_return_pct', None),
         }
 
     @staticmethod

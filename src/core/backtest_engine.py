@@ -165,6 +165,15 @@ class BacktestEngine:
         max_high = max(highs) if highs else None
         min_low = min(lows) if lows else None
 
+        # 计算每日回报和收盘价（用于 Sharpe Ratio 和 Max Drawdown 计算）
+        daily_returns: List[float] = []
+        close_prices: List[float] = [start_price]
+        for bar in window_bars:
+            if bar.close is not None:
+                daily_return = (bar.close - close_prices[-1]) / close_prices[-1] * 100.0
+                daily_returns.append(daily_return)
+                close_prices.append(bar.close)
+
         stock_return_pct: Optional[float]
         if end_close is None:
             stock_return_pct = None
@@ -205,6 +214,10 @@ class BacktestEngine:
         else:
             simulated_return_pct = (simulated_exit_price - start_price) / start_price * 100
 
+        # 计算 Sharpe Ratio 和 Max Drawdown
+        sharpe_ratio = cls.compute_sharpe_ratio(daily_returns) if daily_returns else None
+        max_drawdown = cls.compute_max_drawdown(close_prices) if close_prices else None
+
         return {
             "analysis_date": analysis_date,
             "eval_window_days": eval_days,
@@ -231,6 +244,10 @@ class BacktestEngine:
             "simulated_exit_price": simulated_exit_price,
             "simulated_exit_reason": simulated_exit_reason,
             "simulated_return_pct": simulated_return_pct,
+            "sharpe_ratio": sharpe_ratio,
+            "max_drawdown_pct": max_drawdown,
+            "daily_returns": daily_returns,
+            "close_prices": close_prices,
         }
 
     @classmethod
@@ -269,6 +286,36 @@ class BacktestEngine:
 
         avg_stock_return_pct = cls._average([r.stock_return_pct for r in completed])
         avg_simulated_return_pct = cls._average([r.simulated_return_pct for r in completed])
+
+        # 新增：聚合 Sharpe Ratio、Max Drawdown、Annualized Return
+        all_daily_returns: List[float] = []
+        max_drawdowns: List[float] = []
+
+        for r in completed:
+            # 收集每日回报
+            if hasattr(r, 'daily_returns') and r.daily_returns:
+                all_daily_returns.extend(r.daily_returns)
+            # 收集最大回撤
+            if hasattr(r, 'max_drawdown_pct') and r.max_drawdown_pct is not None:
+                max_drawdowns.append(r.max_drawdown_pct)
+
+        # 计算聚合 Sharpe Ratio
+        aggregated_sharpe = cls.compute_sharpe_ratio(all_daily_returns) if all_daily_returns else None
+
+        # 计算平均和最差最大回撤
+        avg_max_drawdown_pct = round(sum(max_drawdowns) / len(max_drawdowns), 4) if max_drawdowns else None
+        worst_max_drawdown_pct = round(min(max_drawdowns), 4) if max_drawdowns else None
+
+        # 计算年化回报
+        total_days = sum(r.first_hit_trading_days or 0 for r in completed if r.first_hit_trading_days)
+        annualized_return_pct = None
+        if completed and total_days > 0:
+            total_return = sum(r.simulated_return_pct or 0 for r in completed)
+            try:
+                annualized_return = (1 + total_return / 100.0) ** (252 / total_days) - 1
+                annualized_return_pct = round(annualized_return * 100, 2)
+            except (TypeError, ValueError, ZeroDivisionError):
+                annualized_return_pct = None
 
         stop_applicable = [
             r
@@ -346,6 +393,11 @@ class BacktestEngine:
             "avg_days_to_first_hit": avg_days_to_first_hit,
             "advice_breakdown": advice_breakdown,
             "diagnostics": diagnostics,
+            # 新增风险指标
+            "sharpe_ratio": aggregated_sharpe,
+            "avg_max_drawdown_pct": avg_max_drawdown_pct,
+            "worst_max_drawdown_pct": worst_max_drawdown_pct,
+            "annualized_return_pct": annualized_return_pct,
         }
 
     @staticmethod
@@ -553,3 +605,54 @@ class BacktestEngine:
             "eval_status": status_counts,
             "first_hit": first_hit_counts,
         }
+
+    @classmethod
+    def compute_sharpe_ratio(
+        cls,
+        returns: List[float],
+        risk_free_rate: float = 0.0,
+        trading_days_per_year: int = 252,
+    ) -> Optional[float]:
+        """Compute annualized Sharpe ratio from a list of daily returns (in percent)."""
+        if not returns or len(returns) < 2:
+            return None
+
+        import math
+
+        # Convert percentages to decimals
+        daily_returns = [r / 100.0 for r in returns if r is not None]
+        if len(daily_returns) < 2:
+            return None
+
+        mean_return = sum(daily_returns) / len(daily_returns)
+        variance = sum((r - mean_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+        std_dev = math.sqrt(variance)
+
+        if std_dev == 0:
+            return None
+
+        daily_sharpe = (mean_return - risk_free_rate / trading_days_per_year) / std_dev
+        annualized_sharpe = daily_sharpe * math.sqrt(trading_days_per_year)
+
+        return round(annualized_sharpe, 4)
+
+    @classmethod
+    def compute_max_drawdown(
+        cls,
+        close_prices: List[float],
+    ) -> Optional[float]:
+        """Compute maximum drawdown from a list of closing prices (in percent)."""
+        if not close_prices or len(close_prices) < 2:
+            return None
+
+        peak = close_prices[0]
+        max_dd = 0.0
+
+        for price in close_prices:
+            if price > peak:
+                peak = price
+            if peak > 0:
+                drawdown = (peak - price) / peak * 100.0
+                max_dd = max(max_dd, drawdown)
+
+        return round(max_dd, 4)

@@ -48,6 +48,11 @@ You are a **Risk Screening Agent**. Identify all risk factors and output a JSON 
 6. Valuation Extremes — PE > 100 or negative, PB > 10
 7. Technical Warning Signs — death crosses, broken supports
 
+## New: Multi-Dimensional Risk Assessment
+8. **Value at Risk (VaR)** — Estimate potential loss at 95%/99% confidence
+9. **Stress Testing** — Simulate extreme scenarios (market crash -20%, liquidity crisis)
+10. **Correlation Risk** — Check high correlation with benchmark (CSI300/SPX) or sector peers
+
 ## Severity
 - "high": existential or material (fraud, massive insider selling)
 - "medium": significant (earnings miss, lock-up, sector headwind)
@@ -64,6 +69,28 @@ Return **only** a JSON object:
 {
   "risk_level": "high|medium|low|none",
   "risk_score": 0-100,
+  "risk_breakdown": {  // NEW: Multi-dimensional scoring
+    "market_risk": {"score": 0-100, "factors": [...]},
+    "liquidity_risk": {"score": 0-100, "factors": [...]},
+    "concentration_risk": {"score": 0-100, "factors": [...]},
+    "sentiment_risk": {"score": 0-100, "factors": [...]}
+  },
+  "var_estimate": {  // NEW: Value at Risk
+    "var_95": -8.5,  // 95% confidence: max loss 8.5%
+    "var_99": -12.3,  // 99% confidence: max loss 12.3%
+    "confidence_levels": ["95%", "99%"]
+  },
+  "stress_test": {  // NEW: Stress test results
+    "scenarios": [
+      {"name": "Market Crash (-20%)", "impact_pct": -20.0, "survival": false},
+      {"name": "Liquidity Crisis", "impact_pct": -15.0, "survival": true}
+    ]
+  },
+  "correlation_risk": {  // NEW: Correlation analysis
+    "benchmark_correlation": 0.85,  // with CSI300/SPX
+    "sector_correlation": 0.92,  // with sector peers
+    "high_correlation_warnings": ["High correlation with benchmark: 0.85"]
+  },
   "flags": [
     {
       "category": "insider|earnings|regulatory|industry|lockup|valuation|technical",
@@ -106,6 +133,16 @@ Return **only** a JSON object:
                     description=flag.get("description", ""),
                     severity=flag.get("severity", "medium"),
                 )
+
+        # NEW: Store multi-dimensional risk data in context
+        if parsed.get("risk_breakdown"):
+            ctx.set_data("risk_breakdown", parsed["risk_breakdown"])
+        if parsed.get("var_estimate"):
+            ctx.set_data("var_estimate", parsed["var_estimate"])
+        if parsed.get("stress_test"):
+            ctx.set_data("stress_test", parsed["stress_test"])
+        if parsed.get("correlation_risk"):
+            ctx.set_data("correlation_risk", parsed["correlation_risk"])
 
         return AgentOpinion(
             agent_name=self.agent_name,

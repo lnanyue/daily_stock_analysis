@@ -101,6 +101,9 @@ class Config:
     report_integrity_enabled: bool = True
     report_integrity_retry: int = 1
     analysis_mode: str = "simple"
+    debate_rounds: int = 2  # 辩论轮数（1-3）
+    debate_judge_scoring: bool = True  # 启用裁判量化评分
+    trader_agent_enabled: bool = True  # 启用 Trader Agent
 
     max_workers: int = 3
     bot_max_concurrent_analysis: int = 5

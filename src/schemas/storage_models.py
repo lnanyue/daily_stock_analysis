@@ -176,6 +176,9 @@ class BacktestResult(Base):
     simulated_exit_price = Column(Float)
     simulated_exit_reason = Column(String(32))
     simulated_return_pct = Column(Float)
+    # 新增风险指标
+    sharpe_ratio = Column(Float)
+    max_drawdown_pct = Column(Float)
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
@@ -210,6 +213,11 @@ class BacktestSummary(Base):
     take_profit_trigger_rate = Column(Float)
     ambiguous_rate = Column(Float)
     avg_days_to_first_hit = Column(Float)
+    # 新增风险指标
+    sharpe_ratio = Column(Float)
+    avg_max_drawdown_pct = Column(Float)
+    worst_max_drawdown_pct = Column(Float)
+    annualized_return_pct = Column(Float)
     advice_breakdown_json = Column(Text)
     diagnostics_json = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
