@@ -374,6 +374,7 @@ class SearchService:
         search_days: int,
         max_results: int,
         log_scope: str,
+        strict: bool = False,
     ) -> SearchResponse:
         if not response.success or not response.results:
             return response
@@ -381,10 +382,10 @@ class SearchService:
         # 第一次过滤：使用原始 search_days
         filtered = self._apply_date_filter(response.results, search_days, max_results)
 
-        # 降级策略：如果过滤后为空或太少，逐步放宽时间窗口
+        # 降级策略：如果过滤后为空或太少，逐步放宽时间窗口（strict模式不降级）
         fallback_windows = [7, 14, 30]
         used_window = search_days
-        if not filtered or len(filtered) < self.MIN_NEWS_COUNT:
+        if not strict and (not filtered or len(filtered) < self.MIN_NEWS_COUNT):
             for window in fallback_windows:
                 if window <= search_days:
                     continue
@@ -397,8 +398,8 @@ class SearchService:
                     )
                     break
 
-        # 最终降级：如果所有时间窗口都为空，保留所有新闻（不过滤日期）
-        if not filtered:
+        # 最终降级：如果所有时间窗口都为空，保留所有新闻（不过滤日期，strict模式不降级）
+        if not strict and not filtered:
             filtered = [
                 SearchResult(
                     title=item.title,
@@ -608,6 +609,7 @@ class SearchService:
                 search_days=search_days,
                 max_results=max_results,
                 log_scope=f"{stock_code}:{provider.name}:stock_news",
+                strict=True,
             )
             had_provider_success = had_provider_success or bool(response.success)
 
@@ -836,6 +838,7 @@ class SearchService:
                     search_days=search_days,
                     max_results=target_per_dimension,
                     log_scope=f"{stock_code}:{provider.name}:{dim['name']}",
+                    strict=dim['strict_freshness'],
                 )
             else:
                 filtered_response = self._normalize_and_limit_response(
