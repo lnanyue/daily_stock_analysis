@@ -88,7 +88,7 @@ class FundamentalPipeline:
         val_status = self._infer_block_status(valuation_data, "partial" if quote_payload else "not_supported")
         ctx.valuation = self._build_fundamental_block(val_status, valuation_data, [{"provider": "realtime_quote", "result": val_status}], [valuation_err] if valuation_err else [])
 
-        # 2. Bundle (Growth, Earnings, Institution)
+        # 2. Bundle (Growth, Earnings, Institution, Valuation Fallback)
         if remaining_seconds > 0:
             bundle_payload, bundle_err, bundle_ms = await self._run_with_timeout_async(lambda: self.adapter.get_fundamental_bundle(stock_code), min(fetch_timeout, remaining_seconds), "fundamental_bundle")
             _consume_budget(bundle_ms)
@@ -98,12 +98,28 @@ class FundamentalPipeline:
                 bundle_errors = list(bundle_payload.get("errors", []))
                 if bundle_err: bundle_errors.append(bundle_err)
                 
-                for block_name in ["growth", "earnings", "institution"]:
+                for block_name in ["valuation", "growth", "earnings", "institution"]:
                     data = bundle_payload.get(block_name, {})
+                    if not data: continue
+                    
                     block_errors = list(bundle_errors)
                     if block_name == "earnings" and "dividend" in data:
                         block_errors.extend(self._inject_dividend_yield(data["dividend"], valuation_data.get("price")))
                     
+                    # 特殊处理：如果是 valuation，执行合并逻辑
+                    if block_name == "valuation":
+                        existing_val = getattr(ctx, "valuation", None)
+                        if existing_val and hasattr(existing_val, "data"):
+                            merged_data = dict(existing_val.data)
+                            # 仅补全缺失值
+                            for k, v in data.items():
+                                if merged_data.get(k) is None:
+                                    merged_data[k] = v
+                            
+                            status = self._infer_block_status(merged_data, bundle_status)
+                            ctx.valuation = self._build_fundamental_block(status, merged_data, bundle_chain, block_errors)
+                        continue
+
                     status = self._infer_block_status(data, bundle_status)
                     block_obj = self._build_fundamental_block(status, data, bundle_chain, block_errors)
                     setattr(ctx, block_name, block_obj)

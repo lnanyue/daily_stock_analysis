@@ -451,12 +451,32 @@ class AkshareFundamentalAdapter:
 
         result: Dict[str, Any] = {
             "status": "not_supported",
+            "valuation": {},
             "growth": {},
             "earnings": {},
             "institution": {},
             "source_chain": [],
             "errors": [],
         }
+
+        # 0. Valuation fallback (from spot data)
+        try:
+            import akshare as ak
+            spot_df = ak.stock_zh_a_spot_em()
+            if spot_df is not None and not spot_df.empty:
+                # 查找对应股票
+                matched = spot_df[spot_df['代码'] == symbol]
+                if not matched.empty:
+                    row = matched.iloc[0]
+                    result["valuation"] = {
+                        "pe_ratio": _safe_float(row.get('市盈率-动态')),
+                        "pb_ratio": _safe_float(row.get('市净率')),
+                        "total_mv": _safe_float(row.get('总市值')),
+                        "circ_mv": _safe_float(row.get('流通市值')),
+                    }
+                    result["source_chain"].append({"provider": "ak.stock_zh_a_spot_em", "result": "ok"})
+        except Exception as e:
+            result["errors"].append(f"Valuation fallback failed: {e}")
 
         # Financial indicators
         fin_df, fin_source, fin_errors = self._call_df_candidates([
@@ -471,18 +491,31 @@ class AkshareFundamentalAdapter:
             if row is not None:
                 # 利润增速：从"归属母公司净利润增长率"获取
                 profit_yoy = _safe_float(_pick_by_keywords(row, ["归属母公司净利润增长率", "净利润增长率", "归母净利润增长率"]))
+                # ROE
+                roe = _safe_float(_pick_by_keywords(row, ["净资产收益率(ROE)", "ROE", "净资产收益率"]))
+                # 毛利率
+                gross_margin = _safe_float(_pick_by_keywords(row, ["毛利率", "销售毛利率"]))
+                # 报告期
+                report_date = _normalize_report_date(_pick_by_keywords(row, ["报告期", "报告日期", "截止日期"]))
+                # 营收
+                revenue = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
+                # 归母净利润
+                net_profit_parent = _safe_float(_pick_by_keywords(row, ["归母净利润", "净利润", "归属母公司净利润"]))
+                # 经营现金流
+                operating_cash_flow = _safe_float(_pick_by_keywords(row, ["经营活动现金流量净额", "经营现金流", "现金流"]))
+
                 # 营收增速：手动计算（用最近两期的营收数据）
-                revenue_current = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
                 revenue_yoy = None
-                if revenue_current is not None:
+                if revenue is not None:
                     # 找到前一期的报告期
+                    latest_date = _pick_by_keywords(row, ["报告期", "报告日期"])
                     prev_dates = sorted([c for c in fin_df.columns if isinstance(c, str) and len(c) == 8 and c.isdigit() and c != latest_date], reverse=True)
                     if prev_dates:
                         prev_row = fin_df[fin_df['报告期'] == prev_dates[0]].iloc[0] if '报告期' in fin_df.columns else None
                         if prev_row is not None:
                             revenue_prev = _safe_float(prev_row.get('营业总收入', prev_row.get('营业收入', prev_row.get('营收'))))
                             if revenue_prev is not None and revenue_prev != 0:
-                                revenue_yoy = round((revenue_current - revenue_prev) / abs(revenue_prev) * 100, 2)
+                                revenue_yoy = round((revenue - revenue_prev) / abs(revenue_prev) * 100, 2)
                 result["growth"] = {
                     "revenue_yoy": revenue_yoy,
                     "net_profit_yoy": profit_yoy,
@@ -571,7 +604,7 @@ class AkshareFundamentalAdapter:
         result["status"] = "partial" if has_content else "not_supported"
         return result
 
-    def get_capital_flow(self, stock_code: str, top_n: int = 5) -> Dict[str, Any]:
+    def get_capital_flow(self, stock_code: str, top_n: int = 5) -> "Dict[str, Any]":
         """
         Return stock + sector capital flow.
         """
@@ -628,7 +661,7 @@ class AkshareFundamentalAdapter:
         result["status"] = "partial" if has_content else "not_supported"
         return result
 
-    def get_dragon_tiger_flag(self, stock_code: str, lookback_days: int = 20) -> Dict[str, Any]:
+    def get_dragon_tiger_flag(self, stock_code: str, lookback_days: int = 20) -> "Dict[str, Any]":
         """
         Return dragon-tiger signal in lookback window.
         """

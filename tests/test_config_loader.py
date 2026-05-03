@@ -44,7 +44,14 @@ def test_merge_env_overrides_yaml(loader):
     # Simulating flat yaml_dict from _load_yaml()
     yaml_dict = {"MAX_WORKERS": 2, "ANALYSIS_MODE": "simple"}
     env_dict = {"MAX_WORKERS": "5"}
-    result = loader._merge(env_dict, yaml_dict)
+    # 临时清除环境变量，避免影响测试
+    with patch.dict(os.environ, {}, clear=False):
+        # 确保测试期间 MAX_WORKERS 不在环境变量中
+        if "MAX_WORKERS" in os.environ:
+            saved = os.environ.pop("MAX_WORKERS")
+        result = loader._merge(env_dict, yaml_dict)
+        if "saved" in locals():
+            os.environ["MAX_WORKERS"] = saved
     assert result["MAX_WORKERS"] == "5"  # env overrides
 
 

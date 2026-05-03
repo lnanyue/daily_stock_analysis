@@ -62,7 +62,7 @@ def enhance_analysis_context(
     enhanced["news_window_days"] = getattr(search_service, "news_window_days", None)
 
     if fundamental_context:
-        enhanced["fundamental"] = fundamental_context
+        enhanced["fundamental_context"] = fundamental_context
     if market_overview:
         enhanced["market_overview"] = market_overview
     if peer_comparison:
@@ -73,7 +73,7 @@ def enhance_analysis_context(
         enhanced["trend_analysis"] = trend_payload
 
     if realtime_quote:
-        enhanced["realtime"] = {
+        rt_data = {
             "price": _get_quote_value(realtime_quote, "price"),
             "change_pct": _get_quote_value(realtime_quote, "change_pct"),
             "volume": _get_quote_value(realtime_quote, "volume"),
@@ -84,12 +84,34 @@ def enhance_analysis_context(
             "turnover_rate": _get_quote_value(realtime_quote, "turnover_rate"),
             "volume_ratio": _get_quote_value(realtime_quote, "volume_ratio"),
             "pe_ratio": _get_quote_value(realtime_quote, "pe_ratio"),
+            "pb_ratio": _get_quote_value(realtime_quote, "pb_ratio"),
             "total_mv": _get_quote_value(realtime_quote, "total_mv"),
+            "circ_mv": _get_quote_value(realtime_quote, "circ_mv"),
+            "change_60d": _get_quote_value(realtime_quote, "change_60d"),
         }
+        
+        # 补全：如果实时行情缺失 PE/PB，从基本面数据中提取
+        if fundamental_context and isinstance(fundamental_context, dict):
+            val_block = fundamental_context.get("valuation", {})
+            val_data = val_block.get("data", {}) if isinstance(val_block, dict) else {}
+            if rt_data["pe_ratio"] is None:
+                rt_data["pe_ratio"] = val_data.get("pe_ratio")
+            if rt_data["pb_ratio"] is None:
+                rt_data["pb_ratio"] = val_data.get("pb_ratio")
+            if rt_data["total_mv"] is None:
+                rt_data["total_mv"] = val_data.get("total_mv")
+            if rt_data["circ_mv"] is None:
+                rt_data["circ_mv"] = val_data.get("circ_mv")
+        
+        enhanced["realtime"] = rt_data
+
     if chip_data:
-        enhanced["chip_structure"] = {
-            "profit_ratio": chip_data.profit_ratio,
-            "avg_cost": chip_data.avg_cost,
+        enhanced["chip"] = {
+            "profit_ratio": getattr(chip_data, "profit_ratio", 0),
+            "avg_cost": getattr(chip_data, "avg_cost", None),
+            "concentration_90": getattr(chip_data, "concentration_90", 0),
+            "concentration_70": getattr(chip_data, "concentration_70", 0),
+            "chip_status": getattr(chip_data, "chip_status", ""),
         }
 
     today = dict(enhanced.get("today") or {})
