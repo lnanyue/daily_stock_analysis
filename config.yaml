@@ -1,0 +1,86 @@
+# A股自选股智能分析系统 - 业务配置
+# 本文件存放全部业务参数和 LLM 路由配置
+# 敏感 Key/Token 请放在 .env 文件中
+
+# 1. 分析策略设置
+analysis:
+  mode: simple                  # simple: 单模型分析, debate: 红蓝对垒辩论模式
+  language: zh                  # zh: 中文, en: 英文
+  bias_threshold: 5.0            # 乖离率警告阈值 (%)
+  news_window_days: 3            # 新闻搜索的时间窗口 (天)
+  request_delay: 2.0             # LLM 请求间的强制延迟 (秒)
+  integrity_retry: 1              # AI 结果缺失时的重试次数
+
+# 2. 系统性能与并发
+system:
+  max_workers: 2                 # 最大并行分析股票数 (建议 1-3)
+  log_level: INFO                # DEBUG, INFO, WARNING, ERROR
+  report_dir: "./report"         # 报告保存目录
+  schedule_enabled: false        # 是否启用定时分析
+  schedule_time: "18:00"         # 定时分析时间 (24h)
+  schedule_run_immediately: true  # 定时模式下启动时是否立即运行
+  trading_day_check_enabled: true # 是否校验交易日
+  market_review_enabled: true    # 是否启用大盘复盘
+  market_review_region: "cn"      # 大盘复盘市场：cn / hk / us / both
+  debug: false                   # 调试模式
+  analysis_delay: 0              # 单股分析间隔延迟（秒）
+
+# 3. LLM 模型配置
+llm:
+  primary_model: ""              # 主模型，格式 provider/model（留空则自动推断）
+  fallback_models: []             # 备用模型列表（逗号分隔或 YAML 列表）
+  temperature: 0.7              # 统一采样温度 [0.0, 2.0]
+  channels: []                    # LLM 通道配置（高级用法）
+
+# 4. 通知配置
+notification:
+  report_type: simple            # simple: 简报, full: 详细报告, brief: 3-5句
+  summary_only: false            # 是否仅发送汇总表
+  markdown_to_image: []          # 哪些渠道启用图片模式
+  merge_email: false            # 是否合并多股分析到一封邮件
+  report_language: zh            # 报告语言：zh / en
+  report_templates_dir: "templates"
+  report_integrity_enabled: true
+  report_integrity_retry: 1
+  report_history_compare_n: 0
+  merge_email_notification: false
+  single_stock_notify: false
+
+# 5. 数据源配置
+data:
+  prefetch_quotes: true          # 是否预取实时行情
+  cache_ttl: 600                 # 实时数据缓存时长 (秒)
+  eastmoney_patch: false         # 是否启用东财接口兼容补丁
+  realtime_source_priority: "akshare_em,tencent,akshare_sina,efinance"
+  enable_realtime_quote: true
+  enable_realtime_technical_indicators: true
+  enable_chip_distribution: true
+  news_max_age_days: 3
+  news_strategy_profile: "short"  # ultra_short(1d) / short(3d) / medium(7d) / long(30d)
+
+# 6. Agent 配置
+agent:
+  mode: false                    # 是否启用 Agent 模式
+  auto_route_analysis: false     # 条件式路由到 Agent
+  max_steps: 10                  # Agent 最大执行步数
+  skills: ""                      # Agent 技能列表（逗号分隔）
+  skill_dir: "strategies"         # 技能目录
+  nl_routing: false              # 自然语言路由
+  arch: "single"                 # single / multi
+  orchestrator_mode: "standard"  # quick / standard / full / specialist
+  orchestrator_timeout_s: 600
+  risk_override: true
+  memory_enabled: false
+  skill_autoweight: true
+  skill_routing: "auto"          # auto / manual
+  event_monitor_enabled: false
+  event_monitor_interval_minutes: 5
+  event_alert_rules_json: ""
+
+# 7. 回测配置
+backtest:
+  enabled: true
+  eval_window_days: 10
+  min_age_days: 14
+  engine_version: "v1"
+  neutral_band_pct: 2.0
