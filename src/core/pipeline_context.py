@@ -82,6 +82,7 @@ def enhance_analysis_context(
             "high": _get_quote_value(realtime_quote, "high"),
             "low": _get_quote_value(realtime_quote, "low"),
             "turnover_rate": _get_quote_value(realtime_quote, "turnover_rate"),
+            "volume_ratio": _get_quote_value(realtime_quote, "volume_ratio"),
             "pe_ratio": _get_quote_value(realtime_quote, "pe_ratio"),
             "total_mv": _get_quote_value(realtime_quote, "total_mv"),
         }

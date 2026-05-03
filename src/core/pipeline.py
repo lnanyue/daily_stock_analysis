@@ -668,6 +668,7 @@ class StockAnalysisPipeline:
             "high": _get_value("high"),
             "low": _get_value("low"),
             "turnover_rate": _get_value("turnover_rate"),
+            "volume_ratio": _get_value("volume_ratio"),
             "pe_ratio": _get_value("pe_ratio"),
             "pb_ratio": _get_value("pb_ratio"),
             "total_mv": _get_value("total_mv"),

@@ -156,7 +156,7 @@ class Config:
 
     prefetch_realtime_quotes: bool = True
     realtime_cache_ttl: int = 600
-    realtime_source_priority: str = "tencent,akshare_sina,efinance,akshare_em"
+    realtime_source_priority: str = "akshare_em,tencent,akshare_sina,efinance"
     enable_eastmoney_patch: bool = False
     database_path: str = "./data/stock_analysis.db"
     save_context_snapshot: bool = True

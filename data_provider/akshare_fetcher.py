@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 
+import akshare as ak
 import pandas as pd
 import httpx
 import requests
@@ -1985,40 +1986,78 @@ class AkshareFetcher(BaseFetcher):
     def get_value_metrics(self, stock_code: str) -> Dict[str, Any]:
         """
         获取价值投资核心指标 (巴菲特/芒格关注)
+        使用 stock_financial_abstract 接口，该接口稳定可用。
         """
         try:
-            logger.info(f"[API调用] 获取 {stock_code} 核心财务指标...")
-            # 1. 主要财务指标
-            df_indicator = ak.stock_financial_analysis_indicator_em(symbol=stock_code.split('.')[0])
-            if df_indicator is None or df_indicator.empty:
+            # 标准化代码为 6 位数字 (A股)
+            symbol = normalize_stock_code(stock_code)
+            logger.info(f"[API调用] 获取 {symbol} 核心财务指标 (原代码: {stock_code})...")
+            
+            df = ak.stock_financial_abstract(symbol=symbol)
+            if df is None or df.empty or "指标" not in df.columns:
+                logger.debug(f"[AkShare] {symbol} 财务抽象数据返回为空或缺失'指标'列")
                 return {}
 
-            # 取最近 4 个季度的平均 ROE 和 毛利率
-            recent = df_indicator.head(4)
-            return {
-                'avg_roe': recent['净资产收益率(加权)(%)'].mean(),
-                'avg_net_margin': recent['净利率(%)'].mean(),
-                'avg_gross_margin': recent['毛利率(%)'].mean(),
-                'debt_ratio': recent['资产负债率(%)'].iloc[0],
-                'cash_flow_ratio': recent['总资产周转率(次)'].iloc[0], # 简化替代
-                'report_date': recent['报告期'].iloc[0]
-            }
+            # 找到所有日期列（格式如 20260331）
+            # 兼容字符串或整数类型的列名
+            date_cols = [str(c) for c in df.columns if (isinstance(c, (int, float)) or (isinstance(c, str) and c.isdigit())) and len(str(c)) == 8]
+            
+            if not date_cols:
+                logger.debug(f"[AkShare] {symbol} 未在数据列中找到 8 位日期列: {list(df.columns)}")
+                return {}
+            
+            latest_date_str = max(date_cols)
+            # 找到对应的原始列名（可能是 int）
+            actual_date_col = next(c for c in df.columns if str(c) == latest_date_str)
+
+            result = {}
+            for _, row in df.iterrows():
+                indicator = str(row.get("指标", "")).strip()
+                value = row.get(actual_date_col)
+                
+                # 跳过空值
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    continue
+                try:
+                    val = float(value)
+                except (TypeError, ValueError):
+                    continue
+                
+                # 匹配逻辑：优先使用精确匹配，防止被不精准的模糊匹配覆盖
+                # 1. 净资产收益率 (ROE)
+                if indicator == "净资产收益率(ROE)":
+                    result['avg_roe'] = val
+                elif "净资产收益率" in indicator and 'avg_roe' not in result:
+                    # 如果还没存过 ROE，存入第一个包含该字符串的
+                    result['avg_roe'] = val
+                
+                # 2. 毛利率
+                elif indicator == "毛利率":
+                    result['avg_gross_margin'] = val
+                elif "毛利率" in indicator and 'avg_gross_margin' not in result:
+                    result['avg_gross_margin'] = val
+                
+                # 3. 销售净利率 / 净利率
+                elif indicator == "销售净利率":
+                    result['avg_net_margin'] = val
+                elif ("销售净利率" in indicator or "净利率" in indicator) and 'avg_net_margin' not in result:
+                    result['avg_net_margin'] = val
+                
+                # 4. 资产负债率
+                elif "资产负债率" in indicator:
+                    result['debt_ratio'] = val
+                
+                # 5. 总资产周转率 (映射为 cash_flow_ratio 兼容旧版)
+                elif "总资产周转率" in indicator:
+                    result['cash_flow_ratio'] = val
+            
+            if result:
+                result['report_date'] = latest_date_str
+                
+            return result
         except Exception as e:
-            logger.debug(f"[Akshare] 获取财务核心指标失败: {e}")
+            logger.debug(f"[AkShare] 获取 {stock_code} 财务核心指标失败: {e}")
             return {}
-
-    async def get_value_metrics_async(self, stock_code: str) -> Dict[str, Any]:
-        """异步获取价值投资核心指标"""
-        return await asyncio.to_thread(self.get_value_metrics, stock_code)
-
-    async def get_lhb_data_async(self, stock_code: str) -> List[Dict[str, Any]]:
-        """异步获取龙虎榜数据"""
-        return await asyncio.to_thread(self.get_lhb_data, stock_code)
-
-    async def get_research_reports_async(self, stock_code: str) -> List[Dict[str, Any]]:
-        """异步获取研究报告摘要"""
-        return await asyncio.to_thread(self.get_research_reports, stock_code)
-
     def get_latest_telegraph(self, keywords: List[str]) -> List[Dict[str, Any]]:
         """
         获取财联社实时电报，并按关键词做轻量过滤。
@@ -2066,6 +2105,18 @@ class AkshareFetcher(BaseFetcher):
             )
 
         return results
+
+    async def get_value_metrics_async(self, stock_code: str) -> Dict[str, Any]:
+        """异步获取核心财务指标"""
+        return await asyncio.to_thread(self.get_value_metrics, stock_code)
+
+    async def get_lhb_data_async(self, stock_code: str, days: int = 30) -> List[Dict]:
+        """异步获取龙虎榜数据"""
+        return await asyncio.to_thread(self.get_lhb_data, stock_code, days)
+
+    async def get_research_reports_async(self, stock_code: str, days: int = 180) -> Dict[str, Any]:
+        """异步获取研报数据"""
+        return await asyncio.to_thread(self.get_research_reports, stock_code, days)
 
     async def get_latest_telegraph_async(self, keywords: List[str]) -> List[Dict[str, Any]]:
         """异步获取财联社电报"""
