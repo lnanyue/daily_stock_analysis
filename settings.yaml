@@ -1,5 +1,13 @@
-# A股自选股智能分析系统 - 运行设置
-# 本文件存放非敏感的业务逻辑参数
+# DEPRECATED: This file is deprecated.
+# All business configuration has moved to config.yaml.
+# This file will be removed in a future version.
+# Please migrate your settings to config.yaml.
+#
+# Migration: Copy your custom values from this file to config.yaml
+# and then remove this file.
+
+# A股自选股智能分析系统 - 运行设置（已废弃）
+# 本文件存放非敏感的业务逻辑参数（已废弃，请迁移到 config.yaml）
 
 # 1. 分析策略设置
 analysis:

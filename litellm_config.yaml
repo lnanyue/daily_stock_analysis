@@ -1,5 +1,12 @@
-# ===================================
-# LiteLLM Router 配置文件
+# DEPRECATED: This file is deprecated.
+# LLM routing configuration has moved to config.yaml (llm section).
+# This file will be removed in a future version.
+#
+# Migration: Move your model_list to config.yaml llm section,
+# or set LITELLM_CONFIG env var to point to a new YAML file.
+
+# ===================================（已废弃）
+# LiteLLM Router 配置文件（已废弃，请迁移到 config.yaml llm 段）
 # ===================================
 
 model_list:
