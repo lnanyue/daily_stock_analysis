@@ -142,7 +142,7 @@ class FundamentalPipeline:
                 ctx.boards = self.get_board_context(stock_code, board_budget)
         
         # 4. Status and Coverage
-        ctx.coverage = {k: getattr(ctx, k).get("status", "not_supported") for k in ["valuation", "growth", "earnings", "institution", "capital_flow", "dragon_tiger", "boards"] if hasattr(ctx, k)}
+        ctx.coverage = {k: getattr(ctx, k).status for k in ["valuation", "growth", "earnings", "institution", "capital_flow", "dragon_tiger", "boards"] if hasattr(ctx, k)}
         ctx.status = "ok" if all(v == "ok" for v in ctx.coverage.values()) else "partial"
         ctx.elapsed_ms = int((time.time() - start_ts) * 1000)
         
