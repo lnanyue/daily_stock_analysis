@@ -296,8 +296,9 @@ class StockTrendAnalyzer:
             loss = -delta.where(delta < 0, 0)
 
             # 计算平均涨跌幅
-            avg_gain = gain.rolling(window=period).mean()
-            avg_loss = loss.rolling(window=period).mean()
+            # 使用 Wilder's Smoothing (EMA) 算法，这是 RSI 的标准算法
+            avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
 
             # 计算 RS 和 RSI
             rs = avg_gain / avg_loss

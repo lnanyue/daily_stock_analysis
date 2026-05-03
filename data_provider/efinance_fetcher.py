@@ -985,14 +985,14 @@ class EfinanceFetcher(BaseFetcher):
         for code, name, current_price, pre_close, amount in zip(
             df[code_col], df[name_col], df[close_col], df[pre_close_col], df[amount_col]
         ):
-            
-            # 停牌过滤 efinance 的停牌数据有时候会缺失价格显示为 '-'，em 显示为none
-            if pd.isna(current_price) or pd.isna(pre_close) or current_price in ['-'] or pre_close in ['-'] or amount == 0:
+            # 鲁棒性转换：尝试将价格和成交额转换为数字，失败则转为 NaN
+            current_price = pd.to_numeric(current_price, errors='coerce')
+            pre_close = pd.to_numeric(pre_close, errors='coerce')
+            amount = pd.to_numeric(amount, errors='coerce')
+
+            # 停牌过滤：排除 NaN 或 0 成交的数据
+            if pd.isna(current_price) or pd.isna(pre_close) or amount == 0:
                 continue
-            
-            # em、efinance 为str 需要转换为float
-            current_price = float(current_price)
-            pre_close = float(pre_close)
             
             # 获取去除前缀的纯数字代码
             pure_code = normalize_stock_code(str(code)) 

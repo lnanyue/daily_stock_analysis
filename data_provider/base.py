@@ -6,6 +6,7 @@
 import logging
 import random
 import time
+import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict, Any
@@ -63,7 +64,6 @@ class BaseFetcher(ABC):
     
     async def _fetch_raw_data_async(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """异步获取原始数据的默认实现（回退到线程池调用同步方法）"""
-        import asyncio
         return await asyncio.to_thread(self._fetch_raw_data, stock_code, start_date, end_date)
 
     @abstractmethod
@@ -151,18 +151,30 @@ class BaseFetcher(ABC):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        df = df.dropna(subset=['close', 'volume'])
+        # 填充缺失值以保持时间序列连续性
+        # 价格类：向前填充
+        for col in ['open', 'high', 'low', 'close']:
+            if col in df.columns:
+                df[col] = df[col].ffill()
+        
+        # 成交量/金额：填 0
+        for col in ['volume', 'amount']:
+            if col in df.columns:
+                df[col] = df[col].fillna(0)
+        
+        # 仍然去掉那些连收盘价都没有的数据（例如停牌且无历史参考）
+        df = df.dropna(subset=['close'])
         df = df.sort_values('date', ascending=True).reset_index(drop=True)
         return df
     
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """计算基础技术指标（MA等）"""
         df = df.copy()
-        df['ma5'] = df['close'].rolling(window=5, min_periods=1).mean()
-        df['ma10'] = df['close'].rolling(window=10, min_periods=1).mean()
-        df['ma20'] = df['close'].rolling(window=20, min_periods=1).mean()
+        df['ma5'] = df['close'].rolling(window=5).mean()
+        df['ma10'] = df['close'].rolling(window=10).mean()
+        df['ma20'] = df['close'].rolling(window=20).mean()
         
-        avg_volume_5 = df['volume'].rolling(window=5, min_periods=1).mean()
+        avg_volume_5 = df['volume'].rolling(window=5).mean()
         df['volume_ratio'] = df['volume'] / avg_volume_5.shift(1)
         df['volume_ratio'] = df['volume_ratio'].fillna(1.0)
         
@@ -174,3 +186,8 @@ class BaseFetcher(ABC):
     @staticmethod
     def random_sleep(min_seconds: float = 1.0, max_seconds: float = 3.0) -> None:
         time.sleep(random.uniform(min_seconds, max_seconds))
+
+    @staticmethod
+    async def async_random_sleep(min_seconds: float = 1.0, max_seconds: float = 3.0) -> None:
+        """异步非阻塞随机等待"""
+        await asyncio.sleep(random.uniform(min_seconds, max_seconds))
