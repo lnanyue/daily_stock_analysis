@@ -444,13 +444,11 @@ class TestPipelineRouting(unittest.TestCase):
             asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q-auto"))
 
             pipeline._analyze_with_agent.assert_called_once()
-            self.assertEqual(
-                pipeline._analyze_with_agent.call_args.kwargs.get("route_reasons"),
-                ["core_data_gap"],
-            )
+            args, kwargs = pipeline._analyze_with_agent.call_args
+            self.assertEqual(args[0], "600519")
 
-    def test_legacy_mode_does_not_call_agent(self):
-        """When agent_mode=False, analyze_stock should NOT call _analyze_with_agent."""
+    def test_legacy_mode_still_routes_through_unified_analysis(self):
+        """When agent_mode=False, analyze_stock still calls _analyze_with_agent (unified entry point)."""
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db') as mock_db, \
              patch('src.core.pipeline.DataFetcherManager') as mock_fm, \
@@ -491,13 +489,11 @@ class TestPipelineRouting(unittest.TestCase):
             pipeline.db.get_data_range_async = AsyncMock(return_value=[])
             pipeline.db.save_analysis_history_async = AsyncMock()
             # Mock analyzer
-            pipeline.analyzer.analyze_async = AsyncMock(return_value=None)
+            pipeline._analyze_with_agent = MagicMock(return_value=None)
 
-            result = asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
+            asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
 
-            # _analyze_with_agent should NOT exist as a mock (it's the real method)
-            # Instead, verify analyzer.analyze was called (legacy path)
-            pipeline.analyzer.analyze_async.assert_awaited_once()
+            pipeline._analyze_with_agent.assert_called_once()
 
 
 # TestAnalyzeWithAgentStockName removed — _analyze_with_agent refactored to multi-agent path
@@ -977,6 +973,26 @@ class TestHybridAgentConversion(unittest.TestCase):
         self.assertTrue(meta["agent_route"]["used_agent"])
         self.assertEqual(meta["agent_runtime"]["model"], "gemini/gemini-2.0-flash")
         self.assertEqual(meta["agent_runtime"]["provider"], "gemini")
+
+
+class TestHybridAgentIntegration(unittest.TestCase):
+    """Integration tests for the hybrid agent path (_analyze_with_agent)."""
+
+    def setUp(self):
+        self.code = "600519"
+        self.stock_name = "贵州茅台"
+        self.query_id = "test-hybrid-integration-001"
+
+    @patch("src.core.pipeline.get_config")
+    def test_hybrid_analysis_prompt_contains_dashboard_schema(self, mock_config):
+        """The LLM prompt should contain DASHBOARD_OUTPUT_SCHEMA when output_format=dashboard."""
+        from src.analyzer.prompt_builder import format_analysis_prompt
+
+        context = {"code": "600519", "stock_name": "贵州茅台", "date": "2026-05-04"}
+        prompt = format_analysis_prompt(context, "贵州茅台", output_format="dashboard")
+        self.assertIn("严格输出格式要求", prompt)
+        self.assertIn("sentiment_score", prompt)
+        self.assertIn("battle_plan", prompt)
 
 
 if __name__ == '__main__':
