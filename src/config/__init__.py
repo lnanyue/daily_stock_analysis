@@ -7,6 +7,7 @@ import os
 
 from dotenv import load_dotenv
 
+from .env import bootstrap_environment, reload_runtime_config
 from .manager import Config, get_config, get_api_keys_for_model, extra_litellm_params
 from .validator import ConfigValidator, ConfigValidationError
 from .loader import UnifiedConfigLoader
@@ -46,6 +47,8 @@ __all__ = [
     "get_config",
     "get_api_keys_for_model",
     "extra_litellm_params",
+    "bootstrap_environment",
+    "reload_runtime_config",
     "ConfigIssue",
     "LLMChannelConfig",
     "ConfigValidator",

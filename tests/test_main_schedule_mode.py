@@ -90,14 +90,14 @@ class MainScheduleModeTestCase(unittest.TestCase):
         with patch("main.parse_arguments", return_value=args), \
              patch("main.get_config", return_value=config), \
              patch("main.setup_logging"), \
-             patch("main.run_full_analysis") as run_full_analysis, \
-             patch("main.logger.warning") as warning_log, \
+             patch("src.core.runner.run_full_analysis") as run_full_analysis, \
+             patch("src.core.runner.logger.warning") as warning_log, \
              patch("src.scheduler.run_with_schedule", side_effect=fake_run_with_schedule):
             exit_code = main.main()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(scheduled_call, {"schedule_time": "18:00", "run_immediately": True})
-        run_full_analysis.assert_called_once_with(config, args, None)
+        run_full_analysis.assert_called_once_with(mock.ANY, args, None)
         warning_log.assert_any_call(
             "定时模式下检测到 --stocks 参数；计划执行将忽略启动时股票快照，并在每次运行前重新读取最新的 STOCK_LIST。"
         )
@@ -143,7 +143,8 @@ class MainCleanupTestCase(unittest.IsolatedAsyncioTestCase):
                 engine = SimpleNamespace(dispose=mock.Mock())
                 get_instance.return_value = SimpleNamespace(_engine=engine)
 
-                await main._cleanup()
+                from src.core.lifecycle import cleanup
+                await cleanup()
 
             fake_worker.flush.assert_awaited_once()
             fake_worker.stop.assert_awaited_once()
