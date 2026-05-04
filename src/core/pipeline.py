@@ -1156,27 +1156,33 @@ class StockAnalysisPipeline:
             # Build context for trader
             from src.agent.protocols import AgentContext
 
-            # Extract real-time price from multiple sources
+            # Extract real-time price: prefer realtime_quote.price, fallback to today's close
             current_price = None
             yesterday_close = None
-            today_data = enhanced_context.get("today", {})
-            if isinstance(today_data, dict):
-                current_price = today_data.get("close")
-                yesterday_close = enhanced_context.get("yesterday", {}).get("close") if isinstance(enhanced_context.get("yesterday"), dict) else None
 
-            # Override with realtime_quote if available (more accurate)
             if realtime_quote is not None:
                 rt_price = getattr(realtime_quote, "price", None)
-                if rt_price is not None:
-                    current_price = rt_price
+                if rt_price is not None and rt_price > 0:
+                    current_price = float(rt_price)
+            if current_price is None:
+                today_data = enhanced_context.get("today", {})
+                if isinstance(today_data, dict) and today_data.get("close"):
+                    current_price = float(today_data["close"])
+            if current_price is not None:
+                yesterday_data = enhanced_context.get("yesterday", {})
+                if isinstance(yesterday_data, dict) and yesterday_data.get("close"):
+                    yesterday_close = float(yesterday_data["close"])
 
             trader_meta = {
                 "report_language": getattr(self.config, "report_language", "zh"),
             }
             if current_price is not None:
-                trader_meta["current_price"] = float(current_price)
+                trader_meta["current_price"] = current_price
+                logger.info("[%s] TraderAgent current_price=%s", code, current_price)
+            else:
+                logger.warning("[%s] TraderAgent: no current_price available", code)
             if yesterday_close is not None:
-                trader_meta["yesterday_close"] = float(yesterday_close)
+                trader_meta["yesterday_close"] = yesterday_close
 
             trader_ctx = AgentContext(
                 stock_code=code,

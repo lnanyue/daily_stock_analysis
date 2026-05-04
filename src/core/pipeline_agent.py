@@ -24,14 +24,10 @@ from src.agent.factory import get_tool_registry
 from src.agent.llm_adapter import LLMToolAdapter
 from src.agent.agents.technical_agent import TechnicalAgent
 from src.agent.agents.intel_agent import IntelAgent
+from src.agent.agents.trader_agent import TraderAgent
 from src.agent.protocols import AgentContext
 
 logger = logging.getLogger(__name__)
-
-
-async def _run_agent_async(agent, ctx):
-    """Wrap synchronous BaseAgent.run() as an async call."""
-    return await asyncio.to_thread(agent.run, ctx)
 
 
 def _quote_value(quote: Any, field: str) -> Any:
@@ -64,7 +60,7 @@ async def run_agent_analysis(
     route_reasons: Optional[List[str]] = None,
 ) -> Optional[AnalysisResult]:
     route_suffix = f" ({', '.join(route_reasons)})" if route_reasons else ""
-    logger.info("[%s] 正在执行混合 Agent 分析（单 LLM 调用）%s...", code, route_suffix)
+    logger.info("[%s] 正在执行混合 Agent 分析（原生异步并行）%s...", code, route_suffix)
     emit_progress(62, f"{stock_name}：正在生成分析 Prompt")
 
     prompt_name = stock_name or code
@@ -112,10 +108,10 @@ async def run_agent_analysis(
         meta={"report_language": report_language},
     )
 
-    # Run agents in parallel using asyncio.to_thread to wrap sync BaseAgent.run()
+    # Run agents in parallel natively
     tech_result, intel_result = await asyncio.gather(
-        _run_agent_async(tech_agent, ctx),
-        _run_agent_async(intel_agent, ctx),
+        tech_agent.run(ctx),
+        intel_agent.run(ctx),
         return_exceptions=True,
     )
 
@@ -124,15 +120,33 @@ async def run_agent_analysis(
 
     if not isinstance(tech_result, Exception) and tech_result.opinion:
         expert_map["technical"] = tech_result.opinion.raw_data
+        # Inject standardized metrics for synthesis
+        expert_map["technical"]["standardized_score"] = tech_result.opinion.score
+        expert_map["technical"]["standardized_direction"] = tech_result.opinion.direction
         ctx.add_opinion(tech_result.opinion)
-        logger.info("[%s] TechnicalAgent signal: %s (confidence: %.2f)",
-                    code, tech_result.opinion.signal, tech_result.opinion.confidence)
+        logger.info("[%s] TechnicalAgent signal: %s (score: %.1f, confidence: %.2f)",
+                    code, tech_result.opinion.signal, tech_result.opinion.score, tech_result.opinion.confidence)
 
     if not isinstance(intel_result, Exception) and intel_result.opinion:
         expert_map["intel"] = intel_result.opinion.raw_data
+        # Inject standardized metrics for synthesis
+        expert_map["intel"]["standardized_score"] = intel_result.opinion.score
+        expert_map["intel"]["standardized_direction"] = intel_result.opinion.direction
         ctx.add_opinion(intel_result.opinion)
-        logger.info("[%s] IntelAgent signal: %s (confidence: %.2f)",
-                    code, intel_result.opinion.signal, intel_result.opinion.confidence)
+        logger.info("[%s] IntelAgent signal: %s (score: %.1f, confidence: %.2f)",
+                    code, intel_result.opinion.signal, intel_result.opinion.score, intel_result.opinion.confidence)
+
+    # Run TraderAgent with accumulated opinions (Acts as a native synthesis stage)
+    if ctx.opinions:
+        try:
+            trader_agent = TraderAgent(analyzer=analyzer, config=config)
+            trader_opinion = await trader_agent.run(ctx)
+            if trader_opinion:
+                ctx.meta["trader_opinion"] = trader_opinion.raw_data
+                logger.info("[%s] TraderAgent signal: %s (confidence: %.2f)",
+                            code, trader_opinion.signal, trader_opinion.confidence)
+        except Exception as exc:
+            logger.warning("[%s] TraderAgent failed: %s", code, exc)
 
     # Fallback to direct LLM call if agents failed
     if "technical" not in expert_map:

@@ -6,6 +6,7 @@ Normalizes function-calling / tool-use across all providers into a unified
 interface consumed by the AgentExecutor, via LiteLLM.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -377,6 +378,112 @@ class LLMToolAdapter:
         logger.error(error_msg)
         return LLMResponse(content=error_msg, provider="error")
 
+    async def acall_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[dict],
+        provider: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LLMResponse:
+        """Async version of call_with_tools."""
+        return await self.acall_completion(messages, tools=tools, provider=provider, timeout=timeout)
+
+    async def acall_text(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        provider: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> LLMResponse:
+        """Async version of call_text."""
+        return await self.acall_completion(
+            messages,
+            tools=None,
+            provider=provider,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+
+    async def acall_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        tools: Optional[List[dict]] = None,
+        provider: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> LLMResponse:
+        """Async version of call_completion."""
+        config = self._config
+        models_to_try = get_effective_agent_models_to_try(config)
+        if not models_to_try:
+            error_msg = (
+                "No LLM configured. Please set LITELLM_MODEL, LLM_CHANNELS, "
+                "or provider API keys before using Agent."
+            )
+            logger.error(error_msg)
+            return LLMResponse(content=error_msg, provider="error")
+        started_at = time.time()
+        providers = [self._get_model_provider(model) for model in models_to_try]
+
+        last_error = None
+        hit_rate_limit = False
+        for idx, model in enumerate(models_to_try):
+            remaining_timeout = timeout
+            if timeout is not None and timeout > 0:
+                remaining_timeout = max(0.0, float(timeout) - (time.time() - started_at))
+                if remaining_timeout <= 0:
+                    last_error = TimeoutError(
+                        f"LLM completion timed out before trying fallback model {model}"
+                    )
+                    break
+            try:
+                return await self._acall_litellm_model(
+                    messages,
+                    tools or [],
+                    model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=remaining_timeout,
+                )
+            except Exception as e:
+                if isinstance(e, _resolve_litellm_exception("RateLimitError")):
+                    logger.warning("Agent LLM rate-limited on %s: %s", model, e)
+                    last_error = e
+                    hit_rate_limit = True
+
+                    # Avoid blind backoff across different providers; cross-provider
+                    # fallback usually means different accounts/rate-limit buckets.
+                    should_backoff = (
+                        idx + 1 < len(models_to_try)
+                        and providers[idx] == providers[idx + 1]
+                    )
+                    if should_backoff:
+                        backoff_sleep = min(2.0, (time.time() - started_at) * 0.1 + 0.5)
+                        if timeout is not None and timeout > 0:
+                            remaining_timeout = max(0.0, float(timeout) - (time.time() - started_at))
+                            if remaining_timeout > 0:
+                                await asyncio.sleep(min(backoff_sleep, remaining_timeout))
+                        else:
+                            await asyncio.sleep(backoff_sleep)
+                    continue
+                if isinstance(e, _resolve_litellm_exception("ContextWindowExceededError")):
+                    logger.warning("Agent LLM context window exceeded on %s: %s", model, e)
+                    last_error = e
+                    continue
+                logger.warning("Agent LLM call failed with %s: %s", model, e)
+                last_error = e
+                continue
+
+        suffix = " (rate-limit encountered during fallback)" if hit_rate_limit else ""
+        error_msg = f"All LLM models failed{suffix}. Last error: {last_error}"
+        logger.error(error_msg)
+        return LLMResponse(content=error_msg, provider="error")
+
     @staticmethod
     def _get_model_provider(model: str) -> str:
         """Return LiteLLM provider namespace for model fallback grouping."""
@@ -441,6 +548,64 @@ class LLMToolAdapter:
                 call_kwargs["api_key"] = keys[0]
             call_kwargs.update(extra_litellm_params(model, self._config))
             response = litellm.completion(**call_kwargs)
+
+        return self._parse_litellm_response(response, model)
+
+    async def _acall_litellm_model(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[dict],
+        model: str,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> LLMResponse:
+        """Async version of _call_litellm_model."""
+        openai_messages = self._convert_messages(messages)
+
+        # Use short model name (without provider prefix) for thinking model lookup
+        model_short = model.split("/")[-1] if "/" in model else model
+        extra = get_thinking_extra_body(model_short)
+
+        call_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": openai_messages,
+            "temperature": normalize_litellm_temperature(
+                model,
+                self._get_temperature() if temperature is None else temperature,
+                model_list=self._config.llm_model_list,
+                request_overrides={"extra_body": extra} if extra else None,
+            ),
+        }
+        if max_tokens is not None:
+            call_kwargs["max_tokens"] = max_tokens
+        if timeout is not None:
+            call_kwargs["timeout"] = timeout
+
+        if extra:
+            call_kwargs["extra_body"] = extra
+
+        if tools:
+            call_kwargs["tools"] = tools
+
+        # Use Router for primary model (multi-key), direct litellm for others
+        use_channel_router = self._has_channel_config()
+        _router_model_names = set(get_configured_llm_models(self._config.llm_model_list))
+        agent_primary_model = get_effective_agent_primary_model(self._config)
+        if use_channel_router and self._router and model in _router_model_names:
+            # Channel / YAML path: Router manages all models in its model_list
+            response = await self._router.acompletion(**call_kwargs)
+        elif self._router and model == agent_primary_model and not use_channel_router:
+            # Legacy path: Router for primary model multi-key
+            response = await self._router.acompletion(**call_kwargs)
+        else:
+            # Legacy/direct-env path: direct call
+            keys = get_api_keys_for_model(model, self._config)
+            if keys:
+                call_kwargs["api_key"] = keys[0]
+            call_kwargs.update(extra_litellm_params(model, self._config))
+            response = await litellm.acompletion(**call_kwargs)
 
         return self._parse_litellm_response(response, model)
 

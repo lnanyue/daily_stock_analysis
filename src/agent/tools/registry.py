@@ -133,7 +133,31 @@ class ToolRegistry:
         """Generate OpenAI-format tools list (used by litellm for all providers)."""
         return [t.to_openai_tool() for t in self._tools.values()]
 
-    # ----- Execution -----
+    async def aexecute(self, name: str, **kwargs) -> Any:
+        """Execute a tool asynchronously.
+
+        If the handler is sync, it runs in a thread pool.
+        If async, it is awaited directly.
+        """
+        import inspect
+        import asyncio
+
+        tool_def = self._tools.get(name)
+        if tool_def is None and ":" in name:
+            tool_def = self._tools.get(name.split(":", 1)[-1])
+
+        if tool_def is None:
+            raise KeyError(f"Tool '{name}' not found in registry. Available: {self.list_names()}")
+
+        handler = tool_def.handler
+        if inspect.iscoroutinefunction(handler):
+            return await handler(**kwargs)
+        
+        # Run sync handler in a thread. If it returns an awaitable, await it.
+        res = await asyncio.to_thread(handler, **kwargs)
+        if inspect.isawaitable(res):
+            return await res
+        return res
 
     def execute(self, name: str, **kwargs) -> Any:
         """Execute a registered tool by name.

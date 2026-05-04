@@ -86,7 +86,7 @@ class BaseAgent(ABC):
     # Execution
     # -----------------------------------------------------------------
 
-    def run(
+    async def run(
         self,
         ctx: AgentContext,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -110,7 +110,7 @@ class BaseAgent(ABC):
             # Restrict tools if the agent declares a subset
             registry = self._filtered_registry()
 
-            loop_result: RunLoopResult = run_agent_loop(
+            loop_result: RunLoopResult = await run_agent_loop(
                 messages=messages,
                 tool_registry=registry,
                 llm_adapter=self.llm_adapter,

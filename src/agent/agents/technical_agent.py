@@ -85,9 +85,24 @@ Return **only** a JSON object (no markdown fences):
             logger.warning("[TechnicalAgent] failed to parse opinion JSON")
             return None
 
+        signal = parsed.get("signal", "hold")
+        # Map signal string to direction integer
+        direction_map = {
+            "strong_buy": 1, "buy": 1,
+            "hold": 0,
+            "sell": -1, "strong_sell": -1
+        }
+        direction = direction_map.get(str(signal).lower(), 0)
+
+        # Standardise score: use trend_score if provided, else neutral (50)
+        # Note: trend_score in TechnicalAgent is typically 0-100 where >50 is bullish
+        score = float(parsed.get("trend_score", 50.0))
+
         return AgentOpinion(
             agent_name=self.agent_name,
-            signal=parsed.get("signal", "hold"),
+            signal=signal,
+            score=score,
+            direction=direction,
             confidence=float(parsed.get("confidence", 0.5)),
             reasoning=parsed.get("reasoning", ""),
             key_levels={

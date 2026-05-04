@@ -250,7 +250,7 @@ class AgentOrchestrator:
 
         return True
 
-    def _run_stage_agent(
+    async def _run_stage_agent(
         self,
         agent: Any,
         ctx: AgentContext,
@@ -265,13 +265,13 @@ class AgentOrchestrator:
             and self._agent_run_accepts_timeout(agent.run)
         ):
             run_kwargs["timeout_seconds"] = timeout_seconds
-        return agent.run(ctx, **run_kwargs)
+        return await agent.run(ctx, **run_kwargs)
 
     # -----------------------------------------------------------------
     # Public interface (mirrors AgentExecutor)
     # -----------------------------------------------------------------
 
-    def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> "AgentResult":
+    async def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> "AgentResult":
         """Run the multi-agent pipeline for a dashboard analysis.
 
         Returns an ``AgentResult`` (same type as ``AgentExecutor.run``).
@@ -280,7 +280,7 @@ class AgentOrchestrator:
 
         ctx = self._build_context(task, context)
         ctx.meta["response_mode"] = "dashboard"
-        orch_result = self._execute_pipeline(ctx, parse_dashboard=True)
+        orch_result = await self._execute_pipeline(ctx, parse_dashboard=True)
 
         return AgentResult(
             success=orch_result.success,
@@ -295,7 +295,7 @@ class AgentOrchestrator:
             metadata=self._build_agent_result_metadata(orch_result),
         )
 
-    def chat(
+    async def chat(
         self,
         message: str,
         session_id: str,
@@ -323,7 +323,7 @@ class AgentOrchestrator:
         # Persist user turn
         conversation_manager.add_message(session_id, "user", message)
 
-        orch_result = self._execute_pipeline(
+        orch_result = await self._execute_pipeline(
             ctx,
             parse_dashboard=False,
             progress_callback=progress_callback,
@@ -400,7 +400,7 @@ class AgentOrchestrator:
     # Pipeline execution
     # -----------------------------------------------------------------
 
-    def _execute_pipeline(
+    async def _execute_pipeline(
         self,
         ctx: AgentContext,
         parse_dashboard: bool = True,
@@ -516,7 +516,7 @@ class AgentOrchestrator:
                 if timeout_s
                 else None
             )
-            result: StageResult = self._run_stage_agent(
+            result: StageResult = await self._run_stage_agent(
                 agent,
                 ctx,
                 progress_callback=progress_callback,

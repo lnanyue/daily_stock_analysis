@@ -13,11 +13,12 @@ Covers:
 
 import json
 import time
+import asyncio
 import unittest
 import sys
 import os
 from dataclasses import dataclass
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -58,8 +59,8 @@ def _make_registry_with_echo():
 
 
 def _make_mock_adapter():
-    """Create a MagicMock LLMToolAdapter."""
-    adapter = MagicMock()
+    """Create an AsyncMock LLMToolAdapter."""
+    adapter = AsyncMock()
     return adapter
 
 
@@ -89,10 +90,10 @@ SAMPLE_DASHBOARD = {
 # AgentExecutor Tests
 # ============================================================
 
-class TestAgentExecutor(unittest.TestCase):
+class TestAgentExecutor(unittest.IsolatedAsyncioTestCase):
     """Test the ReAct loop logic."""
 
-    def test_runtime_and_template_prompts_share_dashboard_schema_source(self):
+    async def test_runtime_and_template_prompts_share_dashboard_schema_source(self):
         from src.agent.executor import (
             AGENT_SYSTEM_PROMPT,
             LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT,
@@ -112,11 +113,11 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertNotIn("search_performed", runtime_schema)
         self.assertNotIn("data_sources", runtime_schema)
 
-    def test_prompt_omits_hardcoded_trend_baseline_when_default_policy_is_empty(self):
+    async def test_prompt_omits_hardcoded_trend_baseline_when_default_policy_is_empty(self):
         """Explicit skill runs should not silently keep the legacy trend baseline."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
-        adapter.call_with_tools.return_value = LLMResponse(
+        adapter.acall_with_tools.return_value = LLMResponse(
             content=json.dumps(SAMPLE_DASHBOARD, ensure_ascii=False),
             tool_calls=[],
             usage={"total_tokens": 50},
@@ -130,19 +131,19 @@ class TestAgentExecutor(unittest.TestCase):
             default_skill_policy="",
             max_steps=2,
         )
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
-        prompt = adapter.call_with_tools.call_args.args[0][0]["content"]
+        prompt = adapter.acall_with_tools.call_args.args[0][0]["content"]
         self.assertIn("### 技能 1: 缠论", prompt)
         self.assertNotIn("专注于趋势交易", prompt)
         self.assertNotIn("多头排列：MA5 > MA10 > MA20", prompt)
 
-    def test_prompt_keeps_injected_default_policy_for_implicit_default_run(self):
+    async def test_prompt_keeps_injected_default_policy_for_implicit_default_run(self):
         """Implicit default runs can still inject the default bull-trend baseline explicitly."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
-        adapter.call_with_tools.return_value = LLMResponse(
+        adapter.acall_with_tools.return_value = LLMResponse(
             content=json.dumps(SAMPLE_DASHBOARD, ensure_ascii=False),
             tool_calls=[],
             usage={"total_tokens": 50},
@@ -157,22 +158,22 @@ class TestAgentExecutor(unittest.TestCase):
             use_legacy_default_prompt=True,
             max_steps=2,
         )
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
-        prompt = adapter.call_with_tools.call_args.args[0][0]["content"]
+        prompt = adapter.acall_with_tools.call_args.args[0][0]["content"]
         self.assertIn("### 技能 1: 默认多头趋势", prompt)
         self.assertIn("专注于趋势交易", prompt)
         self.assertIn("多头排列必须条件", prompt)
         self.assertIn("多头排列：MA5 > MA10 > MA20", prompt)
 
-    def test_simple_text_response(self):
+    async def test_simple_text_response(self):
         """Agent returns text immediately (no tool calls) with JSON dashboard."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
 
         # LLM returns a text response with the dashboard JSON
-        adapter.call_with_tools.return_value = LLMResponse(
+        adapter.acall_with_tools.return_value = LLMResponse(
             content=json.dumps(SAMPLE_DASHBOARD, ensure_ascii=False),
             tool_calls=[],
             usage={"total_tokens": 100},
@@ -180,7 +181,7 @@ class TestAgentExecutor(unittest.TestCase):
         )
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertIsNotNone(result.dashboard)
@@ -189,7 +190,7 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertEqual(result.provider, "openai")
         self.assertEqual(len(result.tool_calls_log), 0)
 
-    def test_tool_call_then_text(self):
+    async def test_tool_call_then_text(self):
         """Agent calls a tool, gets result, then returns final answer."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
@@ -210,10 +211,10 @@ class TestAgentExecutor(unittest.TestCase):
             usage={"total_tokens": 80},
             provider="gemini",
         )
-        adapter.call_with_tools.side_effect = [step1_response, step2_response]
+        adapter.acall_with_tools.side_effect = [step1_response, step2_response]
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertEqual(result.total_steps, 2)
@@ -222,7 +223,7 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertEqual(result.tool_calls_log[0]["tool"], "echo")
         self.assertTrue(result.tool_calls_log[0]["success"])
 
-    def test_multiple_tool_calls_in_one_step(self):
+    async def test_multiple_tool_calls_in_one_step(self):
         """Agent requests multiple tool calls in a single response."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
@@ -242,15 +243,15 @@ class TestAgentExecutor(unittest.TestCase):
             usage={"total_tokens": 60},
             provider="openai",
         )
-        adapter.call_with_tools.side_effect = [step1, step2]
+        adapter.acall_with_tools.side_effect = [step1, step2]
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertEqual(len(result.tool_calls_log), 2)
 
-    def test_max_steps_exceeded(self):
+    async def test_max_steps_exceeded(self):
         """Agent keeps calling tools until max_steps is hit."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
@@ -264,16 +265,16 @@ class TestAgentExecutor(unittest.TestCase):
             usage={"total_tokens": 20},
             provider="openai",
         )
-        adapter.call_with_tools.return_value = tool_response
+        adapter.acall_with_tools.return_value = tool_response
 
         executor = AgentExecutor(registry, adapter, max_steps=3)
-        result = executor.run("Analyze loop")
+        result = await executor.run("Analyze loop")
 
         self.assertFalse(result.success)
         self.assertIn("max steps", result.error.lower())
         self.assertEqual(result.total_steps, 3)
 
-    def test_tool_execution_error(self):
+    async def test_tool_execution_error(self):
         """Tool raises exception — should be logged and error sent to LLM."""
         def _always_fail():
             raise RuntimeError("db down")
@@ -302,10 +303,10 @@ class TestAgentExecutor(unittest.TestCase):
             usage={"total_tokens": 50},
             provider="openai",
         )
-        adapter.call_with_tools.side_effect = [step1, step2]
+        adapter.acall_with_tools.side_effect = [step1, step2]
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Test error handling")
+        result = await executor.run("Test error handling")
 
         # Should still succeed overall (agent handles tool errors gracefully)
         self.assertTrue(result.success)
@@ -313,7 +314,7 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertEqual(len(result.tool_calls_log), 1)
         self.assertFalse(result.tool_calls_log[0]["success"])
 
-    def test_unknown_tool_called(self):
+    async def test_unknown_tool_called(self):
         """LLM requests a tool not in the registry — should handle gracefully."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
@@ -332,17 +333,17 @@ class TestAgentExecutor(unittest.TestCase):
             usage={"total_tokens": 50},
             provider="openai",
         )
-        adapter.call_with_tools.side_effect = [step1, step2]
+        adapter.acall_with_tools.side_effect = [step1, step2]
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Test unknown tool")
+        result = await executor.run("Test unknown tool")
 
         self.assertTrue(result.success)
         self.assertEqual(len(result.tool_calls_log), 1)
         self.assertFalse(result.tool_calls_log[0]["success"])
         self.assertFalse(result.tool_calls_log[0]["cached"])
 
-    def test_non_retriable_tool_failure_is_cached_across_hk_variants(self):
+    async def test_non_retriable_tool_failure_is_cached_across_hk_variants(self):
         """Equivalent HK code variants should not re-execute a non-retriable failing tool."""
         calls = []
 
@@ -367,7 +368,7 @@ class TestAgentExecutor(unittest.TestCase):
         )
         adapter = _make_mock_adapter()
 
-        adapter.call_with_tools.side_effect = [
+        adapter.acall_with_tools.side_effect = [
             LLMResponse(
                 content="",
                 tool_calls=[
@@ -393,7 +394,7 @@ class TestAgentExecutor(unittest.TestCase):
         ]
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Analyze HK01810")
+        result = await executor.run("Analyze HK01810")
 
         self.assertTrue(result.success)
         self.assertEqual(calls, ["hk01810"])
@@ -401,7 +402,7 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertFalse(result.tool_calls_log[0]["cached"])
         self.assertTrue(result.tool_calls_log[1]["cached"])
 
-    def test_model_trace_deduplicates_and_keeps_order(self):
+    async def test_model_trace_deduplicates_and_keeps_order(self):
         """Model trace should keep call order and de-duplicate repeated models."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
@@ -427,19 +428,19 @@ class TestAgentExecutor(unittest.TestCase):
             provider="openai",
             model="openai/gpt-4o-mini",
         )
-        adapter.call_with_tools.side_effect = [step1, step2, step3]
+        adapter.acall_with_tools.side_effect = [step1, step2, step3]
 
         executor = AgentExecutor(registry, adapter, max_steps=5)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertEqual(result.model, "gemini/gemini-2.0-flash, openai/gpt-4o-mini")
 
-    def test_model_trace_skips_error_provider(self):
+    async def test_model_trace_skips_error_provider(self):
         """Error provider placeholder should not appear in model trace."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
-        adapter.call_with_tools.return_value = LLMResponse(
+        adapter.acall_with_tools.return_value = LLMResponse(
             content="llm failed",
             tool_calls=[],
             usage={"total_tokens": 3},
@@ -448,18 +449,18 @@ class TestAgentExecutor(unittest.TestCase):
         )
 
         executor = AgentExecutor(registry, adapter, max_steps=2)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertFalse(result.success)
         self.assertEqual(result.model, "")
 
-    def test_timeout_budget_aborts_single_agent_loop(self):
+    async def test_timeout_budget_aborts_single_agent_loop(self):
         """Single-agent executor should stop once the configured timeout budget is exhausted."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
 
-        def _slow_llm(*_args, **_kwargs):
-            time.sleep(0.03)
+        async def _slow_llm(*_args, **_kwargs):
+            await asyncio.sleep(0.03)
             return LLMResponse(
                 content=json.dumps(SAMPLE_DASHBOARD, ensure_ascii=False),
                 tool_calls=[],
@@ -467,21 +468,21 @@ class TestAgentExecutor(unittest.TestCase):
                 provider="openai",
             )
 
-        adapter.call_with_tools.side_effect = _slow_llm
+        adapter.acall_with_tools.side_effect = _slow_llm
 
         executor = AgentExecutor(registry, adapter, max_steps=2, timeout_seconds=0.01)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertFalse(result.success)
         self.assertIn("timed out", (result.error or "").lower())
 
-    def test_parallel_tool_timeout_marks_only_pending_calls(self):
+    async def test_parallel_tool_timeout_marks_only_pending_calls(self):
         """Parallel tool batches should emit timeout errors for unfinished tools."""
         registry = ToolRegistry()
 
-        def _maybe_slow_echo(message):
+        async def _maybe_slow_echo(message):
             if message == "slow":
-                time.sleep(0.05)
+                await asyncio.sleep(0.05)
             return {"echo": message}
 
         registry.register(
@@ -495,7 +496,7 @@ class TestAgentExecutor(unittest.TestCase):
             )
         )
         adapter = _make_mock_adapter()
-        adapter.call_with_tools.side_effect = [
+        adapter.acall_with_tools.side_effect = [
             LLMResponse(
                 content="Gathering data.",
                 tool_calls=[
@@ -513,7 +514,7 @@ class TestAgentExecutor(unittest.TestCase):
             ),
         ]
 
-        result = run_agent_loop(
+        result = await run_agent_loop(
             messages=[
                 {"role": "system", "content": "system"},
                 {"role": "user", "content": "Analyze"},
@@ -530,12 +531,12 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertEqual(len(timeout_logs), 1)
         self.assertEqual(timeout_logs[0]["arguments"]["message"], "slow")
 
-    def test_single_tool_timeout_marks_tool_failed(self):
+    async def test_single_tool_timeout_marks_tool_failed(self):
         """Single tool calls should also respect the configured tool timeout."""
         registry = ToolRegistry()
 
-        def _slow_echo(message):
-            time.sleep(0.05)
+        async def _slow_echo(message):
+            await asyncio.sleep(0.05)
             return {"echo": message}
 
         registry.register(
@@ -549,7 +550,7 @@ class TestAgentExecutor(unittest.TestCase):
             )
         )
         adapter = _make_mock_adapter()
-        adapter.call_with_tools.side_effect = [
+        adapter.acall_with_tools.side_effect = [
             LLMResponse(
                 content="Gathering data.",
                 tool_calls=[ToolCall(id="slow", name="echo", arguments={"message": "slow"})],
@@ -564,7 +565,7 @@ class TestAgentExecutor(unittest.TestCase):
             ),
         ]
 
-        result = run_agent_loop(
+        result = await run_agent_loop(
             messages=[
                 {"role": "system", "content": "system"},
                 {"role": "user", "content": "Analyze"},
@@ -580,13 +581,13 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertTrue(result.tool_calls_log[0].get("timeout"))
         self.assertEqual(result.tool_calls_log[0]["arguments"]["message"], "slow")
 
-    def test_llm_call_receives_remaining_timeout_budget(self):
+    async def test_llm_call_receives_remaining_timeout_budget(self):
         """LLM tool calls should receive the remaining wall-clock budget."""
         registry = _make_registry_with_echo()
         adapter = _make_mock_adapter()
         captured = {}
 
-        def _capture_timeout(*_args, **kwargs):
+        async def _capture_timeout(*_args, **kwargs):
             captured["timeout"] = kwargs.get("timeout")
             return LLMResponse(
                 content=json.dumps(SAMPLE_DASHBOARD, ensure_ascii=False),
@@ -595,10 +596,10 @@ class TestAgentExecutor(unittest.TestCase):
                 provider="openai",
             )
 
-        adapter.call_with_tools.side_effect = _capture_timeout
+        adapter.acall_with_tools.side_effect = _capture_timeout
 
         executor = AgentExecutor(registry, adapter, max_steps=2, timeout_seconds=1.0)
-        result = executor.run("Analyze 600519")
+        result = await executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertIsNotNone(captured.get("timeout"))

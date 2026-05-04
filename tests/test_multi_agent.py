@@ -14,9 +14,10 @@ Covers:
 import json
 import sys
 import os
+import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -610,7 +611,7 @@ class TestOrchestratorModes(unittest.TestCase):
         self.assertIn("Minor sell-down", summary)
 
 
-class TestOrchestratorExecution(unittest.TestCase):
+class TestOrchestratorExecution(unittest.IsolatedAsyncioTestCase):
     """Test main orchestrator execution paths."""
 
     @staticmethod
@@ -629,52 +630,52 @@ class TestOrchestratorExecution(unittest.TestCase):
         result.meta["models_used"] = ["test/model"]
         return result
 
-    def test_execute_pipeline_stops_on_critical_failure(self):
+    async def test_execute_pipeline_stops_on_critical_failure(self):
         orch = self._make_orchestrator()
         technical = MagicMock(agent_name="technical")
-        technical.run.return_value = self._stage_result("technical", StageStatus.FAILED, error="boom")
+        technical.run = AsyncMock(return_value=self._stage_result("technical", StageStatus.FAILED, error="boom"))
 
         with patch.object(orch, "_build_agent_chain", return_value=[technical]):
-            result = orch._execute_pipeline(AgentContext(query="test"))
+            result = await orch._execute_pipeline(AgentContext(query="test"))
 
         self.assertFalse(result.success)
         self.assertIn("technical", result.error)
         self.assertEqual(result.total_tokens, 0)
 
-    def test_execute_pipeline_degrades_on_intel_failure(self):
+    async def test_execute_pipeline_degrades_on_intel_failure(self):
         orch = self._make_orchestrator()
         ctx = AgentContext(query="test", stock_code="600519")
         ctx.add_opinion(AgentOpinion(agent_name="technical", signal="buy", confidence=0.8, reasoning="Strong trend"))
 
         intel = MagicMock(agent_name="intel")
-        intel.run.return_value = self._stage_result("intel", StageStatus.FAILED, error="news down")
+        intel.run = AsyncMock(return_value=self._stage_result("intel", StageStatus.FAILED, error="news down"))
         decision = MagicMock(agent_name="decision")
-        decision.run.return_value = self._stage_result("decision")
+        decision.run = AsyncMock(return_value=self._stage_result("decision"))
 
         with patch.object(orch, "_build_agent_chain", return_value=[intel, decision]):
-            result = orch._execute_pipeline(ctx, parse_dashboard=False)
+            result = await orch._execute_pipeline(ctx, parse_dashboard=False)
 
         self.assertTrue(result.success)
         self.assertIn("Analysis Summary", result.content)
 
-    def test_execute_pipeline_times_out_after_stage(self):
+    async def test_execute_pipeline_times_out_after_stage(self):
         orch = self._make_orchestrator(config=SimpleNamespace(agent_orchestrator_timeout_s=1))
         agent = MagicMock(agent_name="technical")
-        agent.run.return_value = self._stage_result("technical")
+        agent.run = AsyncMock(return_value=self._stage_result("technical"))
 
         with patch.object(orch, "_build_agent_chain", return_value=[agent]):
             with patch("src.agent.orchestrator.time.time", side_effect=[0.0, 0.1, 1.2, 1.2, 1.2, 1.2]):
-                result = orch._execute_pipeline(AgentContext(query="test"))
+                result = await orch._execute_pipeline(AgentContext(query="test"))
 
         self.assertFalse(result.success)
         self.assertIn("timed out", result.error)
 
-    def test_execute_pipeline_timeout_after_decision_preserves_dashboard(self):
+    async def test_execute_pipeline_timeout_after_decision_preserves_dashboard(self):
         orch = self._make_orchestrator(config=SimpleNamespace(agent_orchestrator_timeout_s=1, agent_risk_override=True))
         ctx = AgentContext(query="test", stock_code="600519", stock_name="贵州茅台")
         decision = MagicMock(agent_name="decision")
 
-        def _run_decision(run_ctx, progress_callback=None):
+        async def _run_decision(run_ctx, progress_callback=None):
             dashboard = {
                 "stock_name": "贵州茅台",
                 "decision_type": "strong_buy",
@@ -706,7 +707,7 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         with patch.object(orch, "_build_agent_chain", return_value=[decision]):
             with patch("src.agent.orchestrator.time.time", side_effect=[0.0, 0.1, 1.2, 1.2, 1.2]):
-                result = orch._execute_pipeline(ctx, parse_dashboard=True)
+                result = await orch._execute_pipeline(ctx, parse_dashboard=True)
 
         self.assertTrue(result.success)
         self.assertIn("timed out", result.error)
@@ -717,7 +718,7 @@ class TestOrchestratorExecution(unittest.TestCase):
             1760.0,
         )
 
-    def test_execute_pipeline_timeout_after_intel_synthesizes_dashboard(self):
+    async def test_execute_pipeline_timeout_after_intel_synthesizes_dashboard(self):
         orch = self._make_orchestrator(config=SimpleNamespace(agent_orchestrator_timeout_s=1, agent_risk_override=True))
         ctx = AgentContext(query="test", stock_code="301308", stock_name="江波龙")
         ctx.set_data("realtime_quote", {"price": 326.17, "volume_ratio": 1.0, "turnover_rate": 6.77})
@@ -726,7 +727,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         technical = MagicMock(agent_name="technical")
         intel = MagicMock(agent_name="intel")
 
-        def _run_technical(run_ctx, progress_callback=None):
+        async def _run_technical(run_ctx, progress_callback=None):
             run_ctx.add_opinion(AgentOpinion(
                 agent_name="technical",
                 signal="buy",
@@ -738,11 +739,11 @@ class TestOrchestratorExecution(unittest.TestCase):
             return self._stage_result("technical")
 
         technical.run.side_effect = _run_technical
-        intel.run.return_value = self._stage_result("intel")
+        intel.run = AsyncMock(return_value=self._stage_result("intel"))
 
         with patch.object(orch, "_build_agent_chain", return_value=[technical, intel]):
             with patch("src.agent.orchestrator.time.time", side_effect=[0.0, 0.1, 0.2, 0.3, 1.2, 1.2, 1.2]):
-                result = orch._execute_pipeline(ctx, parse_dashboard=True)
+                result = await orch._execute_pipeline(ctx, parse_dashboard=True)
 
         self.assertTrue(result.success)
         self.assertIn("timed out", result.error)
@@ -753,7 +754,7 @@ class TestOrchestratorExecution(unittest.TestCase):
             295.0,
         )
 
-    def test_run_wraps_orchestrator_result(self):
+    async def test_run_wraps_orchestrator_result(self):
         from src.agent.orchestrator import OrchestratorResult
         from src.agent.protocols import AgentRunStats, StageResult, StageStatus
 
@@ -769,7 +770,7 @@ class TestOrchestratorExecution(unittest.TestCase):
             stats=stats,
         )
         with patch.object(orch, "_execute_pipeline", return_value=fake_result):
-            result = orch.run("Analyze 600519")
+            result = await orch.run("Analyze 600519")
 
         self.assertTrue(result.success)
         self.assertEqual(result.content, "done")
@@ -777,7 +778,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         self.assertEqual(result.metadata["agent_runtime"]["arch"], "multi")
         self.assertEqual(result.metadata["agent_runtime"]["stage_results"][0]["stage_name"], "technical")
 
-    def test_chat_loads_prior_history_into_context(self):
+    async def test_chat_loads_prior_history_into_context(self):
         from src.agent.orchestrator import OrchestratorResult
 
         orch = self._make_orchestrator()
@@ -787,7 +788,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         ]
         captured = {}
 
-        def fake_execute(ctx, parse_dashboard=False, progress_callback=None):
+        async def fake_execute(ctx, parse_dashboard=False, progress_callback=None):
             captured["history"] = ctx.meta.get("conversation_history")
             return OrchestratorResult(success=True, content="assistant reply")
 
@@ -795,11 +796,11 @@ class TestOrchestratorExecution(unittest.TestCase):
             with patch("src.agent.conversation.conversation_manager.get_or_create") as get_or_create:
                 get_or_create.return_value.get_history.return_value = history
                 with patch("src.agent.conversation.conversation_manager.add_message"):
-                    orch.chat("hello", "session-1")
+                    await orch.chat("hello", "session-1")
 
         self.assertEqual(captured["history"], history)
 
-    def test_chat_persists_user_and_assistant_messages(self):
+    async def test_chat_persists_user_and_assistant_messages(self):
         from src.agent.orchestrator import OrchestratorResult
 
         orch = self._make_orchestrator()
@@ -807,14 +808,14 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         with patch.object(orch, "_execute_pipeline", return_value=fake_result):
             with patch("src.agent.conversation.conversation_manager.add_message") as add_message:
-                result = orch.chat("hello", "session-1")
+                result = await orch.chat("hello", "session-1")
 
         self.assertTrue(result.success)
         self.assertEqual(add_message.call_count, 2)
         add_message.assert_any_call("session-1", "user", "hello")
         add_message.assert_any_call("session-1", "assistant", "assistant reply")
 
-    def test_chat_persists_failure_message(self):
+    async def test_chat_persists_failure_message(self):
         from src.agent.orchestrator import OrchestratorResult
 
         orch = self._make_orchestrator()
@@ -822,35 +823,35 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         with patch.object(orch, "_execute_pipeline", return_value=fake_result):
             with patch("src.agent.conversation.conversation_manager.add_message") as add_message:
-                result = orch.chat("hello", "session-2")
+                result = await orch.chat("hello", "session-2")
 
         self.assertFalse(result.success)
         add_message.assert_any_call("session-2", "assistant", "[分析失败] boom")
 
-    def test_execute_pipeline_fails_when_dashboard_parse_fails(self):
+    async def test_execute_pipeline_fails_when_dashboard_parse_fails(self):
         orch = self._make_orchestrator()
         ctx = AgentContext(query="test", stock_code="600519")
         decision = MagicMock(agent_name="decision")
 
-        def fake_run(pipeline_ctx, progress_callback=None):
+        async def fake_run(pipeline_ctx, progress_callback=None):
             pipeline_ctx.set_data("final_dashboard_raw", "not valid json")
             return self._stage_result("decision")
 
         decision.run.side_effect = fake_run
 
         with patch.object(orch, "_build_agent_chain", return_value=[decision]):
-            result = orch._execute_pipeline(ctx, parse_dashboard=True)
+            result = await orch._execute_pipeline(ctx, parse_dashboard=True)
 
         self.assertFalse(result.success)
         self.assertEqual(result.error, "Failed to parse dashboard JSON from agent response")
 
-    def test_execute_pipeline_chat_prefers_free_form_response(self):
+    async def test_execute_pipeline_chat_prefers_free_form_response(self):
         orch = self._make_orchestrator()
         ctx = AgentContext(query="请总结一下", stock_code="600519")
         ctx.meta["response_mode"] = "chat"
         decision = MagicMock(agent_name="decision")
 
-        def fake_run(pipeline_ctx, progress_callback=None):
+        async def fake_run(pipeline_ctx, progress_callback=None):
             pipeline_ctx.set_data("final_dashboard", {"decision_type": "buy", "analysis_summary": "json dashboard"})
             pipeline_ctx.set_data("final_response_text", "这是自然语言回复")
             return self._stage_result("decision", raw_text="这是自然语言回复")
@@ -858,12 +859,12 @@ class TestOrchestratorExecution(unittest.TestCase):
         decision.run.side_effect = fake_run
 
         with patch.object(orch, "_build_agent_chain", return_value=[decision]):
-            result = orch._execute_pipeline(ctx, parse_dashboard=False)
+            result = await orch._execute_pipeline(ctx, parse_dashboard=False)
 
         self.assertTrue(result.success)
         self.assertEqual(result.content, "这是自然语言回复")
 
-    def test_strategy_agents_are_selected_after_technical_stage(self):
+    async def test_strategy_agents_are_selected_after_technical_stage(self):
         orch = self._make_orchestrator()
         orch.mode = "specialist"
         ctx = AgentContext(query="分析600519", stock_code="600519")
@@ -871,7 +872,7 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         technical = MagicMock(agent_name="technical")
 
-        def _run_technical(run_ctx, progress_callback=None):
+        async def _run_technical(run_ctx, progress_callback=None):
             run_ctx.add_opinion(AgentOpinion(
                 agent_name="technical",
                 signal="buy",
@@ -884,14 +885,14 @@ class TestOrchestratorExecution(unittest.TestCase):
         technical.run.side_effect = _run_technical
 
         intel = MagicMock(agent_name="intel")
-        intel.run.return_value = self._stage_result("intel")
+        intel.run = AsyncMock(return_value=self._stage_result("intel"))
 
         risk = MagicMock(agent_name="risk")
-        risk.run.return_value = self._stage_result("risk")
+        risk.run = AsyncMock(return_value=self._stage_result("risk"))
 
         strategy = MagicMock(agent_name="strategy_bull_trend")
 
-        def _run_strategy(run_ctx, progress_callback=None):
+        async def _run_strategy(run_ctx, progress_callback=None):
             run_ctx.add_opinion(AgentOpinion(
                 agent_name="strategy_bull_trend",
                 signal="buy",
@@ -903,7 +904,7 @@ class TestOrchestratorExecution(unittest.TestCase):
         strategy.run.side_effect = _run_strategy
 
         decision = MagicMock(agent_name="decision")
-        decision.run.return_value = self._stage_result("decision", raw_text="final answer")
+        decision.run = AsyncMock(return_value=self._stage_result("decision", raw_text="final answer"))
 
         def _build_specialist_agents(run_ctx):
             self.assertTrue(any(op.agent_name == "technical" for op in run_ctx.opinions))
@@ -911,7 +912,7 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         with patch.object(orch, "_build_agent_chain", return_value=[technical, intel, risk, decision]):
             with patch.object(orch, "_build_specialist_agents", side_effect=_build_specialist_agents) as build_specialist_agents:
-                result = orch._execute_pipeline(ctx, parse_dashboard=False)
+                result = await orch._execute_pipeline(ctx, parse_dashboard=False)
 
         self.assertTrue(result.success)
         self.assertEqual(result.content, "final answer")
@@ -1050,7 +1051,7 @@ class TestAgentMemory(unittest.TestCase):
         self.assertEqual(history[0].price_at_analysis, 1880.0)
 
 
-class TestBaseAgentMemoryIntegration(unittest.TestCase):
+class TestBaseAgentMemoryIntegration(unittest.IsolatedAsyncioTestCase):
     """Test BaseAgent hooks for memory injection and calibration."""
 
     @staticmethod
@@ -1072,7 +1073,7 @@ class TestBaseAgentMemoryIntegration(unittest.TestCase):
         with patch("src.agent.agents.base_agent.AgentMemory.from_config", return_value=memory):
             return DummyAgent(tool_registry=MagicMock(), llm_adapter=MagicMock())
 
-    def test_memory_context_is_injected(self):
+    async def test_memory_context_is_injected(self):
         entry = SimpleNamespace(
             date="2026-03-01",
             signal="buy",
@@ -1092,7 +1093,7 @@ class TestBaseAgentMemoryIntegration(unittest.TestCase):
         self.assertIn("Memory: recent analysis history", injected)
         self.assertIn("signal=buy", injected)
 
-    def test_memory_calibration_updates_confidence(self):
+    async def test_memory_calibration_updates_confidence(self):
         memory = MagicMock(enabled=True)
         memory.get_stock_history.return_value = []
         memory.get_calibration.return_value = SimpleNamespace(
@@ -1111,7 +1112,7 @@ class TestBaseAgentMemoryIntegration(unittest.TestCase):
             models_used=["test/model"],
         )
         with patch("src.agent.agents.base_agent.run_agent_loop", return_value=loop_result):
-            result = agent.run(ctx)
+            result = await agent.run(ctx)
 
         self.assertTrue(result.success)
         self.assertIsNotNone(result.opinion)
@@ -1119,7 +1120,7 @@ class TestBaseAgentMemoryIntegration(unittest.TestCase):
         self.assertEqual(result.meta["memory_calibration"]["factor"], 0.5)
         memory.calibrate_confidence.assert_not_called()
 
-    def test_strategy_memory_calibration_uses_strategy_factor(self):
+    async def test_strategy_memory_calibration_uses_strategy_factor(self):
         from src.agent.agents.base_agent import BaseAgent
 
         class DummyStrategyAgent(BaseAgent):
@@ -1154,7 +1155,7 @@ class TestBaseAgentMemoryIntegration(unittest.TestCase):
             models_used=["test/model"],
         )
         with patch("src.agent.agents.base_agent.run_agent_loop", return_value=loop_result):
-            result = agent.run(ctx)
+            result = await agent.run(ctx)
 
         self.assertTrue(result.success)
         self.assertAlmostEqual(result.opinion.confidence, 0.4)

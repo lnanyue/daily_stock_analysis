@@ -17,7 +17,7 @@ Typical usage::
 
     from src.agent.agents.portfolio_agent import PortfolioAgent
     agent = PortfolioAgent(model=model, registry=registry)
-    result = agent.run(ctx)
+    result = await agent.run(ctx)
 """
 
 from __future__ import annotations

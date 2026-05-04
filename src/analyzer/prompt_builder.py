@@ -178,19 +178,32 @@ def build_chief_synthesizer_prompt(
             )
         peer_section += "\n> **分析要求**：请对比目标股与龙头的【成长性】与【盈利质量】。如果目标股估值远高于龙头但增速较低，请在风险中明确指出。\n"
 
-    expert_section = "\n---\n\n## 🧑‍🔬 专家组分析报告 (Expert Reports)\n"
-    if "technical" in expert_outputs:
-        expert_section += f"\n### 📊 技术专家意见：\n{expert_outputs['technical']}\n"
-    if "risk" in expert_outputs:
-        expert_section += f"\n### 🛡️ 风控专家意见：\n{expert_outputs['risk']}\n"
-        
-    if report_language == "en":
-        instruction = "\n\n### 🎯 Final Instruction: Synthesize the expert reports and the peer comparison data above. Finalize the Decision Dashboard JSON."
-    else:
-        instruction = "\n\n### 🎯 最终指令：请汇总专家意见、行业对标数据与结构化行情，化解冲突，输出最终的【决策仪表盘】JSON。"
-        
-    return base_prompt + peer_section + expert_section + instruction
+    expert_section = "\n---\n\n## 🧑‍🔬 专家组分析报告与量化评分 (Expert Opinions & Scores)\n"
+    import json
+    for expert_name in ["technical", "intel", "risk"]:
+        if expert_name in expert_outputs:
+            data = expert_outputs[expert_name]
+            label_map = {"technical": "📊 技术专家", "intel": "📰 情报专家", "risk": "🛡️ 风控专家"}
+            label = label_map.get(expert_name, expert_name)
 
+            expert_section += f"\n### {label}：\n"
+            if isinstance(data, dict):
+                # Highlight standardized metrics if available
+                score = data.get("standardized_score")
+                direction = data.get("standardized_direction")
+                if score is not None:
+                    dir_str = "看多" if direction == 1 else "看空" if direction == -1 else "中性"
+                    expert_section += f"> **标准化研判**: 分数={score}/100, 倾向={dir_str}\n\n"
+                expert_section += f"```json\n{json.dumps(data, ensure_ascii=False, indent=2)}\n```\n"
+            else:
+                expert_section += f"{data}\n"
+
+    if report_language == "en":
+        instruction = "\n\n### 🎯 Final Instruction: Synthesize the expert reports (pay attention to the standardized scores) and the peer comparison data. Resolve any signal conflicts logically. Finalize the Decision Dashboard JSON."
+    else:
+        instruction = "\n\n### 🎯 最终指令：请汇总各专家的分析报告（重点参考标准化评分），结合行业对标数据，逻辑严密地化解信号冲突，输出最终的【决策仪表盘】JSON。"
+
+    return base_prompt + peer_section + expert_section + instruction
 def format_analysis_prompt(
     context: Dict[str, Any],
     name: str,

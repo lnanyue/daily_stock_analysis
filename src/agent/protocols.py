@@ -134,6 +134,8 @@ class AgentOpinion:
 
     agent_name: str = ""
     signal: str = ""  # free-form or Signal enum value
+    score: float = 50.0  # 0.0 – 100.0 (Standardised bullishness score)
+    direction: int = 0   # -1 (bearish), 0 (neutral), 1 (bullish)
     confidence: float = 0.0  # 0.0 – 1.0
     reasoning: str = ""
     key_levels: Dict[str, float] = field(default_factory=dict)

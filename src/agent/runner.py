@@ -15,12 +15,12 @@ Design goals:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
 import contextvars
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -374,7 +374,7 @@ def _build_budget_guard_result(
 # Core loop
 # ============================================================
 
-def run_agent_loop(
+async def run_agent_loop(
     *,
     messages: List[Dict[str, Any]],
     tool_registry: ToolRegistry,
@@ -478,7 +478,7 @@ def run_agent_loop(
             progress_callback({"type": "thinking", "step": step + 1, "message": thinking_msg})
 
         # --- LLM call ---
-        response = llm_adapter.call_with_tools(
+        response = await llm_adapter.acall_with_tools(
             messages,
             tool_decls,
             timeout=remaining_timeout,
@@ -539,7 +539,7 @@ def run_agent_loop(
                     remaining_timeout,
                     tool_call_timeout_seconds if tool_call_timeout_seconds and tool_call_timeout_seconds > 0 else remaining_timeout,
                 )
-            tool_results = _execute_tools(
+            tool_results = await _execute_tools(
                 response.tool_calls,
                 tool_registry,
                 step + 1,
@@ -621,7 +621,7 @@ def run_agent_loop(
 # Internal tool execution
 # ============================================================
 
-def _execute_tools(
+async def _execute_tools(
     tool_calls,
     tool_registry: ToolRegistry,
     step: int,
@@ -632,10 +632,10 @@ def _execute_tools(
 ) -> List[Dict[str, Any]]:
     """Execute one or more tool calls, returning ordered result dicts.
 
-    Single tools run inline; multiple tools run in parallel threads.
+    Tools run in parallel using asyncio.gather.
     """
 
-    def _exec_single(tc_item):
+    async def _exec_single(tc_item):
         t0 = time.time()
         cache_key = _build_tool_cache_key(tc_item.name, tc_item.arguments)
 
@@ -646,10 +646,20 @@ def _execute_tools(
                 tc_item.name,
                 tc_item.arguments,
             )
-            return tc_item, non_retriable_tool_results[cache_key], False, dur, True
+            res_str = non_retriable_tool_results[cache_key]
+            tool_calls_log.append({
+                "step": step, "tool": tc_item.name, "arguments": tc_item.arguments,
+                "success": False, "duration": dur, "result_length": len(res_str),
+                "cached": True,
+            })
+            return tc_item, res_str, False, dur, True
+
+        if progress_callback:
+            progress_callback({"type": "tool_start", "step": step, "tool": tc_item.name})
 
         try:
-            res = tool_registry.execute(tc_item.name, **tc_item.arguments)
+            # Execute tool asynchronously (handles both sync and async handlers)
+            res = await tool_registry.aexecute(tc_item.name, **tc_item.arguments)
             res_str = serialize_tool_result(res)
             ok = True
             if cache_key and non_retriable_tool_results is not None and _is_non_retriable_tool_result(res):
@@ -658,113 +668,57 @@ def _execute_tools(
             res_str = json.dumps({"error": str(e)})
             ok = False
             logger.warning("Tool '%s' failed: %s", tc_item.name, e)
+
         dur = round(time.time() - t0, 2)
+        if progress_callback:
+            progress_callback({"type": "tool_done", "step": step, "tool": tc_item.name, "success": ok, "duration": dur})
+
+        log_entry = {
+            "step": step, "tool": tc_item.name, "arguments": tc_item.arguments,
+            "success": ok, "duration": dur, "result_length": len(res_str),
+            "cached": False,
+        }
+        tool_calls_log.append(log_entry)
         return tc_item, res_str, ok, dur, False
 
-    results: List[Dict[str, Any]] = []
+    if not tool_calls:
+        return []
 
-    if len(tool_calls) == 1:
-        tc = tool_calls[0]
-        if progress_callback:
-            progress_callback({"type": "tool_start", "step": step, "tool": tc.name})
-        timeout_triggered = False
+    tasks = []
+    for tc in tool_calls:
+        coro = _exec_single(tc)
         if tool_wait_timeout_seconds and tool_wait_timeout_seconds > 0:
-            pool = ThreadPoolExecutor(max_workers=1)
-            ctx = contextvars.copy_context()
-            try:
-                future = pool.submit(ctx.run, _exec_single, tc)
-                try:
-                    _, result_str, success, dur, cached = future.result(timeout=tool_wait_timeout_seconds)
-                except FuturesTimeoutError:
-                    timeout_triggered = True
-                    future.cancel()
-                    timeout_label = f"{tool_wait_timeout_seconds:.2f}s"
-                    logger.warning("Tool '%s' timed out after %s at step %d", tc.name, timeout_label, step)
-                    result_str = json.dumps({
-                        "error": f"Tool execution timed out after {timeout_label}",
-                        "timeout": True,
-                    })
-                    success = False
-                    dur = round(tool_wait_timeout_seconds, 2)
-                    cached = False
-            finally:
-                pool.shutdown(wait=not timeout_triggered, cancel_futures=timeout_triggered)
+            tasks.append(asyncio.wait_for(coro, timeout=tool_wait_timeout_seconds))
         else:
-            _, result_str, success, dur, cached = _exec_single(tc)
-        if progress_callback:
-            progress_callback({"type": "tool_done", "step": step, "tool": tc.name, "success": success, "duration": dur})
-        log_entry = {
-            "step": step, "tool": tc.name, "arguments": tc.arguments,
-            "success": success, "duration": dur, "result_length": len(result_str),
-            "cached": cached,
-        }
-        if tool_wait_timeout_seconds and tool_wait_timeout_seconds > 0 and not success:
-            try:
-                if json.loads(result_str).get("timeout") is True:
-                    log_entry["timeout"] = True
-            except (TypeError, ValueError, json.JSONDecodeError):
-                pass
-        tool_calls_log.append(log_entry)
-        results.append({"tc": tc, "result_str": result_str})
-    else:
-        for tc in tool_calls:
-            if progress_callback:
-                progress_callback({"type": "tool_start", "step": step, "tool": tc.name})
+            tasks.append(coro)
 
-        pool = ThreadPoolExecutor(max_workers=min(len(tool_calls), 5))
-        timeout_triggered = False
-        try:
-            futures = {pool.submit(contextvars.copy_context().run, _exec_single, tc): tc for tc in tool_calls}
-            pending = set(futures)
-            for future in as_completed(
-                futures,
-                timeout=tool_wait_timeout_seconds if tool_wait_timeout_seconds and tool_wait_timeout_seconds > 0 else None,
-            ):
-                pending.discard(future)
-                tc_item, result_str, success, dur, cached = future.result()
-                if progress_callback:
-                    progress_callback({"type": "tool_done", "step": step, "tool": tc_item.name, "success": success, "duration": dur})
-                tool_calls_log.append({
-                    "step": step, "tool": tc_item.name, "arguments": tc_item.arguments,
-                    "success": success, "duration": dur, "result_length": len(result_str),
-                    "cached": cached,
-                })
-                results.append({"tc": tc_item, "result_str": result_str})
-        except FuturesTimeoutError:
-            timeout_triggered = True
-            timeout_label = (
-                f"{tool_wait_timeout_seconds:.2f}s"
-                if tool_wait_timeout_seconds is not None
-                else "the configured limit"
-            )
-            logger.warning("Tool batch timed out after %s at step %d", timeout_label, step)
-            for future, tc_item in futures.items():
-                if future in pending:
-                    future.cancel()
-                    result_str = json.dumps({
-                        "error": f"Tool execution timed out after {timeout_label}",
-                        "timeout": True,
-                    })
-                    if progress_callback:
-                        progress_callback({
-                            "type": "tool_done",
-                            "step": step,
-                            "tool": tc_item.name,
-                            "success": False,
-                            "duration": round(tool_wait_timeout_seconds or 0.0, 2),
-                        })
-                    tool_calls_log.append({
-                        "step": step,
-                        "tool": tc_item.name,
-                        "arguments": tc_item.arguments,
-                        "success": False,
-                        "duration": round(tool_wait_timeout_seconds or 0.0, 2),
-                        "result_length": len(result_str),
-                        "cached": False,
-                        "timeout": True,
-                    })
-                    results.append({"tc": tc_item, "result_str": result_str})
-        finally:
-            pool.shutdown(wait=not timeout_triggered, cancel_futures=timeout_triggered)
+    # Use return_exceptions=True to handle timeouts or other errors gracefully
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    results: List[Dict[str, Any]] = []
+    for i, res in enumerate(raw_results):
+        tc = tool_calls[i]
+        if isinstance(res, asyncio.TimeoutError):
+            timeout_label = f"{tool_wait_timeout_seconds:.2f}s"
+            logger.warning("Tool '%s' timed out after %s at step %d", tc.name, timeout_label, step)
+            res_str = json.dumps({
+                "error": f"Tool execution timed out after {timeout_label}",
+                "timeout": True,
+            })
+            # Ensure a log entry exists for the timeout
+            tool_calls_log.append({
+                "step": step, "tool": tc.name, "arguments": tc.arguments,
+                "success": False, "duration": round(tool_wait_timeout_seconds or 0.0, 2),
+                "result_length": len(res_str), "cached": False, "timeout": True,
+            })
+            results.append({"tc": tc, "result_str": res_str})
+        elif isinstance(res, Exception):
+            logger.error("Tool '%s' crashed with exception: %s", tc.name, res)
+            res_str = json.dumps({"error": str(res)})
+            results.append({"tc": tc, "result_str": res_str})
+        else:
+            # Successful or handled error within _exec_single
+            tc_item, res_str, ok, dur, cached = res
+            results.append({"tc": tc_item, "result_str": res_str})
 
     return results

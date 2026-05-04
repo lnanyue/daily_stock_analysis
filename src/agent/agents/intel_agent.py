@@ -195,9 +195,30 @@ unverifiable claims into those lists.
             if description:
                 ctx.add_risk_flag(category="intel", description=description)
 
+        signal = parsed.get("signal", "hold")
+        # Map signal string to direction integer
+        direction_map = {
+            "strong_buy": 1, "buy": 1,
+            "hold": 0,
+            "sell": -1, "strong_sell": -1
+        }
+        direction = direction_map.get(str(signal).lower(), 0)
+
+        # Standardise score: map sentiment_label to 0-100
+        sentiment_map = {
+            "very_positive": 90.0,
+            "positive": 70.0,
+            "neutral": 50.0,
+            "negative": 30.0,
+            "very_negative": 10.0
+        }
+        score = sentiment_map.get(str(parsed.get("sentiment_label", "neutral")).lower(), 50.0)
+
         return AgentOpinion(
             agent_name=self.agent_name,
-            signal=parsed.get("signal", "hold"),
+            signal=signal,
+            score=score,
+            direction=direction,
             confidence=float(parsed.get("confidence", 0.5)),
             reasoning=parsed.get("reasoning", ""),
             raw_data=parsed,
