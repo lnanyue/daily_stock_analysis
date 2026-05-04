@@ -50,12 +50,15 @@ class BaseAgent(ABC):
         llm_adapter: LLMToolAdapter,
         skill_instructions: str = "",
         technical_skill_policy: str = "",
+        max_steps: Optional[int] = None,
     ):
         self.tool_registry = tool_registry
         self.llm_adapter = llm_adapter
         self.skill_instructions = skill_instructions
         self.technical_skill_policy = technical_skill_policy
         self.memory = AgentMemory.from_config()
+        if max_steps is not None:
+            self.max_steps = max_steps
 
     # -----------------------------------------------------------------
     # Abstract interface
@@ -135,7 +138,8 @@ class BaseAgent(ABC):
             if opinion is not None:
                 opinion.agent_name = self.agent_name
                 self._apply_memory_calibration(ctx, opinion, result)
-                ctx.add_opinion(opinion)
+                # DO NOT add to ctx.opinions here; let the caller (orchestrator/pipeline)
+                # add it to maintain deterministic order during parallel execution.
                 result.opinion = opinion
 
             result.status = StageStatus.COMPLETED

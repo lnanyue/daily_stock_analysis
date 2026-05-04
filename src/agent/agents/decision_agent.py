@@ -173,18 +173,26 @@ confidence_level, dashboard, analysis_summary, key_points, risk_warning
 
         dashboard = parse_dashboard_json(raw_text)
         if dashboard:
-            dashboard["decision_type"] = normalize_decision_signal(
+            signal = normalize_decision_signal(
                 dashboard.get("decision_type", "hold")
             )
+            dashboard["decision_type"] = signal
             ctx.set_data("final_dashboard", dashboard)
             try:
                 _raw_score = dashboard.get("sentiment_score", 50) or 50
                 _score = float(_raw_score)
             except (TypeError, ValueError):
                 _score = 50.0
+
+            # Map signal string to direction integer
+            direction_map = {"buy": 1, "hold": 0, "sell": -1}
+            direction = direction_map.get(str(signal).lower(), 0)
+
             return AgentOpinion(
                 agent_name=self.agent_name,
-                signal=dashboard.get("decision_type", "hold"),
+                signal=signal,
+                score=_score,
+                direction=direction,
                 confidence=min(1.0, _score / 100.0),
                 reasoning=dashboard.get("analysis_summary", ""),
                 raw_data=dashboard,

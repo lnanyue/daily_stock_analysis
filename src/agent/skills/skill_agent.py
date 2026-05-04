@@ -106,9 +106,27 @@ Return **only** a JSON object:
             logger.warning("[SkillAgent:%s] failed to parse opinion JSON", self.skill_id)
             return None
 
+        signal = parsed.get("signal", "hold")
+        # Map signal string to direction integer
+        direction_map = {
+            "strong_buy": 1, "buy": 1,
+            "hold": 0,
+            "sell": -1, "strong_sell": -1
+        }
+        direction = direction_map.get(str(signal).lower(), 0)
+
+        # Standardise score: neutral + adjustment
+        try:
+            adj = float(parsed.get("score_adjustment", 0.0))
+        except (TypeError, ValueError):
+            adj = 0.0
+        score = max(0.0, min(100.0, 50.0 + adj + (20.0 * direction)))
+
         return AgentOpinion(
             agent_name=self.agent_name,
-            signal=parsed.get("signal", "hold"),
+            signal=signal,
+            score=score,
+            direction=direction,
             confidence=float(parsed.get("confidence", 0.5)),
             reasoning=parsed.get("reasoning", ""),
             raw_data=parsed,

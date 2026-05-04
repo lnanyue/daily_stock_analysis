@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional
 
@@ -105,13 +106,21 @@ async def run_agent_analysis(
         stock_code=code,
         stock_name=stock_name or code,
         query=f"Analysis for {stock_name or code}",
-        meta={"report_language": report_language},
+        meta={
+            "report_language": report_language,
+            "current_price": realtime_quote.price if realtime_quote else None,
+            "yesterday_close": realtime_quote.yesterday_close if realtime_quote else None,
+        },
     )
+
+    # Use a cooperative timeout for the agent phase (default 90s if not set)
+    t0_agent = time.time()
+    agent_phase_timeout = getattr(config, "agent_orchestrator_timeout_s", 90)
 
     # Run agents in parallel natively
     tech_result, intel_result = await asyncio.gather(
-        tech_agent.run(ctx),
-        intel_agent.run(ctx),
+        tech_agent.run(ctx, timeout_seconds=agent_phase_timeout),
+        intel_agent.run(ctx, timeout_seconds=agent_phase_timeout),
         return_exceptions=True,
     )
 
@@ -139,9 +148,11 @@ async def run_agent_analysis(
     # Run TraderAgent with accumulated opinions (Acts as a native synthesis stage)
     if ctx.opinions:
         try:
+            remaining_timeout = max(5.0, agent_phase_timeout - (time.time() - t0_agent))
             trader_agent = TraderAgent(analyzer=analyzer, config=config)
-            trader_opinion = await trader_agent.run(ctx)
+            trader_opinion = await trader_agent.run(ctx, timeout_seconds=remaining_timeout)
             if trader_opinion:
+                ctx.add_opinion(trader_opinion)
                 ctx.meta["trader_opinion"] = trader_opinion.raw_data
                 logger.info("[%s] TraderAgent signal: %s (confidence: %.2f)",
                             code, trader_opinion.signal, trader_opinion.confidence)

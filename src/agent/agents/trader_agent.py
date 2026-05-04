@@ -31,7 +31,7 @@ class TraderAgent:
         self.analyzer = analyzer
         self.config = config
 
-    async def run(self, ctx: AgentContext) -> Optional[AgentOpinion]:
+    async def run(self, ctx: AgentContext, timeout_seconds: Optional[float] = None) -> Optional[AgentOpinion]:
         """Run trader agent and return structured opinion."""
         report_language = normalize_report_language(
             ctx.meta.get("report_language", "zh")
@@ -45,6 +45,7 @@ class TraderAgent:
                 user_message,
                 {"max_tokens": 2048, "temperature": 0.3},
                 system_prompt=system_prompt,
+                timeout=timeout_seconds,
             )
         except Exception as e:
             logger.error("[TraderAgent] LLM call failed: %s", e)
@@ -178,16 +179,32 @@ Produce a JSON object with:
             logger.warning("[TraderAgent] failed to parse decision JSON")
             return None
 
-        # Store trader decision in context if available
-        # (context is passed separately)
-
         # Map conviction to confidence
         conviction_map = {"high": 0.9, "medium": 0.6, "low": 0.3}
         confidence = conviction_map.get(str(parsed.get("conviction", "medium")).lower(), 0.6)
 
+        signal = parsed.get("signal", "hold")
+        # Map signal string to direction integer
+        direction_map = {
+            "strong_buy": 1, "buy": 1,
+            "hold": 0,
+            "sell": -1, "strong_sell": -1
+        }
+        direction = direction_map.get(str(signal).lower(), 0)
+
+        # Standardise score: map signal and conviction to 0-100
+        # buy + high -> 90, buy + low -> 65, hold -> 50, etc.
+        base_score = 50.0
+        if direction == 1:
+            base_score = 70.0 + (20.0 if str(parsed.get("conviction")) == "high" else -5.0 if str(parsed.get("conviction")) == "low" else 0.0)
+        elif direction == -1:
+            base_score = 30.0 - (20.0 if str(parsed.get("conviction")) == "high" else -5.0 if str(parsed.get("conviction")) == "low" else 0.0)
+        
         return AgentOpinion(
             agent_name=self.agent_name,
-            signal=parsed.get("signal", "hold"),
+            signal=signal,
+            score=base_score,
+            direction=direction,
             confidence=confidence,
             reasoning=parsed.get("rationale", ""),
             raw_data=parsed,

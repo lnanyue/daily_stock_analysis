@@ -27,7 +27,7 @@ Usage::
 import copy
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -269,12 +269,57 @@ def resolve_skill_prompt_state(config=None, skills: Optional[List[str]] = None) 
     )
 
 
-def build_agent_executor(config=None, skills: Optional[List[str]] = None):
-    """Build and return a configured AgentExecutor (or future orchestrator).
+def build_agent(
+    role: str,
+    registry,
+    llm_adapter,
+    *,
+    config=None,
+    skill_instructions: str = "",
+    technical_skill_policy: str = "",
+    max_steps: Optional[int] = None,
+) -> Any:
+    """Build a specialized agent by role."""
+    from src.agent.agents.technical_agent import TechnicalAgent
+    from src.agent.agents.intel_agent import IntelAgent
+    from src.agent.agents.risk_agent import RiskAgent
+    from src.agent.agents.decision_agent import DecisionAgent
 
-    When ``AGENT_ARCH=multi``, this returns an orchestrator that manages
-    multiple specialised agents. Otherwise it returns the legacy single-agent
-    executor.
+    agent_max_steps = max_steps or getattr(config, "agent_max_steps", 10)
+
+    if role == "technical":
+        return TechnicalAgent(
+            tool_registry=registry,
+            llm_adapter=llm_adapter,
+            skill_instructions=skill_instructions,
+            technical_skill_policy=technical_skill_policy,
+            max_steps=agent_max_steps,
+        )
+    elif role == "intel":
+        return IntelAgent(
+            tool_registry=registry,
+            llm_adapter=llm_adapter,
+            max_steps=agent_max_steps,
+        )
+    elif role == "risk":
+        return RiskAgent(
+            tool_registry=registry,
+            llm_adapter=llm_adapter,
+            max_steps=agent_max_steps,
+        )
+    elif role == "decision":
+        return DecisionAgent(
+            tool_registry=registry,
+            llm_adapter=llm_adapter,
+            skill_instructions=skill_instructions,
+            max_steps=agent_max_steps,
+        )
+    else:
+        raise ValueError(f"Unknown agent role: {role}")
+
+
+def build_agent_executor(config=None, skills: Optional[List[str]] = None):
+    """Build and return a configured AgentExecutor.
 
     Args:
         config: Application config object.  When *None*, ``get_config()`` is
@@ -290,31 +335,19 @@ def build_agent_executor(config=None, skills: Optional[List[str]] = None):
         from src.config import get_config
         config = get_config()
 
-    arch = getattr(config, "agent_arch", "single")
-
     from src.agent.llm_adapter import LLMToolAdapter
 
     registry = get_tool_registry()
     prompt_state = resolve_skill_prompt_state(config, skills=skills)
     skill_manager = prompt_state.skill_manager
     logger.info(
-        "[AgentFactory] Resolved skill prompt state: skills=%s (arch=%s, explicit=%s, legacy_default_prompt=%s)",
+        "[AgentFactory] Resolved skill prompt state: skills=%s (explicit=%s, legacy_default_prompt=%s)",
         prompt_state.skills_to_activate,
-        arch,
         prompt_state.explicit_skill_selection,
         prompt_state.use_legacy_default_prompt,
     )
 
     llm_adapter = LLMToolAdapter(config)
-
-    if arch == "multi":
-        return _build_orchestrator(
-            config,
-            registry,
-            llm_adapter,
-            skill_manager,
-            technical_skill_policy=prompt_state.technical_skill_policy,
-        )
 
     from src.agent.executor import AgentExecutor
     return AgentExecutor(
@@ -324,30 +357,6 @@ def build_agent_executor(config=None, skills: Optional[List[str]] = None):
         default_skill_policy=prompt_state.default_skill_policy,
         use_legacy_default_prompt=prompt_state.use_legacy_default_prompt,
         max_steps=getattr(config, "agent_max_steps", 10),
-        timeout_seconds=getattr(config, "agent_orchestrator_timeout_s", 0),
-    )
-
-
-def _build_orchestrator(config, registry, llm_adapter, skill_manager, *, technical_skill_policy: str = ""):
-    """Build and return an :class:`AgentOrchestrator` (multi-agent mode).
-
-    The orchestrator presents the same ``run()`` / ``chat()`` interface as
-    :class:`AgentExecutor` so callers need no changes.
-    """
-    from src.agent.orchestrator import AgentOrchestrator
-
-    mode = getattr(config, "agent_orchestrator_mode", "standard")
-    logger.info("[AgentFactory] Building AgentOrchestrator (mode=%s)", mode)
-
-    return AgentOrchestrator(
-        tool_registry=registry,
-        llm_adapter=llm_adapter,
-        skill_instructions=skill_manager.get_skill_instructions(),
-        technical_skill_policy=technical_skill_policy,
-        max_steps=getattr(config, "agent_max_steps", 10),
-        mode=mode,
-        skill_manager=skill_manager,
-        config=config,
     )
 
 

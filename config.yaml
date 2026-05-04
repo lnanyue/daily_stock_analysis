@@ -66,9 +66,7 @@ agent:
   skills: ""                      # Agent 技能列表（逗号分隔）
   skill_dir: "strategies"         # 技能目录
   nl_routing: false              # 自然语言路由
-  arch: "single"                 # single / multi
-  orchestrator_mode: "standard"  # quick / standard / full / specialist
-  orchestrator_timeout_s: 600
+  arch: "single"                 # single / multi\n
   risk_override: true
   memory_enabled: false
   skill_autoweight: true

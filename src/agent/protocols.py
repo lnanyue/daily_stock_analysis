@@ -9,6 +9,7 @@ they can be serialised, logged, and passed across process boundaries.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -91,12 +92,15 @@ class AgentContext:
     # --- timing ---
     created_at: float = field(default_factory=time.time)
 
+    # --- internal ---
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+
     # -----------------------------------------------------------------
     # Convenience helpers
     # -----------------------------------------------------------------
 
     def add_opinion(self, opinion: "AgentOpinion") -> None:
-        """Append an opinion and auto-set the timestamp if missing."""
+        """Append an opinion. Note: deterministic order should be handled by orchestrator."""
         if opinion.timestamp == 0:
             opinion.timestamp = time.time()
         self.opinions.append(opinion)

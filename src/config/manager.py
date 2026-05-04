@@ -182,18 +182,12 @@ class Config:
     llm_models_source: str = "legacy_env"
     agent_litellm_model: str = ""
 
-    # DEPRECATED: Use the hybrid path (single LLM call) instead of the ReAct agent.
-    # The agent process-level config is preserved for rollback, but the default
-    # is now the hybrid approach. The AgentOrchestrator is still available
-    # for reference at src/agent/orchestrator.py.
     agent_mode: bool = False
     agent_auto_route_analysis: bool = False
     _agent_mode_explicit: bool = False
     agent_max_steps: int = 10
     agent_skills: List[str] = field(default_factory=list)
     agent_arch: str = "single"
-    agent_orchestrator_mode: str = "standard"
-    agent_orchestrator_timeout_s: int = 600
     agent_risk_override: bool = True
     agent_memory_enabled: bool = False
     agent_skill_autoweight: bool = True
@@ -398,7 +392,12 @@ class Config:
         )
 
         agent_mode_env = os.getenv("AGENT_MODE")
-        agent_arch = (os.getenv("AGENT_ARCH") or "single").strip().lower() or "single"
+        # Priority: ENV > config.yaml agent.arch > settings.yaml analysis.agent_arch > default "single"
+        agent_arch = (os.getenv("AGENT_ARCH") or "").strip().lower()
+        if not agent_arch:
+            agent_arch = str(ana_s.get("agent_arch", "")).strip().lower()
+        if not agent_arch:
+            agent_arch = "single"
         if agent_arch not in {"single", "multi"}:
             agent_arch = "single"
 
@@ -595,13 +594,6 @@ class Config:
             ),
             agent_skills=[s.strip() for s in os.getenv("AGENT_SKILLS", "").split(",") if s.strip()],
             agent_arch=agent_arch,
-            agent_orchestrator_mode=((os.getenv("AGENT_ORCHESTRATOR_MODE") or "standard").strip().lower() or "standard"),
-            agent_orchestrator_timeout_s=parse_env_int(
-                os.getenv("AGENT_ORCHESTRATOR_TIMEOUT_S"),
-                600,
-                field_name="AGENT_ORCHESTRATOR_TIMEOUT_S",
-                minimum=0,
-            ),
             agent_risk_override=parse_env_bool(os.getenv("AGENT_RISK_OVERRIDE"), default=True),
             agent_memory_enabled=parse_env_bool(os.getenv("AGENT_MEMORY_ENABLED"), default=False),
             agent_skill_autoweight=parse_env_bool(os.getenv("AGENT_SKILL_AUTOWEIGHT"), default=True),
