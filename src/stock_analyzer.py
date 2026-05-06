@@ -126,6 +126,10 @@ class TrendAnalysisResult:
     rsi_status: RSIStatus = RSIStatus.NEUTRAL
     rsi_signal: str = ""              # RSI 信号描述
 
+    # 背离信号（由 _check_divergence 填充）
+    macd_divergence: str = ""        # "bullish" | "bearish" | ""（无背离）
+    rsi_divergence: str = ""         # "bullish" | "bearish" | ""
+
     # 买入信号
     buy_signal: BuySignal = BuySignal.WAIT
     signal_score: int = 0            # 综合评分 0-100
@@ -165,6 +169,8 @@ class TrendAnalysisResult:
             'rsi_24': self.rsi_24,
             'rsi_status': self.rsi_status.value,
             'rsi_signal': self.rsi_signal,
+            'macd_divergence': self.macd_divergence,
+            'rsi_divergence': self.rsi_divergence,
         }
 
 
@@ -453,12 +459,14 @@ class StockTrendAnalyzer:
 
     def _analyze_macd(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
         """
-        分析 MACD 指标
+        分析 MACD 指标 + 背离检测
 
         核心信号：
         - 零轴上金叉：最强买入信号
         - 金叉：DIF 上穿 DEA
         - 死叉：DIF 下穿 DEA
+        - 顶背离：价格创新高，MACD DIF 未创新高
+        - 底背离：价格创新低，MACD DIF 未创新低
         """
         if len(df) < self.MACD_SLOW:
             result.macd_signal = "数据不足"
@@ -471,6 +479,9 @@ class StockTrendAnalyzer:
         result.macd_dif = float(latest['MACD_DIF'])
         result.macd_dea = float(latest['MACD_DEA'])
         result.macd_bar = float(latest['MACD_BAR'])
+
+        # --- 背离检测 ---
+        result.macd_divergence = self._detect_macd_divergence(df)
 
         # 判断金叉死叉
         prev_dif_dea = prev['MACD_DIF'] - prev['MACD_DEA']
@@ -514,14 +525,72 @@ class StockTrendAnalyzer:
             result.macd_status = MACDStatus.BULLISH
             result.macd_signal = " MACD 中性区域"
 
+    # ------------------------------------------------------------------
+    # 背离检测
+    # ------------------------------------------------------------------
+
+    # 背离检测回溯窗口
+    _DIVERGENCE_LOOKBACK = 20
+
+    @staticmethod
+    def _detect_divergence(
+        df: pd.DataFrame,
+        indicator_col: str,
+        lookback: int = 20,
+    ) -> str:
+        """Detect bullish/bearish divergence between price and an indicator.
+
+        Splits the lookback window in half and compares the price peak/trough
+        trend against the indicator peak/trough trend.
+
+        Returns ``"bullish"``, ``"bearish"``, or ``""`` (no divergence).
+        """
+        if df is None or len(df) < max(lookback, 10):
+            return ""
+
+        segment = df.tail(lookback).copy()
+        half = len(segment) // 2
+        early = segment.iloc[:half]
+        recent = segment.iloc[half:]
+
+        # --- Bearish divergence: price makes higher high, indicator doesn't ---
+        early_price_high = early["high"].max()
+        recent_price_high = recent["high"].max()
+        early_ind_high = early[indicator_col].max()
+        recent_ind_high = recent[indicator_col].max()
+
+        if recent_price_high > early_price_high and recent_ind_high <= early_ind_high:
+            return "bearish"
+
+        # --- Bullish divergence: price makes lower low, indicator doesn't ---
+        early_price_low = early["low"].min()
+        recent_price_low = recent["low"].min()
+        early_ind_low = early[indicator_col].min()
+        recent_ind_low = recent[indicator_col].min()
+
+        if recent_price_low < early_price_low and recent_ind_low >= early_ind_low:
+            return "bullish"
+
+        return ""
+
+    def _detect_macd_divergence(self, df: pd.DataFrame) -> str:
+        """Detect MACD DIF divergence (most reliable)."""
+        return self._detect_divergence(df, "MACD_DIF", self._DIVERGENCE_LOOKBACK)
+
+    def _detect_rsi_divergence(self, df: pd.DataFrame) -> str:
+        """Detect RSI divergence using RSI(6) as the fastest signal."""
+        return self._detect_divergence(df, f"RSI_{self.RSI_SHORT}", self._DIVERGENCE_LOOKBACK)
+
     def _analyze_rsi(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
         """
-        分析 RSI 指标
+        分析 RSI 指标 + 背离检测
 
         核心判断：
         - RSI > 70：超买，谨慎追高
         - RSI < 30：超卖，关注反弹
         - 40-60：中性区域
+        - 顶背离：价格创新高，RSI 未创新高
+        - 底背离：价格创新低，RSI 未创新低
         """
         if len(df) < self.RSI_LONG:
             result.rsi_signal = "数据不足"
@@ -533,6 +602,9 @@ class StockTrendAnalyzer:
         result.rsi_6 = float(latest[f'RSI_{self.RSI_SHORT}'])
         result.rsi_12 = float(latest[f'RSI_{self.RSI_MID}'])
         result.rsi_24 = float(latest[f'RSI_{self.RSI_LONG}'])
+
+        # --- 背离检测 ---
+        result.rsi_divergence = self._detect_rsi_divergence(df)
 
         # 以中期 RSI(12) 为主进行判断
         rsi_mid = result.rsi_12

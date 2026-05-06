@@ -1054,7 +1054,7 @@ class EfinanceFetcher(BaseFetcher):
 
         使用模块级缓存，同分析批次内只请求一次东财接口。
         """
-        global _sector_rankings_cache
+        global _sector_rankings_cache  # noqa: F824
         now = time.time()
 
         # 缓存命中：TTL 内的数据直接返回

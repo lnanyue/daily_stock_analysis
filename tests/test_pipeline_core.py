@@ -113,13 +113,24 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(pl.process_single_stock.call_count, 2)
 
     async def test_pipeline_error_handling(self):
-        """测试分析异常处理"""
+        """测试分析异常处理 — 真实 _make_error_result 返回 AnalysisResult，不是 None。"""
+        from src.analyzer import AnalysisResult as AR
+
         pl = StockAnalysisPipeline(config=self.mock_config)
         pl.fetcher_manager.get_realtime_quote = AsyncMock(side_effect=Exception("API 故障"))
-        
+        # 让 _make_error_result 返回真实对象（而非 MagicMock — MagicMock 绕不过 is None 判断）
+        pl.analyzer._make_error_result = MagicMock(
+            side_effect=lambda code, name, msg: AR(
+                code=code, name=name, sentiment_score=50,
+                trend_prediction="错误", operation_advice="出错",
+                analysis_summary=f"分析失败: {msg}", success=False, error_message=msg,
+            )
+        )
+
         result = await pl.analyze_stock("600519", ReportType.SIMPLE, "test_query")
-        
-        self.assertIsNone(result)
+
+        self.assertIsNotNone(result)
+        self.assertFalse(result.success)
 
     async def test_rate_limiting_logic(self):
         """验证限流和任务间歇逻辑是否被触发"""
@@ -179,7 +190,7 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
         pl = StockAnalysisPipeline(config=self.mock_config)
         pl.db.has_today_data.return_value = True
         
-        with patch.object(pl, '_resolve_resume_target_date', return_value=date(2026, 5, 2)):
+        with patch('src.core.pipeline.resolve_resume_target_date', return_value=date(2026, 5, 2)):
             # 数据已存在，且不强制刷新
             success, error = await pl.fetch_and_save_stock_data("600519", force_refresh=False)
             self.assertTrue(success)

@@ -1,51 +1,24 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 主调度程序 (异步版)
+A股自选股智能分析系统 - 主调度程序
 ===================================
 
 职责：
-1. 命令行入口
-2. 参数解析
-3. 模式路由
-4. 全局异常处理
+1. 命令行解析 (argparse)
+2. 环境与日志初始化调度
+3. 模式分发 (Mode Routing)
 
-每个模式的具体实现在 ``src/core/runner.py``。
+每个模式的具体实现位于 ``src.core.runner``。
+系统生命周期管理位于 ``src.core.lifecycle``。
 """
 
-import os
-import sys
-import warnings
-
-# Suppress warnings that cannot be easily controlled per-module.
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=ResourceWarning)
-os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning,ignore::ResourceWarning")
-
-# .env loading — must happen before any application imports.
-from dotenv import dotenv_values
-from src.config import setup_env
-
-_INITIAL_PROCESS_ENV = dict(os.environ)
-setup_env()
-
-# 代理配置（模块级，使用 .env 中的值）
-if os.getenv("GITHUB_ACTIONS") != "true" and os.getenv("USE_PROXY", "false").lower() == "true":
-    proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
-    proxy_port = os.getenv("PROXY_PORT", "10809")
-    proxy_url = f"http://{proxy_host}:{proxy_port}"
-    os.environ["http_proxy"] = proxy_url
-    os.environ["https_proxy"] = proxy_url
-
 import argparse
-import asyncio
 import logging
+import sys
 from typing import List, Optional
 
 from data_provider import canonical_stock_code
-from src.config import get_config, Config
-from src.core.runner import run_full_analysis, run_backtest, run_market_review_only, run_schedule_mode
-from src.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -79,50 +52,60 @@ def _parse_cli_stock_codes(args: argparse.Namespace) -> Optional[List[str]]:
     return [canonical_stock_code(c) for c in args.stocks.split(",")]
 
 
-def start_bot_stream_clients(config: Config) -> None:
-    """启动 Stream 机器人（后台线程）。"""
-    if config.dingtalk_stream_enabled:
-        from bot.platforms import start_dingtalk_stream_background
-        start_dingtalk_stream_background()
-    if getattr(config, "feishu_stream_enabled", False):
-        from bot.platforms import start_feishu_stream_background
-        start_feishu_stream_background()
-
-
 def main() -> int:
-    """向后兼容的同步入口。"""
+    """系统入口。"""
+    # 1. 初始解析与早期日志引导
     args = parse_arguments()
+    from src.core.lifecycle import bootstrap_logging, run_with_cleanup
+    bootstrap_logging(debug=args.debug)
+
+    # 2. 环境初始化 (.env, 代理)
+    from src.config.env import bootstrap_environment
+    bootstrap_environment()
+
+    # 3. 加载完整配置与正式日志
+    from src.config import get_config
     config = get_config()
+    from src.logging_config import setup_logging
     setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
 
     logger.info("=" * 40 + " 系统启动 " + "=" * 40)
     config.validate()
 
+    # 4. 后台服务 (机器人 Stream 等)
+    from src.core.runner import (
+        run_full_analysis,
+        run_backtest,
+        run_market_review_only,
+        run_schedule_mode,
+        start_bot_stream_clients,
+    )
     start_bot_stream_clients(config)
 
+    # 5. 模式路由 (White-box Routing)
+    import asyncio
     try:
-        # ── 回测模式 ──
+        # 模式 A: 回测
         if getattr(args, "backtest", False):
             return run_backtest(getattr(args, "backtest_code", None))
 
-        # ── 仅大盘复盘模式 ──
+        # 模式 B: 仅大盘复盘
         if args.market_review:
             return asyncio.run(run_market_review_only(config, args))
 
-        # ── 定时调度模式 ──
+        # 模式 C: 定时任务 (长驻进程)
         if args.schedule or config.schedule_enabled:
             return run_schedule_mode(config, args)
 
-        # ── 默认：单次个股分析 + 大盘复盘 ──
+        # 模式 D: 默认分析流程 (个股 + 复盘)
         stock_codes = _parse_cli_stock_codes(args)
-        from src.core.lifecycle import run_with_cleanup
-
         return asyncio.run(run_with_cleanup(run_full_analysis(config, args, stock_codes)))
 
     except KeyboardInterrupt:
+        logger.info("用户中断执行")
         return 130
     except Exception as e:
-        logger.exception("执行失败: %s", e)
+        logger.exception("系统运行异常: %s", e)
         return 1
 
 

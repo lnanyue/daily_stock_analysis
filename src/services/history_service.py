@@ -83,6 +83,13 @@ class HistoryService:
             Dictionary containing total count and items
         """
         try:
+            # Auto-evaluate pending predictions on history query
+            try:
+                from src.services.fact_checker import FactChecker
+                FactChecker(self.db).evaluate_pending(limit=20)
+            except Exception as exc:
+                logger.debug("Fact-check evaluation skipped: %s", exc)
+
             # Parse date parameters
             start_dt = None
             end_dt = None

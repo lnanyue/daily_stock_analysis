@@ -7,6 +7,12 @@ import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import date
 
+from src.core.pipeline_helpers import (
+    compute_ma_status,
+    extract_quote_payload,
+    estimate_intel_bullet_count,
+    extract_risk_keywords,
+)
 from src.core.pipeline import StockAnalysisPipeline
 
 
@@ -36,27 +42,27 @@ class TestPipelineMethods(unittest.TestCase):
 
     def test_compute_ma_status_bullish(self):
         """测试 MA 状态计算 - 多头排列"""
-        result = StockAnalysisPipeline._compute_ma_status(ma5=10.5, ma10=10.0, ma20=9.5, price=11.0)
+        result = compute_ma_status(ma5=10.5, ma10=10.0, ma20=9.5, price=11.0)
         self.assertIn("多头排列", result)
 
     def test_compute_ma_status_bearish(self):
         """测试 MA 状态计算 - 空头排列"""
-        result = StockAnalysisPipeline._compute_ma_status(ma5=9.5, ma10=10.0, ma20=10.5, price=9.0)
+        result = compute_ma_status(ma5=9.5, ma10=10.0, ma20=10.5, price=9.0)
         self.assertIn("空头排列", result)
 
     def test_compute_ma_status_golden_cross(self):
         """测试 MA 状态计算 - 金叉（短期向好）"""
-        result = StockAnalysisPipeline._compute_ma_status(ma5=10.5, ma10=9.8, ma20=9.5, price=10.3)
+        result = compute_ma_status(ma5=10.5, ma10=9.8, ma20=9.5, price=10.3)
         self.assertIn("多头承压", result)
 
     def test_compute_ma_status_death_cross(self):
         """测试 MA 状态计算 - 死叉（空头反抽）"""
-        result = StockAnalysisPipeline._compute_ma_status(ma5=9.5, ma10=10.2, ma20=10.5, price=9.8)
+        result = compute_ma_status(ma5=9.5, ma10=10.2, ma20=10.5, price=9.8)
         self.assertIn("空头反抽", result)
 
     def test_compute_ma_status_price_above_ma5(self):
         """测试 MA 状态计算 - 价格在 MA5 上方"""
-        result = StockAnalysisPipeline._compute_ma_status(ma5=10.0, ma10=9.5, ma20=9.0, price=10.5)
+        result = compute_ma_status(ma5=10.0, ma10=9.5, ma20=9.0, price=10.5)
         self.assertIn("多头排列", result)
 
     def test_extract_quote_payload_with_realtime(self):
@@ -66,14 +72,14 @@ class TestPipelineMethods(unittest.TestCase):
         mock_quote.change_pct = 5.0
         mock_quote.volume = 1000000
 
-        result = StockAnalysisPipeline._extract_quote_payload(mock_quote)
+        result = extract_quote_payload(mock_quote)
         self.assertIsNotNone(result)
         self.assertEqual(result.get('price'), 100.0)
         self.assertEqual(result.get('change_pct'), 5.0)
 
     def test_extract_quote_payload_none(self):
         """测试提取实时行情载荷 - None 输入"""
-        result = StockAnalysisPipeline._extract_quote_payload(None)
+        result = extract_quote_payload(None)
         self.assertIsNone(result)
 
     def test_coerce_bool_setting_true(self):
@@ -104,14 +110,14 @@ class TestPipelineMethods(unittest.TestCase):
     def test_estimate_intel_bullet_count(self):
         """测试估算情报子弹点数"""
         text = "这是一段测试文本，包含一些关键词。市场上涨，成交量放大。"
-        result = StockAnalysisPipeline._estimate_intel_bullet_count(text)
+        result = estimate_intel_bullet_count(text)
         self.assertIsInstance(result, int)
         self.assertGreaterEqual(result, 0)
 
     def test_extract_risk_keywords(self):
         """测试提取风险关键词"""
         text = "公司面临市场竞争风险，需要注意政策风险。"
-        keywords = StockAnalysisPipeline._extract_risk_keywords(text)
+        keywords = extract_risk_keywords(text)
         self.assertIsInstance(keywords, list)
 
     def test_resolve_query_source_default(self):

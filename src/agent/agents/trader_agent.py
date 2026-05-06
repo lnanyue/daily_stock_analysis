@@ -156,6 +156,23 @@ Produce a JSON object with:
                         parts.append(f"Extra: {json.dumps(extra_keys, ensure_ascii=False, default=str)}")
                 parts.append("")
 
+        # Feed normalized signals (pre-computed quantitative judgements)
+        raw_signals = ctx.meta.get("normalized_signals")
+        if raw_signals:
+            parts.append("## Normalized Quantitative Signals")
+            for s in raw_signals:
+                dim = s.get("dimension", "?")
+                sig = s.get("signal", "neutral")
+                sc = s.get("score", 50)
+                conf = s.get("confidence", 0.5)
+                facts = s.get("key_facts", [])
+                stars = "★" * max(1, round(conf * 3))
+                facts_str = " | ".join(str(f) for f in facts[:2]) if facts else ""
+                parts.append(f"- [{dim}] {sig} ({sc}/100, {stars}) {facts_str}")
+            parts.append("")
+            parts.append("**Note**: These signals are pre-computed — use them alongside your own judgment.")
+            parts.append("")
+
         # Feed risk flags
         if ctx.risk_flags:
             parts.append("## Risk Flags")

@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-===================================
-A股自选股智能分析系统 - 配置管理核心
-===================================
+Legacy Config manager — the active singleton-based configuration loader.
 
-职责：
-1. 维护全局配置单例
-2. 聚合 YAML 文件与环境变量
-3. 保持重构前的兼容配置入口，避免 CLI / Service / Tests 失效
+This module implements the ``Config`` singleton and YAML + env loading
+via ``_load_from_env()``. All ``get_config()`` calls throughout the
+codebase resolve here.
+
+The ``src/core/config_registry.py`` module provides field definitions for
+the WebUI settings API but does NOT drive live config loading.
 """
 
 from __future__ import annotations
@@ -192,6 +192,7 @@ class Config:
     agent_memory_enabled: bool = False
     agent_skill_autoweight: bool = True
     agent_skill_routing: str = "auto"
+    agent_orchestrator_timeout_s: int = 600
 
     gemini_api_keys: List[str] = field(default_factory=list)
     gemini_api_key: Optional[str] = None
@@ -239,17 +240,60 @@ class Config:
             return
         setup_env(override=override)
 
+    @staticmethod
+    def _apply_config_yaml_defaults() -> None:
+        """Load ``config.yaml`` and set its values as os.environ defaults.
+
+        Priority chain:  os.environ > .env > config.yaml > class defaults
+        This runs after ``load_dotenv()``, so existing env vars are never
+        overwritten.  The env-var name for each YAML key is resolved via
+        ``config_registry`` when available; otherwise ``SECTION_KEY`` is used.
+        """
+        try:
+            import yaml
+            from pathlib import Path
+
+            from src.core.config_registry import get_registered_field_keys
+
+            cfg_path = Path(os.getcwd()) / "config.yaml"
+            if not cfg_path.exists():
+                return
+            with open(cfg_path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if not isinstance(data, dict):
+                return
+
+            registry_keys = set(get_registered_field_keys())
+
+            def _apply(d: dict, prefix: str = "") -> None:
+                for k, v in d.items():
+                    upper = k.upper()
+                    sect_key = f"{prefix}_{upper}" if prefix else upper
+                    if isinstance(v, dict):
+                        _apply(v, sect_key)
+                    else:
+                        # Try bare key, then config_registry key, then section-prefixed
+                        candidate = upper if upper in registry_keys else sect_key
+                        if isinstance(v, bool):
+                            os.environ.setdefault(candidate, "true" if v else "false")
+                        else:
+                            os.environ.setdefault(candidate, str(v))
+
+            _apply(data)
+        except Exception:
+            pass  # config.yaml is optional; class defaults cover missing values
+
     @classmethod
     def _load_from_env(cls) -> "Config":
         preexisting_report_language = os.getenv("REPORT_LANGUAGE")
         cls._call_setup_env()
 
-        settings = load_settings_from_yaml("settings.yaml")
-        ana_s = settings.get("analysis", {})
-        sys_s = settings.get("system", {})
-        not_s = settings.get("notification", {})
-        dat_s = settings.get("data", {})
-        sch_s = settings.get("schedule", {})
+        # Load config.yaml as defaults (env vars still take priority).
+        # Priority chain:  os.environ > .env > config.yaml > class defaults
+        # Skipping when os.environ has been cleared (pytest clear=True): if
+        # HOME is missing the env isn't a real process environment.
+        if os.environ.get("HOME"):
+            cls._apply_config_yaml_defaults()
 
         def _get_keys(plural: str, singular: str) -> List[str]:
             val = os.getenv(plural, "")
@@ -267,7 +311,7 @@ class Config:
 
         report_language = cls._parse_report_language(
             cls._resolve_report_language_env_value(preexisting_report_language)
-            or ana_s.get("language", "zh")
+            or "zh"
         )
 
         gemini_keys = _get_keys("GEMINI_API_KEYS", "GEMINI_API_KEY")
@@ -392,10 +436,10 @@ class Config:
         )
 
         agent_mode_env = os.getenv("AGENT_MODE")
-        # Priority: ENV > config.yaml agent.arch > settings.yaml analysis.agent_arch > default "single"
+        # Priority: ENV > config.yaml agent.arch > default "single"
         agent_arch = (os.getenv("AGENT_ARCH") or "").strip().lower()
         if not agent_arch:
-            agent_arch = str(ana_s.get("agent_arch", "")).strip().lower()
+            agent_arch = "".strip().lower()
         if not agent_arch:
             agent_arch = "single"
         if agent_arch not in {"single", "multi"}:
@@ -412,16 +456,16 @@ class Config:
                 minimum=1,
             ),
             news_strategy_profile=normalize_news_strategy_profile(
-                os.getenv("NEWS_STRATEGY_PROFILE") or ana_s.get("strategy_profile", "short")
+                os.getenv("NEWS_STRATEGY_PROFILE") or "short"
             ),
             bias_threshold=parse_env_float(
                 os.getenv("BIAS_THRESHOLD"),
-                float(ana_s.get("bias_threshold", 5.0)),
+                5.0,
                 field_name="BIAS_THRESHOLD",
             ),
             gemini_request_delay=parse_env_float(
                 os.getenv("ANALYSIS_REQUEST_DELAY"),
-                float(ana_s.get("request_delay", 2.0)),
+                2.0,
                 field_name="ANALYSIS_REQUEST_DELAY",
                 minimum=0.0,
             ),
@@ -431,11 +475,11 @@ class Config:
             ),
             report_integrity_retry=parse_env_int(
                 os.getenv("REPORT_INTEGRITY_RETRY"),
-                int(ana_s.get("integrity_retry", 1)),
+                1,
                 field_name="REPORT_INTEGRITY_RETRY",
                 minimum=0,
             ),
-            analysis_mode=(os.getenv("ANALYSIS_MODE") or ana_s.get("mode", "simple")).strip() or "simple",
+            analysis_mode=(os.getenv("ANALYSIS_MODE") or "simple").strip() or "simple",
             max_workers=parse_env_int(
                 os.getenv("MAX_WORKERS"),
                 3,
@@ -455,19 +499,19 @@ class Config:
                 minimum=1,
                 maximum=65535,
             ),
-            log_level=(os.getenv("LOG_LEVEL") or sys_s.get("log_level", "INFO")).strip() or "INFO",
-            log_dir=(os.getenv("LOG_DIR") or sys_s.get("log_dir", "./logs")).strip() or "./logs",
-            report_dir=(os.getenv("REPORT_DIR") or sys_s.get("report_dir", "report")).strip() or "report",
-            debug=parse_env_bool(os.getenv("DEBUG"), default=bool(sys_s.get("debug", False))),
+            log_level=(os.getenv("LOG_LEVEL") or "INFO").strip() or "INFO",
+            log_dir=(os.getenv("LOG_DIR") or "./logs").strip() or "./logs",
+            report_dir=(os.getenv("REPORT_DIR") or "report").strip() or "report",
+            debug=parse_env_bool(os.getenv("DEBUG"), default=False),
             config_validate_mode=(os.getenv("CONFIG_VALIDATE_MODE") or "warn").strip().lower() or "warn",
-            report_type=((os.getenv("REPORT_TYPE") or not_s.get("report_type", "simple")).strip().lower() or "simple"),
+            report_type=((os.getenv("REPORT_TYPE") or "simple").strip().lower() or "simple"),
             report_summary_only=parse_env_bool(
                 os.getenv("REPORT_SUMMARY_ONLY"),
-                default=bool(not_s.get("summary_only", False)),
+                default=False,
             ),
             merge_email_notification=parse_env_bool(
                 os.getenv("MERGE_EMAIL_NOTIFICATION"),
-                default=bool(not_s.get("merge_email", False)),
+                default=False,
             ),
             single_stock_notify=parse_env_bool(os.getenv("SINGLE_STOCK_NOTIFY"), default=False),
             feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL"),
@@ -508,9 +552,9 @@ class Config:
             ),
             schedule_enabled=parse_env_bool(
                 os.getenv("SCHEDULE_ENABLED"),
-                default=bool(sch_s.get("enabled", False)),
+                default=False,
             ),
-            schedule_time=(os.getenv("SCHEDULE_TIME") or sch_s.get("time", "18:00")).strip() or "18:00",
+            schedule_time=(os.getenv("SCHEDULE_TIME") or "18:00").strip() or "18:00",
             schedule_run_immediately=schedule_run_immediately,
             run_immediately=legacy_run_immediately,
             market_review_enabled=parse_env_bool(os.getenv("MARKET_REVIEW_ENABLED"), default=True),
@@ -521,20 +565,20 @@ class Config:
             ),
             prefetch_realtime_quotes=parse_env_bool(
                 os.getenv("PREFETCH_REALTIME_QUOTES"),
-                default=bool(dat_s.get("prefetch_quotes", True)),
+                default=True,
             ),
             realtime_cache_ttl=parse_env_int(
                 os.getenv("REALTIME_CACHE_TTL"),
-                int(dat_s.get("cache_ttl", 600)),
+                600,
                 field_name="REALTIME_CACHE_TTL",
                 minimum=1,
             ),
             realtime_source_priority=cls._resolve_realtime_source_priority(),
             enable_eastmoney_patch=parse_env_bool(
                 os.getenv("ENABLE_EASTMONEY_PATCH"),
-                default=bool(dat_s.get("eastmoney_patch", False)),
+                default=False,
             ),
-            database_path=(os.getenv("DATABASE_PATH") or dat_s.get("database_path", "./data/stock_analysis.db")).strip() or "./data/stock_analysis.db",
+            database_path=(os.getenv("DATABASE_PATH") or "./data/stock_analysis.db").strip() or "./data/stock_analysis.db",
             save_context_snapshot=parse_env_bool(os.getenv("SAVE_CONTEXT_SNAPSHOT"), default=True),
             tushare_token=os.getenv("TUSHARE_TOKEN"),
             tickflow_api_key=os.getenv("TICKFLOW_API_KEY"),

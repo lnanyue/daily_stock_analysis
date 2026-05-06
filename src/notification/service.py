@@ -159,6 +159,23 @@ class NotificationService:
     async def send_to_custom(self, content: str) -> bool: return await self._senders[NotificationChannel.CUSTOM].send(content)
     async def send_to_discord(self, content: str) -> bool: return await self._senders[NotificationChannel.DISCORD].send(content)
 
+    # ------------------------------------------------------------------
+    # Pipeline notification helpers (called by pipeline_notifications.py)
+    # ------------------------------------------------------------------
+    def _should_use_image_for_channel(self, channel: NotificationChannel, image_bytes: Optional[bytes]) -> bool:
+        """Check whether markdown has been rendered to an image for this channel."""
+        return image_bytes is not None and channel.value in self._markdown_to_image_channels
+
+    async def _send_email_with_inline_image(
+        self, content: str, image_bytes: bytes, receivers: Optional[List[str]] = None
+    ) -> bool:
+        return await self._senders[NotificationChannel.EMAIL]._send_email_with_inline_image(
+            image_bytes, receivers=receivers
+        )
+
+    async def _send_wechat_image(self, image_bytes: bytes) -> bool:
+        return await self._senders[NotificationChannel.WECHAT]._send_wechat_image(image_bytes)
+
     async def send(self, content: str, email_stock_codes: Optional[List[str]] = None, email_send_to_all: bool = False) -> bool:
         if not self._available_channels:
             self._last_delivery_results = []

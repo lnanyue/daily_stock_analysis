@@ -21,6 +21,12 @@ def bootstrap_logging(debug: bool = False) -> None:
     文件处理器推迟到知道了 ``config.log_dir`` 后才通过 ``setup_logging()`` 添加，
     这样健康运行的日志不会写入硬编码目录。
     """
+    import os
+    import warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=ResourceWarning)
+    os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning,ignore::ResourceWarning")
+
     level = logging.DEBUG if debug else logging.INFO
     root = logging.getLogger()
     root.setLevel(level)

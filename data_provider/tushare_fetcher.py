@@ -818,9 +818,6 @@ class TushareFetcher(BaseFetcher):
                 fields="ts_code,name",
                 timeout_seconds=self._STOCK_NAME_TIMEOUT_SECONDS,
             )
-            # 速率限制检查
-            self._check_rate_limit()
-            
 
             # 根据市场/类型选择基础信息接口
             if _is_hk_market(stock_code):

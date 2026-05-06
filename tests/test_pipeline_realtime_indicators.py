@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from data_provider.realtime_types import UnifiedRealtimeQuote, RealtimeSource
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult, TrendStatus
 from src.core.pipeline import StockAnalysisPipeline
+from src.core.pipeline_helpers import compute_ma_status
 
 
 def _make_realtime_quote(
@@ -144,15 +145,15 @@ class TestComputeMaStatus(unittest.TestCase):
     """Tests for _compute_ma_status."""
 
     def test_bullish_alignment(self) -> None:
-        status = StockAnalysisPipeline._compute_ma_status(11, 10, 9.5, 9)
+        status = compute_ma_status(11, 10, 9.5, 9)
         self.assertIn("多头", status)
 
     def test_bearish_alignment(self) -> None:
-        status = StockAnalysisPipeline._compute_ma_status(8, 9, 9.5, 10)
+        status = compute_ma_status(8, 9, 9.5, 10)
         self.assertIn("空头", status)
 
     def test_consolidation(self) -> None:
-        status = StockAnalysisPipeline._compute_ma_status(10, 10, 10, 10)
+        status = compute_ma_status(10, 10, 10, 10)
         self.assertIn("震荡", status)
 
 

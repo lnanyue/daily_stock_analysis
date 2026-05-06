@@ -212,24 +212,36 @@ def format_analysis_prompt(
     use_legacy_default_prompt: bool = False,
     news_window_days_config: Optional[int] = None,
     output_format: str = "standard",
+    normalized_signals: Optional[List[Dict[str, Any]]] = None,
+    conflict_warnings: Optional[List[str]] = None,
 ) -> str:
     """
     格式化分析提示词（决策仪表盘 v2.0）
+
+    Args:
+        normalized_signals: Optional list of NormalizedSignal dicts (from
+            signal_layer.normalize_all_signals).  When provided, a
+            pre-digested signals table is injected before the raw data.
+        conflict_warnings: Optional list of strings identifying serious
+            contradictions between analytical dimensions.
     """
     code = context.get('code', 'Unknown')
     report_language = normalize_report_language(report_language)
-    
+
     # 优先使用上下文中的股票名称
     stock_name = context.get('stock_name', name)
     if not stock_name or stock_name == f'股票{code}':
         stock_name = STOCK_NAME_MAP.get(code, f'股票{code}')
-        
+
     today = context.get('today', {})
     unknown_text = get_unknown_text(report_language)
     no_data_text = get_no_data_text(report_language)
     news_window_days = _resolve_prompt_news_window_days(news_window_days_config)
-    
+
     # ========== 构建决策仪表盘格式的输入 ==========
+    data_freshness = context.get("data_freshness", "")
+    freshness_line = f"（数据更新于: {data_freshness}）" if data_freshness else ""
+
     prompt = f"""# 决策仪表盘分析请求
 
 ## 📊 股票基础信息
@@ -237,7 +249,7 @@ def format_analysis_prompt(
 |------|------|
 | 股票代码 | **{code}** |
 | 股票名称 | **{stock_name}** |
-| 分析日期 | {context.get('date', unknown_text)} |
+| 分析日期 | {context.get('date', unknown_text)} {freshness_line} |
 
 ---
 
@@ -263,6 +275,99 @@ def format_analysis_prompt(
             top_sectors = sectors.get('top', [])
             if top_sectors:
                 prompt += "\n### 强势行业板块\n" + " | ".join([f"{s['name']}({s['change_pct']}%)" for s in top_sectors[:3]]) + "\n"
+
+    # ----- Normalised signal summary (pre-digested by system) -----
+    if normalized_signals:
+        prompt += "\n---\n\n## 📊 量化信号摘要（系统预计算）\n"
+        prompt += "| 维度 | 信号 | 评分 | 置信度 | 关键依据 |\n"
+        prompt += "|------|------|------|--------|----------|\n"
+        for sig in normalized_signals:
+            if isinstance(sig, dict):
+                dim = sig.get("dimension", "")
+                signal = sig.get("signal", "neutral")
+                score = sig.get("score", 50)
+                confidence = sig.get("confidence", 0.5)
+                facts = sig.get("key_facts", [])
+            else:
+                dim = getattr(sig, "dimension", "")
+                signal = getattr(sig, "signal", "neutral")
+                score = getattr(sig, "score", 50)
+                confidence = getattr(sig, "confidence", 0.5)
+                facts = getattr(sig, "key_facts", [])
+            icon = {"bullish": "📈", "bearish": "📉", "neutral": "➡️"}.get(signal, "➡️")
+            conf_stars = "★" * max(1, round(confidence * 3)) if confidence else "☆"
+            facts_str = " | ".join(str(f) for f in facts[:2]) if facts else "—"
+            prompt += f"| {icon} {dim} | {signal} | {score:.0f}/100 | {conf_stars} | {facts_str} |\n"
+        prompt += "\n> 以上信号由系统基于原始数据自动计算，LLM 应据此作为主要判断依据。原始数据见下方各节，可用于交叉验证。\n"
+
+    # ----- Conflict warnings (Adversarial guard) -----
+    if conflict_warnings:
+        prompt += "\n---\n\n## ⚠️ 信号严重背离预警 (Critical Signal Conflicts)\n"
+        prompt += "检测到以下跨维度信号冲突，你**必须**在分析中解释这些冲突的真实含义（例如：是否为诱多、诱空或趋势衰竭）：\n\n"
+        for warn in conflict_warnings:
+            prompt += f"- **{warn}**\n"
+        prompt += "\n"
+
+    # ----- Market overview (index + sector context) -----
+    market_overview = context.get("market_overview")
+    if market_overview:
+        prompt += "\n---\n\n## 📊 市场全景\n\n"
+        indices = market_overview.get("indices")
+        if indices:
+            prompt += "### 主要指数\n\n| 指数 | 最新价 | 涨跌幅 |\n|------|--------|--------|\n"
+            for idx in indices[:8]:
+                name = idx.get("name", "?")
+                current = idx.get("current", 0)
+                cp = idx.get("change_pct", 0)
+                cp_str = f"{cp:+.2f}%" if cp is not None else "—"
+                prompt += f"| {name} | {current:.2f} | {cp_str} |\n"
+            prompt += "\n"
+        sectors = market_overview.get("sectors")
+        if sectors:
+            top = sectors.get("top", [])
+            bottom = sectors.get("bottom", [])
+            def _sec_line(s):
+                name = s.get("name", "?")
+                cp = s.get("change_pct", 0)
+                return f"{name}({cp:+.2f}%)" if cp is not None else name
+            if top:
+                top_str = " ".join(_sec_line(s) for s in top)
+                prompt += f"领涨板块：{top_str}\n\n"
+            if bottom:
+                bottom_str = " ".join(_sec_line(s) for s in bottom)
+                prompt += f"领跌板块：{bottom_str}\n\n"
+
+    # ----- Historical context (previous analysis comparison) -----
+    prev_analyses = context.get("previous_analyses", [])
+    if prev_analyses:
+        prompt += "\n---\n\n## 🕐 历史分析回顾\n"
+        prompt += "以下是该股票最近的分析结论，请对比当前情况判断是否延续或反转：\n\n"
+        for i, pa in enumerate(prev_analyses, 1):
+            pa_date = pa.get("date", "未知")
+            pa_decision = pa.get("decision", "未知")
+            pa_score = pa.get("score", "")
+            pa_summary = pa.get("summary", "")[:150]
+            prompt += f"{i}. **{pa_date}** → {pa_decision}（评分:{pa_score}）: {pa_summary}\n"
+
+    # ----- Logic backtracking: forced explanation when direction changes -----
+    logic_turnover = context.get("logic_turnover")
+    if logic_turnover:
+        prev_decision = logic_turnover.get("previous_decision", "未知")
+        prev_summary = logic_turnover.get("previous_summary", "")
+        curr_label = logic_turnover.get("current_direction", "不同")
+        prev_date = logic_turnover.get("previous_date", "上次")
+        prompt += (
+            "\n#### 🔄 逻辑回溯要求\n\n"
+            f"你上次（{prev_date}）对此股票的判断是「{prev_decision}」，"
+        )
+        if prev_summary:
+            prompt += f"理由是：{prev_summary[:200]}\n\n"
+        else:
+            prompt += "\n\n"
+        prompt += (
+            f"本次你的判断方向发生了变化，你**必须**在「分析摘要」或「走势分析」中说明你的逻辑转折点。\n\n"
+            f"格式要求：分析文本中应包含类似「逻辑回溯：上次看多/看空/观望，本次看{curr_label}，原因：……」的表述。\n"
+        )
 
     prompt += f"""
 ---
@@ -439,10 +544,11 @@ def format_analysis_prompt(
 """
 
     # 添加新闻搜索结果
-    prompt += """
+    freshness_marker = f"（搜索于: {data_freshness}）" if data_freshness else ""
+    prompt += f"""
 ---
 
-## 📰 舆情情报
+## 📰 舆情情报 {freshness_marker}
 """
     if news_context:
         prompt += f"""

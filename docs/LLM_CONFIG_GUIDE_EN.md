@@ -114,35 +114,29 @@ LITELLM_MODEL=ollama/qwen3:8b
 
 ---
 
-## Method 3: Advanced YAML Config (Expert Setup)
+## Method 3: Advanced YAML Config (Expert Setup — Deprecated)
 
-**Goal:** I want maximum control and origin-level routing rules for enterprise-grade high availability.
+> **⚠️ Deprecated:** The standalone `litellm_config.yaml` file is deprecated. Please migrate LLM configuration to the `llm` section in `config.yaml`. The `LITELLM_CONFIG` env var still works for backward compatibility but is no longer recommended.
 
-This project completely unlocks LiteLLM's native capabilities, supporting high concurrency, automatic retries, and TPM/RPM based load balancing.
+### Recommended: Use the llm section in config.yaml
 
-1. Keep only one declaration line in your `.env`:
-   ```env
-   LITELLM_CONFIG=./litellm_config.yaml
-   ```
-2. Create a `litellm_config.yaml` in the project root directory (you can refer to `litellm_config.example.yaml`).
+Configure LLM routing in `config.yaml`:
 
-Example `litellm_config.yaml`:
 ```yaml
-model_list:
-  - model_name: my-smart-model
-    litellm_params:
-      model: openai/deepseek-chat
-      api_base: https://api.deepseek.com/v1
-      api_key: "os.environ/MY_CUSTOM_SECRET_KEY"  # Fetch from environment vars for security
-
-  # Ollama local model (no api_key needed)
-  - model_name: ollama/qwen3:8b
-    litellm_params:
-      model: ollama/qwen3:8b
-      api_base: http://localhost:11434
+llm:
+  primary_model: "deepseek/deepseek-chat"  # Primary model, format: provider/model
+  fallback_models:                          # Fallback model list
+    - "openai/gpt-4o-mini"
+    - "anthropic/claude-3-5-sonnet"
+  temperature: 0.7                         # Sampling temperature
+  channels: []                              # LLM channel config (advanced)
 ```
 
-> **Priority Rule**: YAML is king! If YAML is configured, both **Channels Mode** and **Simple Mode** are entirely ignored. Hierarchy: `YAML > Channels > Simple`.
+LLM API keys still go in `.env`:
+
+```env
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+```
 
 ---
 

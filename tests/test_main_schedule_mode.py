@@ -88,8 +88,8 @@ class MainScheduleModeTestCase(unittest.TestCase):
             task()
 
         with patch("main.parse_arguments", return_value=args), \
-             patch("main.get_config", return_value=config), \
-             patch("main.setup_logging"), \
+             patch("src.config.get_config", return_value=config), \
+             patch("src.logging_config.setup_logging"), \
              patch("src.core.runner.run_full_analysis") as run_full_analysis, \
              patch("src.core.runner.logger.warning") as warning_log, \
              patch("src.scheduler.run_with_schedule", side_effect=fake_run_with_schedule):
@@ -107,9 +107,9 @@ class MainScheduleModeTestCase(unittest.TestCase):
         config = self._make_config(run_immediately=True)
 
         with patch("main.parse_arguments", return_value=args), \
-             patch("main.get_config", return_value=config), \
-             patch("main.setup_logging"), \
-             patch("main.run_full_analysis") as run_full_analysis:
+             patch("src.config.get_config", return_value=config), \
+             patch("src.logging_config.setup_logging"), \
+             patch("src.core.runner.run_full_analysis") as run_full_analysis:
             exit_code = main.main()
 
         self.assertEqual(exit_code, 0)

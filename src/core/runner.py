@@ -20,6 +20,7 @@ from data_provider import canonical_stock_code
 from src.config import get_config, Config
 from src.config.env import _INITIAL_PROCESS_ENV, reload_runtime_config
 from src.core.lifecycle import run_with_cleanup
+from src.core.portfolio import run_portfolio_aggregation
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,16 @@ def run_schedule_mode(config: Config, args) -> int:
     return 0
 
 
+def start_bot_stream_clients(config: Config) -> None:
+    """启动 Stream 机器人（后台线程）。"""
+    if config.dingtalk_stream_enabled:
+        from bot.platforms import start_dingtalk_stream_background
+        start_dingtalk_stream_background()
+    if getattr(config, "feishu_stream_enabled", False):
+        from bot.platforms import start_feishu_stream_background
+        start_feishu_stream_background()
+
+
 # ── 完整分析编排 ────────────────────────────────────────────────
 
 
@@ -174,9 +185,21 @@ async def run_full_analysis(
             merge_notification=merge_notification,
         )
 
+        portfolio_summary = None
+        report_text = ""
+
         if results and not args.dry_run:
             date_str = datetime.now().strftime("%Y%m%d")
             report_text = pipeline.notifier.generate_dashboard_report(results)
+
+            # 1b. 组合综述（Portfolio Aggregation）
+            portfolio_summary = await run_portfolio_aggregation(
+                pipeline.analyzer, results,
+            )
+            if portfolio_summary:
+                report_text += f"\n\n## 📊 组合综述\n\n{portfolio_summary}"
+                logger.info("组合综述已生成")
+
             report_filename = f"stock_analysis_{date_str}.md"
             filepath = pipeline.notifier.save_report_to_file(report_text, report_filename)
             logger.info("个股分析报告已保存: %s", filepath)
@@ -210,6 +233,8 @@ async def run_full_analysis(
                     results, getattr(config, "report_type", "simple"),
                 )
                 parts.append(f"# \U0001f680 个股决策仪表盘\n\n{dashboard}")
+            if portfolio_summary:
+                parts.append(f"# \U0001f4ca 组合综述\n\n{portfolio_summary}")
             if parts:
                 combined = "\n\n---\n\n".join(parts)
                 await pipeline.notifier.send(combined, email_send_to_all=True)
@@ -231,6 +256,8 @@ async def run_full_analysis(
                         f"# \U0001f680 个股决策仪表盘\n\n"
                         f"{pipeline.notifier.generate_aggregate_report(results, getattr(config, 'report_type', 'simple'))}"
                     )
+                if portfolio_summary:
+                    full_content += f"\n\n# \U0001f4ca 组合综述\n\n{portfolio_summary}"
                 doc_url = await asyncio.to_thread(feishu_doc.create_daily_doc, doc_title, full_content)
                 if doc_url and not args.no_notify:
                     await pipeline.notifier.send(f"复盘文档已生成: {doc_url}")

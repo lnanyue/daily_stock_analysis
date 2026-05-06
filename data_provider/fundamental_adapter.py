@@ -17,6 +17,20 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+def _last_quarter_end_str() -> str:
+    """返回上一季度末的 YYYYMMDD 字符串（截至 2026Q1 为 '20260331'）。"""
+    today = datetime.today()
+    quarter = (today.month - 1) // 3
+    # quarter 0=Q1, 1=Q2, 2=Q3, 3=Q4
+    if quarter == 0:
+        # 上一季度是去年 Q4
+        return f"{today.year - 1}1231"
+    # 本季度起始月为 quarter*3 + 1, 上一季度末即本季度起始月前一天
+    quarter_start_month = quarter * 3 + 1
+    end = datetime(today.year, quarter_start_month, 1) - timedelta(days=1)
+    return end.strftime("%Y%m%d")
+
 _DIVIDEND_KEYWORD_MAP: Dict[str, List[str]] = {
     "per_share": [
         "每股派息",
@@ -535,7 +549,7 @@ class AkshareFundamentalAdapter:
 
         # Earnings forecast
         forecast_df, forecast_source, forecast_errors = self._call_df_candidates([
-            ("stock_yjyg_em", {"date": "20260331"}),
+            ("stock_yjyg_em", {"date": _last_quarter_end_str()}),
             ("stock_yjyg_em", {}),
         ])
         result["errors"].extend(forecast_errors)
@@ -549,7 +563,7 @@ class AkshareFundamentalAdapter:
 
         # Earnings quick report
         quick_df, quick_source, quick_errors = self._call_df_candidates([
-            ("stock_yjkb_em", {"date": "20260331"}),
+            ("stock_yjkb_em", {"date": _last_quarter_end_str()}),
             ("stock_yjkb_em", {}),
         ])
         result["errors"].extend(quick_errors)

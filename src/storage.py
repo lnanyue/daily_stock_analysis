@@ -44,6 +44,7 @@ from sqlalchemy import (
     desc,
     event,
     func,
+    case,
     MetaData,
     Table,
     text,
@@ -324,6 +325,28 @@ class AnalysisHistory(Base):
             'take_profit': self.take_profit,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class PredictionEval(Base):
+    """T+5 prediction evaluation record."""
+    __tablename__ = "prediction_eval"
+
+    query_id = Column(String(64), primary_key=True)
+    code = Column(String(10), nullable=False, index=True)
+    analysis_date = Column(Date, nullable=False)
+    eval_date = Column(Date)
+    decision_type = Column(String(10))
+    sentiment_score = Column(Integer)
+    model_used = Column(String(64))
+    change_pct_5d = Column(Float)
+    close_at_analysis = Column(Float)
+    close_at_eval = Column(Float)
+    verdict = Column(String(10), index=True)  # correct / wrong / null
+    evaluated_at = Column(DateTime)
+
+    __table_args__ = (
+        Index('ix_prediction_eval_code_date', 'code', 'analysis_date'),
+    )
 
 
 class BacktestResult(Base):
@@ -1285,6 +1308,65 @@ class DatabaseManager:
             return int(deleted or 0)
 
         return self._run_write_transaction("delete_analysis_history_records", _write)
+
+    # ----- Prediction evaluation (fact-checking) -----
+
+    def save_prediction_eval(self, record: Dict[str, Any]) -> int:
+        def _write(session: Session) -> int:
+            stmt = sqlite_insert(PredictionEval).values(**record).on_conflict_do_nothing()
+            session.execute(stmt)
+            return 1
+        return self._run_write_transaction("save_prediction_eval", _write)
+
+    def get_pending_evaluations(self, limit: int = 50) -> List[Dict[str, Any]]:
+        today = date.today()
+        with self.get_session() as session:
+            rows = session.execute(
+                select(PredictionEval)
+                .where(and_(
+                    PredictionEval.verdict.is_(None),
+                    PredictionEval.eval_date <= today,
+                ))
+                .limit(limit)
+            ).scalars().all()
+            return [{
+                "query_id": r.query_id,
+                "code": r.code,
+                "analysis_date": r.analysis_date,
+                "eval_date": r.eval_date,
+                "decision_type": r.decision_type,
+                "close_at_analysis": r.close_at_analysis,
+            } for r in rows]
+
+    def update_prediction_verdict(
+        self, query_id: str, verdict: str, change_pct_5d: float,
+        close_at_eval: float, evaluated_at: datetime,
+    ) -> None:
+        def _write(session: Session) -> None:
+            session.query(PredictionEval).filter(
+                PredictionEval.query_id == query_id
+            ).update({
+                PredictionEval.verdict: verdict,
+                PredictionEval.change_pct_5d: change_pct_5d,
+                PredictionEval.close_at_eval: close_at_eval,
+                PredictionEval.evaluated_at: evaluated_at,
+            })
+        return self._run_write_transaction("update_prediction_verdict", _write)
+
+    def get_evaluation_stats(self, model: Optional[str] = None, code: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.get_session() as session:
+            stmt = select(
+                PredictionEval.model_used,
+                func.count().label("total"),
+                func.sum(case((PredictionEval.verdict == "correct", 1), else_=0)).label("correct"),
+            ).where(PredictionEval.verdict.isnot(None))
+            if model:
+                stmt = stmt.where(PredictionEval.model_used == model)
+            if code:
+                stmt = stmt.where(PredictionEval.code == code)
+            stmt = stmt.group_by(PredictionEval.model_used).order_by(desc("correct"))
+            rows = session.execute(stmt).mappings().all()
+            return [dict(r) for r in rows]
 
     def get_news_intel_by_query_id(self, query_id: str, limit: int = 20) -> List[NewsIntel]:
         with self.get_session() as session:

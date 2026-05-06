@@ -29,13 +29,12 @@ pip install -r requirements.txt
 ### 2. 结构化配置
 系统现在使用模块化 YAML 进行管理：
 - `stocks.yaml`: 配置您的自选股列表。
-- `settings.yaml`: 调整分析模式、并发限制及通知偏好。
-- `litellm_config.yaml`: 配置您的 AI 模型与 API Key。
-- `.env`: 存放最敏感的私密 Token。
+- `config.yaml`: 统一管理分析模式、并发限制、通知偏好及 AI 模型配置。
+- `.env`: 存放最敏感的私密 Token（API Key 等）。
 
 ### 3. 执行分析
 ```bash
-python main.py --code 600519
+python main.py --stocks 600519
 ```
 
 ## 📂 项目结构

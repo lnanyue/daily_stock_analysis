@@ -114,21 +114,29 @@ LITELLM_MODEL=ollama/qwen3:8b
 
 ---
 
-## 方式三：YAML 高级配置（适合老手自定义）
+## 方式三：YAML 高级配置（适合老手自定义 — 已废弃）
 
-**目标：** 我不在乎学习门槛，我要最高控制权，我要用原生规则做企业级高可用！
+> **⚠️ 已废弃：** `litellm_config.yaml` 独立配置文件已废弃，请将 LLM 配置迁移到项目根目录的 `config.yaml` 的 `llm` 段。`LITELLM_CONFIG` 环境变量仍可用作向后兼容，但不再推荐。
 
-本项目完全放开了 LiteLLM 原生能力，支持高并发、自动重试、按 RPM/TPM 负载均衡等操作。
+### 推荐做法：使用 config.yaml 的 llm 段
 
-### 本地运行 / Docker 部署模式配置说明
+在项目根目录的 `config.yaml` 中配置 LLM 路由：
 
-1. 在 `.env` 中只保留一行指向声明：
-   ```env
-   LITELLM_CONFIG=./litellm_config.yaml
-   ```
-2. 在项目根目录创建一个 `litellm_config.yaml`（可以参考自带的 `litellm_config.example.yaml`）。
+```yaml
+llm:
+  primary_model: "deepseek/deepseek-chat"  # 主模型，格式 provider/model
+  fallback_models:                          # 备用模型列表
+    - "openai/gpt-4o-mini"
+    - "anthropic/claude-3-5-sonnet"
+  temperature: 0.7                         # 采样温度
+  channels: []                              # LLM 通道配置（高级用法）
+```
 
-示例 `litellm_config.yaml`：
+LLM API Key 仍放在 `.env` 中：
+
+```env
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+```
 ```yaml
 model_list:
   - model_name: my-smart-model
@@ -144,23 +152,18 @@ model_list:
       api_base: http://localhost:11434
 ```
 
-### GitHub Actions配置说明
+### GitHub Actions 中的 LLM 配置
 
-1. `Settings` → `Secrets and variables` → `Actions` → `Secret`标签页下的`New repository secret` 或者 `Variables`标签页下的`New repository variable`
-
-2. 按下表配置，只有全部必填配置正确配置，YAML 高级配置模式才可以生效，YAML配置文件的写法，可以参考自带的 `litellm_config.example.yaml`
+在 GitHub Actions 中，通过 Repository Secrets 配置 API Key：
 
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
-| `LITELLM_CONFIG` | 配置文件路径，通常配置`./litellm_config.yaml` | 必填 |
-| `LITELLM_MODEL` | 模型名称 | 必填 |
-| `LITELLM_CONFIG_YAML` | 存放YAML配置文件，可以不用在存储库中提交文件 | 可选 |
-| `LITELLM_API_KEY` | 用于存储API Key，可在配置文件中引用（环境变量引用方式）。由于GitHub Actions必须要指定导入的环境变量，因此你不能像本地运行模式那样自由命名环境变量 | 可选，必须配置到repository secret中 |
-| `ANTHROPIC_API_KEY` | 如果要多个API Key，这个变量名称也能拿来用 | 可选，必须配置到repository secret中 |
-| `OPENAI_API_KEY` | 同上，可以用来存储API Key | 可选，必须配置到repository secret中 |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key | 推荐 |
+| `GEMINI_API_KEY` | Gemini API Key | 推荐 |
+| `OPENAI_API_KEY` | OpenAI API Key | 可选 |
+| `ANTHROPIC_API_KEY` | Anthropic API Key | 可选 |
 
-
-> **三层配置互斥准则**：YAML 优先级最高！只要配置了 YAML，**渠道模式** 和 **新手极简模式** 统统被忽略。系统优先级为：`YAML配置 > 渠道模式 > 极简单模型`。
+> **配置优先级**（从高到低）：`LLM_CHANNELS` 渠道模式 > `LITELLM_MODEL` + 对应 API Key > `config.yaml` 的 `llm` 段。系统会自动按优先级加载。
 
 ---
 

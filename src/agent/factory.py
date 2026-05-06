@@ -314,6 +314,13 @@ def build_agent(
             skill_instructions=skill_instructions,
             max_steps=agent_max_steps,
         )
+    elif role == "portfolio":
+        from src.agent.agents.portfolio_agent import PortfolioAgent
+        return PortfolioAgent(
+            tool_registry=registry,
+            llm_adapter=llm_adapter,
+            max_steps=agent_max_steps,
+        )
     else:
         raise ValueError(f"Unknown agent role: {role}")
 

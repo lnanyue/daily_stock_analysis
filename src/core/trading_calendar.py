@@ -13,7 +13,7 @@
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional, Set
 from zoneinfo import ZoneInfo
 
@@ -162,6 +162,40 @@ def get_effective_trading_date(
     except Exception as e:
         logger.warning("trading_calendar.get_effective_trading_date fail-open: %s", e)
         return fallback_date
+
+
+def advance_trading_days(market: str, from_date: date, n: int = 5) -> date:
+    """
+    Return the date that is *n* trading days after *from_date*.
+
+    Fail-open: when exchange-calendars is unavailable or lookup fails, estimate
+    by scaling calendar days (7 calendar ≈ 5 trading).  Returns a calendar date,
+    not a session-aware timestamp.
+    """
+    if n <= 0:
+        return from_date
+
+    if _XCALS_AVAILABLE:
+        ex = MARKET_EXCHANGE.get(market)
+        if ex:
+            try:
+                cal = xcals.get_calendar(ex)
+                session = cal.date_to_session(from_date, direction="next")
+                for _ in range(n):
+                    session = cal.next_session(session)
+                if hasattr(session, "date"):
+                    return session.date()
+                if hasattr(session, "to_pydatetime"):
+                    return session.to_pydatetime().date()
+                # Last resort: parse the timestamp
+                return date(session.year, session.month, session.day)
+            except Exception as exc:
+                logger.warning(
+                    "advance_trading_days fail-open for %s: %s", market, exc,
+                )
+
+    # Fallback: approximate — ~5 trading days = 7 calendar days
+    return from_date + timedelta(days=n * 7 // 5)
 
 
 def get_open_markets_today() -> Set[str]:

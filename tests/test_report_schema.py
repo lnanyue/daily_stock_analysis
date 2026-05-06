@@ -201,7 +201,7 @@ class TestAnalyzerSchemaFallback(unittest.TestCase):
             content = asyncio.run(analyzer.generate_text_async("prompt", 2048, 0.8))
 
         self.assertEqual(content, "ok")
-        mocked.assert_awaited_once_with("prompt", {"max_tokens": 2048, "temperature": 0.8})
+        mocked.assert_awaited_once_with("prompt", {"max_tokens": 2048, "temperature": 0.8}, system_prompt=None)
 
     def test_parse_response_normalizes_top_level_sniper_points_and_text_alerts(self) -> None:
         """Top-level sniper_points and string alerts should survive parser normalization."""

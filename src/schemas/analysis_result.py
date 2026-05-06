@@ -3,7 +3,9 @@
 AI 分析结果数据模型定义
 """
 
+import re
 import logging
+from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple
 from pydantic import BaseModel, Field
 
@@ -297,3 +299,68 @@ def apply_placeholder_fill(result: AnalysisResult, missing_fields: List[str]) ->
             if "sniper_points" not in result.dashboard["battle_plan"]:
                 result.dashboard["battle_plan"]["sniper_points"] = {}
             result.dashboard["battle_plan"]["sniper_points"]["stop_loss"] = placeholder
+
+
+def validate_numerical_fields(
+    result: AnalysisResult,
+    current_price: Optional[float] = None,
+) -> List[str]:
+    """Check LLM-generated numerical values for internal consistency.
+
+    Returns a list of human-readable warning messages (empty list = all
+    checks passed).  Warnings are meant to be stored in
+    ``result.analysis_metadata["numerical_warnings"]`` for downstream
+    consumers — they do **not** alter the result fields themselves.
+    """
+    warnings: List[str] = []
+    if current_price is None or current_price <= 0:
+        return warnings  # can not validate without a reference price
+
+    sniper = {}
+    if isinstance(result.dashboard, dict):
+        battle = result.dashboard.get("battle_plan") or {}
+        sniper = battle.get("sniper_points") or {}
+
+    ideal_buy = parse_price(sniper.get("ideal_buy"))
+    stop_loss = parse_price(sniper.get("stop_loss"))
+    take_profit = parse_price(sniper.get("take_profit"))
+
+    # Stop loss must be below ideal buy
+    if ideal_buy is not None and stop_loss is not None:
+        if stop_loss >= ideal_buy:
+            warnings.append(
+                f"止损价({stop_loss})不低于买入价({ideal_buy})"
+            )
+
+    # Take profit must be above ideal buy
+    if ideal_buy is not None and take_profit is not None:
+        if take_profit <= ideal_buy:
+            warnings.append(
+                f"目标价({take_profit})不高于买入价({ideal_buy})"
+            )
+
+    # All prices within ±30% of current price (catch severe hallucinations)
+    for label, val in [("买入价", ideal_buy), ("止损价", stop_loss), ("目标价", take_profit)]:
+        if val is not None:
+            deviation = abs(val - current_price) / current_price
+            if deviation > 0.30:
+                warnings.append(
+                    f"{label}({val})偏离现价({current_price})超过30%"
+                )
+
+    return warnings
+
+
+def parse_price(value: Any) -> Optional[float]:
+    """Try to parse a sniper-point value to float, tolerating strings."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "").replace("元", "").replace(" ", "")
+        try:
+            return float(cleaned)
+        except (ValueError, TypeError):
+            return None
+    return None

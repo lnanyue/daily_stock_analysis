@@ -29,7 +29,7 @@ import random
 import time
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 
 import akshare as ak
@@ -1322,7 +1322,7 @@ class AkshareFetcher(BaseFetcher):
 
         except Exception as e:
             logger.warning(f"[API错误] 获取港股 {stock_code} 实时行情失败: {e}")
-            circuit_breaker.record_failure(source_key, str(e))
+            circuit_breaker.record_failure(sina_key, str(e))
             logger.info(f"[API错误] ak.stock_hk_spot 备用接口也失败: {e}")
             circuit_breaker.record_failure(sina_key, str(e))
             return None

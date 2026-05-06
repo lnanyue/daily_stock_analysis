@@ -8,6 +8,7 @@ import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 
 from data_provider.us_index_mapping import is_us_index_code

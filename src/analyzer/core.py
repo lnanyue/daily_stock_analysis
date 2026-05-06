@@ -280,13 +280,16 @@ class GeminiAnalyzer:
         prompt: str,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        *,
+        system_prompt: Optional[str] = None,
         **kwargs,
     ) -> Optional[str]:
-        """原生的异步文本生成接口 (供大盘分析使用)"""
+        """原生的异步文本生成接口 (供大盘分析使用)。"""
         try:
             res, _, _ = await self._call_litellm_async(
                 prompt,
                 {"max_tokens": max_tokens, "temperature": temperature, **kwargs},
+                system_prompt=system_prompt,
             )
             return res
         except Exception as e:

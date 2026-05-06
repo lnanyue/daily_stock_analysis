@@ -147,6 +147,7 @@ analyze_trend_tool = ToolDefinition(
 
 def _handle_calculate_ma(stock_code: str, periods: Optional[str] = None, days: int = 120) -> dict:
     """Calculate moving averages for arbitrary periods from historical K-line data."""
+    from data_provider.manager import DataFetcherManager
     from src.services.history_loader import load_history_df
 
     manager = DataFetcherManager()
@@ -239,6 +240,7 @@ calculate_ma_tool = ToolDefinition(
 
 def _handle_get_volume_analysis(stock_code: str, days: int = 30) -> dict:
     """Analyse volume-price patterns over recent trading days."""
+    from data_provider.manager import DataFetcherManager
     from src.services.history_loader import load_history_df
     import pandas as pd
 
@@ -356,6 +358,7 @@ get_volume_analysis_tool = ToolDefinition(
 
 def _handle_analyze_pattern(stock_code: str, days: int = 60) -> dict:
     """Detect common candlestick and chart patterns in recent price history."""
+    from data_provider.manager import DataFetcherManager
     from src.services.history_loader import load_history_df
 
     manager = DataFetcherManager()

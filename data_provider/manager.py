@@ -104,6 +104,15 @@ class DataFetcherManager:
                 YfinanceFetcher(),
                 LongbridgeFetcher(),
             ])
+
+            # OpenBB 数据源仅在配置启用时加入
+            if config and getattr(config, "openbb_fetcher_enabled", False):
+                try:
+                    from .openbb_fetcher import OpenBBFetcher
+
+                    fetchers.append(OpenBBFetcher())
+                except Exception as e:
+                    logger.warning("创建 OpenBBFetcher 失败: %s", e)
         except Exception as e:
             logger.error(f"创建默认数据源失败: {e}")
         return fetchers

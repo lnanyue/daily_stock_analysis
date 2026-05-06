@@ -12,7 +12,11 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 
 import pandas as pd
 import numpy as np
-import akshare as ak
+
+try:
+    import akshare as ak
+except ImportError:
+    ak = None  # 惰性处理：使用 ak 的方法会自行处理缺失
 
 from .utils import normalize_stock_code, _market_tag, _is_etf_code, summarize_exception, run_async_sync
 from .exceptions import DataFetchError
@@ -269,6 +273,10 @@ class FundamentalPipeline:
         if not target_industry:
             return self._build_fundamental_block("not_supported", {}, [], ["Industry information not found"])
 
+        if ak is None:
+            logger.warning("akshare 未安装，跳过同行对比 AI 行情")
+            return self._build_fundamental_block("failed", {}, [], ["akshare not available"])
+
         ak_spot = None
         for fetcher in fetchers:
             if fetcher.name == "AkshareFetcher":
@@ -308,8 +316,14 @@ class FundamentalPipeline:
                 except Exception: return {"code": code}
 
             fin_tasks = [_fetch_peer_financials(c) for c in peer_codes]
-            fin_results = await asyncio.gather(*fin_tasks)
-            fin_map = {res['code']: res for res in fin_results}
+            fin_results = await asyncio.gather(*fin_tasks, return_exceptions=True)
+            fin_map: Dict[str, Any] = {}
+            for res in fin_results:
+                if isinstance(res, Exception):
+                    logger.warning("同行财务数据获取失败: %s", res)
+                    continue
+                if isinstance(res, dict) and "code" in res:
+                    fin_map[res["code"]] = res
 
             comparison_list = []
             for _, row in final_peers_df.iterrows():
