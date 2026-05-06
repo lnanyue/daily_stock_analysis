@@ -2,10 +2,12 @@
 
 ## Overview
 
-The configuration system has been simplified from a four-layer structure (.env + settings.yaml + litellm_config.yaml + config_registry.py) to a two-file structure:
+The configuration system has been simplified from a four-layer structure (`.env` + `settings.yaml` + `litellm_config.yaml` + `config_registry.py`) to a two-file structure:
 
 - `.env` — Sensitive keys and tokens only
 - `config.yaml` — All business parameters and LLM routing
+
+> `settings.yaml` and `litellm_config.yaml` have been removed from the repo. If you still have local copies, migrate to `config.yaml` and delete them.
 
 ## Migration Steps
 
@@ -103,10 +105,10 @@ rm litellm_config.yaml.backup
 ## FAQ
 
 **Q: What if I still have business parameters in .env?**
-A: The new `UnifiedConfigLoader` will still read them, but a deprecation warning will be logged. Please migrate to `config.yaml`.
+A: `config.yaml` is now the single source for business parameters. Environment variables still take precedence at runtime via `os.environ.setdefault()`, but the canonical value lives in `config.yaml`. Please migrate.
 
 **Q: Can I keep using settings.yaml?**
-A: It's marked as deprecated. The new loader doesn't read it. Please migrate to `config.yaml`.
+A: No — `settings.yaml` has been removed from the repo. If you still have it, migrate its values to `config.yaml` and delete it.
 
 **Q: Where did my LLM routing config go?**
 A: Move it to the `llm` section in `config.yaml`, or set `LITELLM_CONFIG` env var.

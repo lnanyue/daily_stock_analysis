@@ -22,7 +22,7 @@ syntax_check() {
 
 flake8_checks() {
   echo "==> backend-gate: flake8 critical checks"
-  flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+  flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.claude,.worktrees,.git,__pycache__
 }
 
 deterministic_checks() {

@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [文档] 修正 README.md CLI 示例（`--code` → `--stocks`）；更新 LLM_CONFIG_GUIDE 中已废弃的 `litellm_config.yaml` 方式三为 deprecation 说明，引导用户使用 `config.yaml` 的 `llm` 段。
+- [改进] `ci_gate.sh flake8` 增加 `--exclude=.claude,.worktrees,.git,__pycache__`，避免扫入临时工作区污染本地 CI 入口。
+- [文档] 更新 `docs/migration-guide.md` FAQ：移除已删除的 `UnifiedConfigLoader` 引用，说明 `settings.yaml` 已移除。
 - [修复] 移除 pipeline.py 中已无作用的 `use_agent` 计算（`agent_mode`/`agent_skills` 曾用于分支但已统一归入 `_analyze_with_agent` 通用路径）。
 - [修复] `prediction_eval.eval_date` 改用交易日历推进 5 个交易日（`advance_trading_days`），替代硬编码 `timedelta(days=5)`，避免周末/节假日导致回测评价无法触发。
 - [改进] 收敛 `StockAnalysisPipeline` 内部职责：将上下文增强、混合 Agent 分析、单股通知发送拆入独立 helper 模块；同时清理 CLI-only 文档中的 FastAPI/Web/Docker 残留说明，并恢复数据源 fallback 日志与 source-chain 诊断入口。
