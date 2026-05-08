@@ -227,7 +227,9 @@ class CustomWebhookSender(BaseNotificationSender):
             if idx < total - 1:
                 await asyncio.sleep(1)
 
-    
+        return ok == total  # partial success = failure (user would see a truncated report)
+
+
     @staticmethod
     def _is_dingtalk_webhook(url: str) -> bool:
         url_lower = (url or "").lower()

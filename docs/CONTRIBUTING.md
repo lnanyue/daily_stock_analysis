@@ -95,7 +95,7 @@ pip install flake8 pytest
 
 查看 [Roadmap](README.md#-roadmap) 了解当前需要的功能：
 
-- 🔔 新通知渠道（钉钉、飞书、Telegram）
+- 🔔 新通知渠道（PushPlus、Pushover、自定义 Webhook）
 - 🤖 新 AI 模型支持（GPT-4、Claude）
 - 📊 新数据源接入
 - 🐛 Bug 修复和性能优化

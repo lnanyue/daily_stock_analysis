@@ -241,25 +241,38 @@ class Config:
         setup_env(override=override)
 
     @staticmethod
+    def _deep_merge(base: dict, override: dict) -> dict:
+        """Recursively merge ``override`` into ``base`` and return a new dict."""
+        result = dict(base)
+        for k, v in override.items():
+            if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+                result[k] = Config._deep_merge(result[k], v)
+            else:
+                result[k] = v
+        return result
+
+    @staticmethod
     def _apply_config_yaml_defaults() -> None:
         """Load YAML config files as os.environ defaults.
 
         Priority chain:  os.environ > .env > config.yaml > config.example.yaml > class defaults
         ``config.example.yaml`` is the template shipped in-tree; ``config.yaml`` is
-        the local business override (gitignored).  Both use ``setdefault()`` so
-        existing env vars and ``.env`` values are never overwritten.  Because
-        ``config.yaml`` is loaded second, its values override ``config.example.yaml``.
+        the local business override (gitignored).
 
-        The env-var name for each YAML key is resolved via ``config_registry`` when
-        available; otherwise ``SECTION_KEY`` is used.
+        The env-var name for each YAML leaf key is the uppercased Config field name
+        (e.g. ``system.report_dir`` → ``REPORT_DIR``).  If no Config field matches,
+        the section-prefixed form is used as fallback (e.g. ``analysis.request_delay``
+        → ``ANALYSIS_REQUEST_DELAY``).
         """
         try:
             import yaml
             from pathlib import Path
 
-            from src.core.config_registry import get_registered_field_keys
+            from dataclasses import fields
 
-            registry_keys = set(get_registered_field_keys())
+            # Build a set of valid Config field names (uppercased) so we can
+            # map YAML leaf keys directly to the env vars that _load_from_env reads.
+            config_field_names = {f.name.upper() for f in fields(Config)}
 
             def _apply(d: dict, prefix: str = "") -> None:
                 for k, v in d.items():
@@ -268,27 +281,36 @@ class Config:
                     if isinstance(v, dict):
                         _apply(v, sect_key)
                     else:
-                        candidate = upper if upper in registry_keys else sect_key
+                        # Prefer the flat Config field name over a section-prefixed one.
+                        # This ensures system.report_dir → REPORT_DIR (not SYSTEM_REPORT_DIR).
+                        candidate = upper if upper in config_field_names else sect_key
                         if isinstance(v, bool):
                             os.environ.setdefault(candidate, "true" if v else "false")
                         else:
                             os.environ.setdefault(candidate, str(v))
 
             # 1. Load template / defaults (lowest config priority)
+            merged: dict = {}
             example_path = Path(os.getcwd()) / "config.example.yaml"
             if example_path.exists():
                 with open(example_path, encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if isinstance(data, dict):
-                    _apply(data)
+                    example_data = yaml.safe_load(f)
+                if isinstance(example_data, dict):
+                    merged = example_data
 
-            # 2. Load local business override (higher priority — loaded second)
+            # 2. Load local business override and deep-merge (config.yaml wins)
             local_path = Path(os.getcwd()) / "config.yaml"
             if local_path.exists():
                 with open(local_path, encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if isinstance(data, dict):
-                    _apply(data)
+                    local_data = yaml.safe_load(f)
+                if isinstance(local_data, dict) and merged:
+                    merged = Config._deep_merge(merged, local_data)
+                elif isinstance(local_data, dict):
+                    merged = local_data
+
+            # 3. Write the merged result into os.environ defaults
+            if merged:
+                _apply(merged)
         except Exception:
             pass  # YAML config files are optional; class defaults cover missing values
 

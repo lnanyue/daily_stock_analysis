@@ -201,6 +201,44 @@ class TestCustomWebhookSender(unittest.IsolatedAsyncioTestCase):
         body = mock_client.post.call_args[1]["content"].decode("utf-8")
         self.assertIn("hello", body)
 
+    # ---- Dingtalk chunked webhook tests ----
+
+    async def test_dingtalk_chunked_all_success_returns_true(self):
+        """_send_dingtalk_chunked returns True when all chunks succeed."""
+        cfg = _config(custom_webhook_urls=["https://oapi.dingtalk.com/robot/send"])
+        sender = CustomWebhookSender(cfg)
+
+        # Force chunking by using a tiny budget
+        content = "A" * 3000
+        with mock.patch.object(sender, "_post_custom_webhook", return_value=True):
+            result = await sender._send_dingtalk_chunked(
+                "https://oapi.dingtalk.com/robot/send",
+                content,
+                max_bytes=500,
+            )
+        self.assertTrue(result)
+
+    async def test_dingtalk_chunked_partial_failure_returns_false(self):
+        """_send_dingtalk_chunked returns False when any chunk fails."""
+        cfg = _config(custom_webhook_urls=["https://oapi.dingtalk.com/robot/send"])
+        sender = CustomWebhookSender(cfg)
+
+        call_count = 0
+
+        async def _mock_post(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return call_count == 1  # first succeeds, second fails
+
+        content = "A" * 3000
+        with mock.patch.object(sender, "_post_custom_webhook", side_effect=_mock_post):
+            result = await sender._send_dingtalk_chunked(
+                "https://oapi.dingtalk.com/robot/send",
+                content,
+                max_bytes=500,
+            )
+        self.assertFalse(result)
+
 
 class TestPushoverSender(unittest.IsolatedAsyncioTestCase):
     """Unit tests for PushoverSender."""

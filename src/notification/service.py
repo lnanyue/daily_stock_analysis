@@ -144,7 +144,6 @@ class NotificationService:
     # Forwarding methods to Senders (Legacy compatibility)
     # ------------------------------------------------------------------
     async def send_to_wechat(self, content: str) -> bool: return await self._senders[NotificationChannel.WECHAT].send(content)
-    async def send_to_telegram(self, content: str) -> bool: return False # Telegram handled via Bot dispatcher usually
     async def send_to_email(self, content: str, receivers=None) -> bool: return await self._senders[NotificationChannel.EMAIL].send(content, receivers=receivers)
     async def send_to_pushover(self, content: str) -> bool: return await self._senders[NotificationChannel.PUSHOVER].send(content)
     async def send_to_pushplus(self, content: str) -> bool: return await self._senders[NotificationChannel.PUSHPLUS].send(content)
