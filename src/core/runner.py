@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import uuid
@@ -21,8 +22,22 @@ from src.config import get_config, Config
 from src.config.env import _INITIAL_PROCESS_ENV, reload_runtime_config
 from src.core.lifecycle import run_with_cleanup
 from src.core.portfolio import run_portfolio_aggregation
+from src.core.risk_screener import RiskLevel, RiskScreenResult, RiskFlag
 
 logger = logging.getLogger(__name__)
+
+
+def _log_content_diagnostic(label: str, content: str) -> None:
+    """Log a content fingerprint for diagnosing notification duplication."""
+    if not content:
+        logger.warning("[notif-diagnostic] %s: EMPTY content", label)
+        return
+    h = hashlib.md5(content.encode()).hexdigest()[:8]
+    preview = content.strip()[:200].replace("\n", " ")
+    logger.info(
+        "[notif-diagnostic] %s | chars=%d hash=%s preview=%s ...",
+        label, len(content), h, preview,
+    )
 
 
 # ── 模式路由的具体实现 ──────────────────────────────────────────
@@ -191,6 +206,7 @@ async def run_full_analysis(
         if results and not args.dry_run:
             date_str = datetime.now().strftime("%Y%m%d")
             report_text = pipeline.notifier.generate_dashboard_report(results)
+            _log_content_diagnostic("stock_dashboard(直发送内容)", report_text)
 
             # 1b. 组合综述（Portfolio Aggregation）
             portfolio_summary = await run_portfolio_aggregation(
@@ -222,6 +238,8 @@ async def run_full_analysis(
                 )
                 or ""
             )
+            if market_report:
+                _log_content_diagnostic("market_review(推送内容)", market_report)
 
         # 3. 合并推送
         if merge_notification and (results or market_report) and not args.no_notify:
@@ -237,6 +255,7 @@ async def run_full_analysis(
                 parts.append(f"# \U0001f4ca 组合综述\n\n{portfolio_summary}")
             if parts:
                 combined = "\n\n---\n\n".join(parts)
+                _log_content_diagnostic("merge_combined(合并通知)", combined)
                 await pipeline.notifier.send(combined, email_send_to_all=True)
 
         # 4. 飞书文档
@@ -275,6 +294,183 @@ async def run_full_analysis(
 
     except Exception as e:
         logger.exception("分析流程执行失败: %s", e)
+
+
+# ── 排雷筛选模式 ──────────────────────────────────────────────────
+
+
+async def run_risk_screen(
+    config: Config,
+    args,
+    stock_codes: Optional[List[str]] = None,
+) -> int:
+    """排雷模式的主要编排函数。"""
+    from src.core.risk_screener import RiskScreener
+    from data_provider import DataFetcherManager
+
+    logger.info("=" * 40 + " 排雷筛选启动 " + "=" * 40)
+
+    if stock_codes is None:
+        config.refresh_stock_list()
+    effective_codes = stock_codes if stock_codes is not None else config.stock_list
+
+    if not effective_codes:
+        logger.warning("未指定股票代码，请使用 --stocks 参数或在配置文件中设置股票列表。")
+        print("未指定股票代码，请使用 --stocks 参数或在配置文件中设置股票列表。")
+        return 1
+
+    # 1. 获取 ST 名单（批量一次）
+    fetcher_manager = DataFetcherManager.get_instance()
+    st_list = fetcher_manager.get_st_list()
+    logger.info("已获取 ST 名单: %d 只", len(st_list))
+
+    # 2. 构建 SearchService
+    search_service = _build_search_service(config)
+
+    # 3. 创建排雷器
+    screener = RiskScreener(config=config, search_service=search_service)
+
+    # 4. 并发排雷
+    max_workers = getattr(config, "risk_screen_max_workers", 3)
+    semaphore = asyncio.Semaphore(max_workers)
+
+    async def screen_one(code: str) -> RiskScreenResult:
+        async with semaphore:
+            try:
+                # 获取行情 → 从中提取股票名称
+                quote = await fetcher_manager.get_realtime_quote(code, log_final_failure=False)
+                stock_name = getattr(quote, "name", None) or code
+
+                # 获取基本面
+                fundamental = await fetcher_manager.get_fundamental_context(code)
+
+                # 获取财务指标
+                ak_fetcher = next(
+                    (f for f in fetcher_manager.fetchers if f.name == "AkshareFetcher"),
+                    None,
+                )
+                value_metrics: Dict[str, Any] = {}
+                if ak_fetcher and hasattr(ak_fetcher, "get_value_metrics_async"):
+                    try:
+                        value_metrics = await ak_fetcher.get_value_metrics_async(code)
+                    except Exception:
+                        pass
+
+                result = await screener.screen(
+                    code=code,
+                    stock_name=stock_name,
+                    fundamental_context=fundamental,
+                    realtime_quote=quote,
+                    value_metrics=value_metrics,
+                    st_list=st_list,
+                )
+
+                logger.info(
+                    "排雷完成 [%s %s] 等级=%s 标记数=%d",
+                    code, stock_name, result.overall_level.value, len(result.flags),
+                )
+                return result
+            except Exception as e:
+                logger.exception("排雷异常 [%s]: %s", code, e)
+                return RiskScreenResult(
+                    code=code, name=code,
+                    overall_level=RiskLevel.YELLOW,
+                    flags=[RiskFlag(
+                        rule_name="执行异常", level=RiskLevel.RED,
+                        evidence=f"排雷过程出错: {e}",
+                    )],
+                    timestamp=datetime.now().isoformat(),
+                )
+
+    tasks = [screen_one(c) for c in effective_codes]
+    results: List[RiskScreenResult] = await asyncio.gather(*tasks)
+
+    # 5. 终端输出
+    _print_risk_screen_table(results)
+
+    # 6. 保存 Markdown 报告
+    md_content = _generate_risk_report_markdown(results)
+    report_dir = getattr(config, "report_dir", "./report")
+    os.makedirs(report_dir, exist_ok=True)
+    date_str = datetime.now().strftime("%Y%m%d")
+    filepath = os.path.join(report_dir, f"risk_screen_{date_str}.md")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(md_content)
+    logger.info("排雷报告已保存: %s", filepath)
+    print(f"\n排雷报告已保存: {filepath}")
+
+    return 0
+
+
+# ── 排雷辅助函数 ──────────────────────────────────────────────────
+
+
+def _print_risk_screen_table(results: List[RiskScreenResult]) -> None:
+    """在终端打印排雷结果表格。"""
+    red_count = sum(1 for r in results if r.overall_level == RiskLevel.RED)
+    yellow_count = sum(1 for r in results if r.overall_level == RiskLevel.YELLOW)
+    green_count = sum(1 for r in results if r.overall_level == RiskLevel.GREEN)
+
+    print("\n" + "=" * 80)
+    print("  排雷筛选结果")
+    print("=" * 80)
+    print(f"  总计: {len(results)} | RED: {red_count} | YELLOW: {yellow_count} | GREEN: {green_count}")
+    print("-" * 80)
+
+    for result in results:
+        level_icon = {
+            RiskLevel.RED: "[  RED  ]",
+            RiskLevel.YELLOW: "[ YELLOW ]",
+            RiskLevel.GREEN: "[ GREEN ]",
+        }.get(result.overall_level, "[UNKNOWN]")
+
+        print(f"\n  {level_icon} {result.name} ({result.code})")
+        for flag in result.flags:
+            icon = "[RED]" if flag.level == RiskLevel.RED else "[YEL]"
+            print(f"    {icon} {flag.rule_name}: {flag.evidence}")
+
+    print("=" * 80)
+
+
+def _generate_risk_report_markdown(results: List[RiskScreenResult]) -> str:
+    """生成 Markdown 格式的排雷报告。"""
+    red_count = sum(1 for r in results if r.overall_level == RiskLevel.RED)
+    yellow_count = sum(1 for r in results if r.overall_level == RiskLevel.YELLOW)
+    green_count = sum(1 for r in results if r.overall_level == RiskLevel.GREEN)
+
+    lines = [
+        "# 排雷筛选报告",
+        f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "",
+        "## 汇总",
+        "",
+        f"- 总计: {len(results)} 只",
+        f"- RED (一票否决): {red_count} 只",
+        f"- YELLOW (预警): {yellow_count} 只",
+        f"- GREEN (通过): {green_count} 只",
+        "",
+    ]
+
+    if red_count > 0:
+        lines.append("## RED 级别股票\n")
+        for r in results:
+            if r.overall_level == RiskLevel.RED:
+                lines.append(f"### {r.name} ({r.code})\n")
+                for f in r.flags:
+                    if f.level == RiskLevel.RED:
+                        lines.append(f"- **{f.rule_name}**: {f.evidence}")
+                lines.append("")
+
+    if yellow_count > 0:
+        lines.append("## YELLOW 级别股票\n")
+        for r in results:
+            if r.overall_level == RiskLevel.YELLOW:
+                lines.append(f"### {r.name} ({r.code})\n")
+                for f in r.flags:
+                    lines.append(f"- {f.rule_name}: {f.evidence}")
+                lines.append("")
+
+    return "\n".join(lines)
 
 
 # ── 辅助函数 ──────────────────────────────────────────────────────

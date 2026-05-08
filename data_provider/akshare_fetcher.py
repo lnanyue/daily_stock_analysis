@@ -1981,6 +1981,40 @@ class AkshareFetcher(BaseFetcher):
         """异步获取当日涨停池"""
         return await asyncio.to_thread(self.get_limit_up_pool)
 
+    def get_st_list(self) -> List[Dict[str, str]]:
+        """获取当前 A 股 ST 与 *ST 名单。
+
+        使用 AKShare stock_zh_a_st_em() 接口。
+        失败时返回空列表。
+        """
+        try:
+            df = ak.stock_zh_a_st_em()
+            if df is None or df.empty:
+                return []
+            # AKShare 返回的列名通常为 "代码", "名称"
+            code_col = next(
+                (c for c in ["代码", "code", "stock_code"] if c in df.columns),
+                None,
+            )
+            name_col = next(
+                (c for c in ["名称", "name", "stock_name"] if c in df.columns),
+                None,
+            )
+            if not code_col or not name_col:
+                logger.warning("ST 名单接口返回列名不匹配: %s", list(df.columns))
+                return []
+            results: List[Dict[str, str]] = []
+            for _, row in df.iterrows():
+                code_val = str(row[code_col]).strip()
+                name_val = str(row[name_col]).strip()
+                if code_val:
+                    results.append({"code": code_val, "name": name_val})
+            logger.info("获取 ST 名单成功: %d 只", len(results))
+            return results
+        except Exception as e:
+            logger.warning("获取 ST 名单失败: %s", e)
+            return []
+
 if __name__ == "__main__":
     # 测试代码
     logging.basicConfig(level=logging.DEBUG)

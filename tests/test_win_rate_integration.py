@@ -63,8 +63,9 @@ class TestWinRateIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(perf['stock']['win_rate_pct'], 65.0)
         self.assertEqual(perf['overall']['win_rate_pct'], 55.0)
 
+    @patch('data_provider.cls_fetcher.ClsTelegramFetcher')
     @patch('src.services.backtest_service.BacktestService')
-    async def test_analyze_stock_preserves_win_rate_in_result(self, mock_bt_service_class):
+    async def test_analyze_stock_preserves_win_rate_in_result(self, mock_bt_service_class, mock_cls):
         """测试分析结果对象 AnalysisResult 包含胜率数据"""
         mock_bt_service = mock_bt_service_class.return_value
         mock_bt_service.get_stock_summary.return_value = {
@@ -87,7 +88,7 @@ class TestWinRateIntegration(unittest.IsolatedAsyncioTestCase):
         pl.search_service = MagicMock()
         pl.search_service.is_available = False
 
-        # 直接 mock _analyze_with_agent，让它返回正确设置了 historical_performance 的结果
+        # 直接 mock executor.analyze，让它返回正确设置了 historical_performance 的结果
         expected_result = AnalysisResult(
             code="600519", name="茅台", sentiment_score=80,
             trend_prediction="多头", operation_advice="买入", success=True
@@ -98,7 +99,7 @@ class TestWinRateIntegration(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch.object(pl, 'fetch_and_save_stock_data', return_value=(True, None)), \
-             patch.object(pl, '_analyze_with_agent', new_callable=AsyncMock, return_value=expected_result):
+             patch.object(pl.executor, 'analyze', new_callable=AsyncMock, return_value=expected_result):
             result = await pl.analyze_stock("600519", MagicMock(), "query_123")
 
         # 验证最终结果包含胜率

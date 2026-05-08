@@ -1048,6 +1048,28 @@ class EfinanceFetcher(BaseFetcher):
             
         return stats
 
+    @staticmethod
+    def _format_sector_rankings(df: pd.DataFrame, n: int = 5) -> Optional[Tuple[List[Dict], List[Dict]]]:
+        """Extract top/bottom n sectors from a sector ranking DataFrame."""
+        change_col = '涨跌幅' if '涨跌幅' in df.columns else 'pct_chg'
+        name_col = '股票名称' if '股票名称' in df.columns else 'name'
+        if change_col not in df.columns or name_col not in df.columns:
+            return None
+        df = df.copy()
+        df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
+        df = df.dropna(subset=[change_col])
+        top = df.nlargest(n, change_col)
+        bottom = df.nsmallest(n, change_col)
+        top_sectors = [
+            {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
+            for _, row in top.iterrows()
+        ]
+        bottom_sectors = [
+            {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
+            for _, row in bottom.iterrows()
+        ]
+        return (top_sectors, bottom_sectors)
+
     def get_sector_rankings(self, n: int = 5) -> Optional[Tuple[List[Dict], List[Dict]]]:
         """
         获取板块涨跌榜 (efinance)
@@ -1076,36 +1098,41 @@ class EfinanceFetcher(BaseFetcher):
                 logger.debug(f"[efinance] 板块行情数据为空")
                 return None
 
-            change_col = '涨跌幅' if '涨跌幅' in df.columns else 'pct_chg'
-            name_col = '股票名称' if '股票名称' in df.columns else 'name'
-            if change_col not in df.columns or name_col not in df.columns:
+            result = self._format_sector_rankings(df, n)
+            if result is None:
                 return None
-
-            df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
-            df = df.dropna(subset=[change_col])
-            top = df.nlargest(n, change_col)
-            bottom = df.nsmallest(n, change_col)
-
-            top_sectors = [
-                {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
-                for _, row in top.iterrows()
-            ]
-            bottom_sectors = [
-                {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
-                for _, row in bottom.iterrows()
-            ]
-            result = (top_sectors, bottom_sectors)
 
             _sector_rankings_cache['data'] = result
             _sector_rankings_cache['timestamp'] = now
+            _sector_rankings_cache['ttl'] = 300
             logger.info("[efinance] 板块排行已缓存，TTL=%ss", _sector_rankings_cache['ttl'])
             return result
 
         except Exception as e:
-            # 失败也缓存空结果，避免同一轮重复请求
+            # 瞬态失败：自动重试一次（~2s 后）
+            _sector_rankings_cache['data'] = None
+            _sector_rankings_cache['timestamp'] = now + 60
+            logger.warning("[efinance] 获取板块排行失败，60s 后重试: %s", e)
+            try:
+                time.sleep(2)
+                self._set_random_user_agent()
+                self._enforce_rate_limit()
+                df = _ef_call_with_timeout(ef.stock.get_realtime_quotes, ['行业板块'])
+                if df is not None and not df.empty:
+                    result = self._format_sector_rankings(df, n)
+                    if result:
+                        _sector_rankings_cache['data'] = result
+                        _sector_rankings_cache['timestamp'] = now
+                        _sector_rankings_cache['ttl'] = 300
+                        return result
+                logger.debug("[efinance] 重试依然空数据")
+            except Exception as retry_e:
+                logger.debug("[efinance] 重试也失败: %s", retry_e)
+            # 最终失败：指数退避，上限30分钟
             _sector_rankings_cache['data'] = None
             _sector_rankings_cache['timestamp'] = now
-            logger.warning("[efinance] 获取板块排行失败，缓存冷却 %s 秒: %s", _sector_rankings_cache['ttl'], e)
+            _sector_rankings_cache['ttl'] = min(int(_sector_rankings_cache['ttl'] * 1.5), 1800)
+            logger.warning("[efinance] 获取板块排行最终失败，缓存冷却 %s 秒: %s", _sector_rankings_cache['ttl'], e)
             return None
     
     def get_base_info(self, stock_code: str) -> Optional[Dict[str, Any]]:

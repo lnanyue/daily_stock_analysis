@@ -237,6 +237,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         self.data_manager = data_manager or DataFetcherManager(config=self.config)
         self.search_service = search_service or SearchService(
             tavily_keys=self.config.tavily_api_keys,
+            finnhub_api_key=getattr(self.config, "finnhub_api_key", None),
             news_max_age_days=self.config.news_max_age_days,
         )
         self.analyzer = analyzer  # GeminiAnalyzer instance

@@ -194,6 +194,13 @@ class Config:
     agent_skill_routing: str = "auto"
     agent_orchestrator_timeout_s: int = 600
 
+    # risk_screen 配置
+    risk_screen_enabled: bool = True
+    risk_screen_debt_threshold: float = 80.0
+    risk_screen_pe_max: float = 100.0
+    risk_screen_pe_negative_warn: bool = True
+    risk_screen_max_workers: int = 3
+
     gemini_api_keys: List[str] = field(default_factory=list)
     gemini_api_key: Optional[str] = None
     anthropic_api_keys: List[str] = field(default_factory=list)
@@ -201,6 +208,7 @@ class Config:
     openai_api_keys: List[str] = field(default_factory=list)
     deepseek_api_keys: List[str] = field(default_factory=list)
     tavily_api_keys: List[str] = field(default_factory=list)
+    finnhub_api_key: Optional[str] = None
     openbb_news_enabled: bool = False
     openbb_news_provider: str = "yfinance"
     openbb_fetcher_enabled: bool = False
@@ -642,6 +650,37 @@ class Config:
             agent_memory_enabled=parse_env_bool(os.getenv("AGENT_MEMORY_ENABLED"), default=False),
             agent_skill_autoweight=parse_env_bool(os.getenv("AGENT_SKILL_AUTOWEIGHT"), default=True),
             agent_skill_routing=((os.getenv("AGENT_SKILL_ROUTING") or "auto").strip().lower() or "auto"),
+            agent_orchestrator_timeout_s=parse_env_int(
+                os.getenv("AGENT_ORCHESTRATOR_TIMEOUT_S"),
+                600,
+                field_name="AGENT_ORCHESTRATOR_TIMEOUT_S",
+                minimum=1,
+            ),
+            # risk_screen 配置
+            risk_screen_enabled=parse_env_bool(
+                os.getenv("RISK_SCREEN_ENABLED"),
+                default=True,
+            ),
+            risk_screen_debt_threshold=parse_env_float(
+                os.getenv("RISK_SCREEN_DEBT_THRESHOLD"),
+                80.0,
+                field_name="RISK_SCREEN_DEBT_THRESHOLD",
+            ),
+            risk_screen_pe_max=parse_env_float(
+                os.getenv("RISK_SCREEN_PE_MAX"),
+                100.0,
+                field_name="RISK_SCREEN_PE_MAX",
+            ),
+            risk_screen_pe_negative_warn=parse_env_bool(
+                os.getenv("RISK_SCREEN_PE_NEGATIVE_WARN"),
+                default=True,
+            ),
+            risk_screen_max_workers=parse_env_int(
+                os.getenv("RISK_SCREEN_MAX_WORKERS"),
+                3,
+                field_name="RISK_SCREEN_MAX_WORKERS",
+                minimum=1,
+            ),
             gemini_api_keys=gemini_keys,
             gemini_api_key=gemini_keys[0] if gemini_keys else None,
             anthropic_api_keys=anthropic_keys,
@@ -649,6 +688,7 @@ class Config:
             openai_api_keys=openai_keys,
             deepseek_api_keys=deepseek_keys,
             tavily_api_keys=_get_keys("TAVILY_API_KEYS", "TAVILY_API_KEY"),
+            finnhub_api_key=os.getenv("FINNHUB_API_KEY"),
             openbb_news_enabled=parse_env_bool(
                 os.getenv("OPENBB_NEWS_ENABLED"),
                 default=False,
@@ -952,6 +992,7 @@ class Config:
 
         has_search = bool(
             self.tavily_api_keys
+            or self.finnhub_api_key
             or self.openbb_news_enabled
         )
         if not has_search:
@@ -969,6 +1010,7 @@ class Config:
     def has_search_capability_enabled(self) -> bool:
         return bool(
             self.tavily_api_keys
+            or self.finnhub_api_key
             or self.openbb_news_enabled
         )
 

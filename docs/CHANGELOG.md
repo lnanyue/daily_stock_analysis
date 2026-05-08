@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [新功能] 新增 Finnhub 公司新闻源（`FinnhubNewsProvider`），通过 `FINNHUB_API_KEY` 环境变量启用，零依赖，稳定可靠，免费 300 次/天；`OpenBB` 新闻源因依赖冲突已移除；`lark-oapi` 飞书 SDK 已移除。
 - [文档] 修正 README.md CLI 示例（`--code` → `--stocks`）；更新 LLM_CONFIG_GUIDE 中已废弃的 `litellm_config.yaml` 方式三为 deprecation 说明，引导用户使用 `config.yaml` 的 `llm` 段。
 - [改进] `ci_gate.sh flake8` 增加 `--exclude=.claude,.worktrees,.git,__pycache__`，避免扫入临时工作区污染本地 CI 入口。
 - [文档] 更新 `docs/migration-guide.md` FAQ：移除已删除的 `UnifiedConfigLoader` 引用，说明 `settings.yaml` 已移除。

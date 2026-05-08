@@ -76,6 +76,19 @@ class DataFetcherManager:
         """获取所有已加载的数据源。"""
         return list(self._fetchers)
 
+    def get_st_list(self) -> List[Dict[str, str]]:
+        """获取当前 A 股 ST 与 *ST 名单（通过 AkshareFetcher）。"""
+        ak_fetcher = next(
+            (f for f in self._fetchers if f.name == "AkshareFetcher"),
+            None,
+        )
+        if ak_fetcher and hasattr(ak_fetcher, "get_st_list"):
+            try:
+                return ak_fetcher.get_st_list()
+            except Exception as e:
+                logger.warning("通过 AkshareFetcher 获取 ST 名单失败: %s", e)
+        return []
+
     @classmethod
     def get_instance(cls, fetchers: List[BaseFetcher] = None, config=None):
         if not cls._instance:

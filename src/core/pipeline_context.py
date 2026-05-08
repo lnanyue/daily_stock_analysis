@@ -88,6 +88,7 @@ def enhance_analysis_context(
             "total_mv": _get_quote_value(realtime_quote, "total_mv"),
             "circ_mv": _get_quote_value(realtime_quote, "circ_mv"),
             "change_60d": _get_quote_value(realtime_quote, "change_60d"),
+            "source": _get_quote_value(realtime_quote, "source"),
         }
         
         # 补全：如果实时行情缺失 PE/PB，从基本面数据中提取

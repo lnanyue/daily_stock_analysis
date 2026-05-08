@@ -10,6 +10,7 @@
 3. 保存分析结果到数据库
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Optional, Dict, Any
@@ -84,13 +85,13 @@ class AnalysisService:
             # 确定报告类型 (API: simple/detailed/full/brief -> ReportType)
             rt = ReportType.from_str(report_type)
             
-            # 执行分析
-            result = pipeline.process_single_stock(
+            # 执行分析（pipeline 方法为 async，通过 asyncio.run 在当前同步上下文中执行）
+            result = asyncio.run(pipeline.process_single_stock(
                 code=stock_code,
                 skip_analysis=False,
                 single_stock_notify=send_notification,
                 report_type=rt
-            )
+            ))
             
             if result is None:
                 logger.warning("分析股票 %s 返回空结果", stock_code)

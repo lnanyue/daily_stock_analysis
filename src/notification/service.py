@@ -10,6 +10,8 @@ A股自选股智能分析系统 - 通知层 (Refactored)
 3. 支持 Markdown 转图片发送
 """
 import asyncio
+import hashlib
+import inspect
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
@@ -177,6 +179,15 @@ class NotificationService:
         return await self._senders[NotificationChannel.WECHAT]._send_wechat_image(image_bytes)
 
     async def send(self, content: str, email_stock_codes: Optional[List[str]] = None, email_send_to_all: bool = False) -> bool:
+        ctx = inspect.currentframe()
+        caller = inspect.getframeinfo(ctx.f_back) if ctx and ctx.f_back else None
+        caller_info = f"{caller.filename}:{caller.lineno}" if caller else "unknown"
+        h = hashlib.md5(content.encode()).hexdigest()[:8]
+        logger.info(
+            "[notif-diagnostic] send() called from %s | chars=%d hash=%s channels=%s",
+            caller_info, len(content), h,
+            [ch.value for ch in self._available_channels],
+        )
         if not self._available_channels:
             self._last_delivery_results = []
             self._last_delivery_summary = "未配置任何通知渠道"

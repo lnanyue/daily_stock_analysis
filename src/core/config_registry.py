@@ -58,6 +58,12 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
         "display_order": 60,
     },
     {
+        "category": "risk_screen",
+        "title": "Risk Screen",
+        "description": "Independent risk screening engine parameters and thresholds.",
+        "display_order": 65,
+    },
+    {
         "category": "uncategorized",
         "title": "Uncategorized",
         "description": "Keys not mapped in the field registry.",
@@ -1412,6 +1418,79 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {"min": 0.0, "max": 100.0},
         "display_order": 50,
     },
+    # ------------------------------------------------------------------
+    # Risk Screen
+    # ------------------------------------------------------------------
+    "RISK_SCREEN_ENABLED": {
+        "title": "Enable Risk Screen",
+        "description": "Enable the independent risk screening flow.",
+        "category": "risk_screen",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "true",
+        "options": [],
+        "validation": {},
+        "display_order": 10,
+    },
+    "RISK_SCREEN_DEBT_THRESHOLD": {
+        "title": "Debt Ratio Threshold",
+        "description": "Asset-liability ratio warning threshold (percentage). Exceeding this marks as YELLOW.",
+        "category": "risk_screen",
+        "data_type": "number",
+        "ui_control": "number",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "80.0",
+        "options": [],
+        "validation": {"min": 0, "max": 100},
+        "display_order": 20,
+    },
+    "RISK_SCREEN_PE_MAX": {
+        "title": "PE Max Threshold",
+        "description": "P/E ratio upper warning threshold.",
+        "category": "risk_screen",
+        "data_type": "number",
+        "ui_control": "number",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "100.0",
+        "options": [],
+        "validation": {"min": 0},
+        "display_order": 30,
+    },
+    "RISK_SCREEN_PE_NEGATIVE_WARN": {
+        "title": "PE Negative Warning",
+        "description": "Warn when P/E ratio is negative (company in loss).",
+        "category": "risk_screen",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "true",
+        "options": [],
+        "validation": {},
+        "display_order": 40,
+    },
+    "RISK_SCREEN_MAX_WORKERS": {
+        "title": "Max Concurrent Scans",
+        "description": "Maximum concurrent stock risk scans.",
+        "category": "risk_screen",
+        "data_type": "integer",
+        "ui_control": "number",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "3",
+        "options": [],
+        "validation": {"min": 1, "max": 10},
+        "display_order": 50,
+    },
     "AGENT_MODE": {
         "title": "Agent Mode",
         "description": "Enable ReAct Agent for stock analysis.",
@@ -1754,6 +1833,8 @@ def _infer_category(key: str) -> str:
         return "base"
     if key.startswith("BACKTEST_"):
         return "backtest"
+    if key.startswith("RISK_SCREEN_"):
+        return "risk_screen"
     if key.startswith(("GEMINI_", "OPENAI_", "ANTHROPIC_", "LITELLM_", "AIHUBMIX_", "DEEPSEEK_", "LLM_")):
         return "ai_model"
     if key.endswith("_PRIORITY") or key.startswith(

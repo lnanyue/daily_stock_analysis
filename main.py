@@ -42,6 +42,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--backtest-code", type=str, help="指定回测代码")
     parser.add_argument("--backtest-days", type=int, help="回测天数")
     parser.add_argument("--backtest-force", action="store_true", help="强制回测")
+    parser.add_argument("--risk-screen", action="store_true", help="运行独立排雷筛选流程（--stocks 指定股票）")
     return parser.parse_args()
 
 
@@ -78,6 +79,7 @@ def main() -> int:
         run_backtest,
         run_market_review_only,
         run_schedule_mode,
+        run_risk_screen,
         start_bot_stream_clients,
     )
     start_bot_stream_clients(config)
@@ -88,6 +90,11 @@ def main() -> int:
         # 模式 A: 回测
         if getattr(args, "backtest", False):
             return run_backtest(getattr(args, "backtest_code", None))
+
+        # 模式 A.5: 排雷筛选
+        if getattr(args, "risk_screen", False):
+            stock_codes = _parse_cli_stock_codes(args)
+            return asyncio.run(run_risk_screen(config, args, stock_codes))
 
         # 模式 B: 仅大盘复盘
         if args.market_review:

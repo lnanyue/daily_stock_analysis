@@ -24,6 +24,7 @@ from .providers import (
     TavilySearchProvider,
     OpenBBNewsProvider,
     AkshareNewsProvider,
+    FinnhubNewsProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ class SearchService:
         searxng_public_instances_enabled: bool = False,
         openbb_news_enabled: bool = False,
         openbb_news_provider: str = "yfinance",
+        finnhub_api_key: Optional[str] = None,
         news_max_age_days: int = 3,
         news_strategy_profile: str = "short",
         **_legacy_kwargs,
@@ -100,6 +102,10 @@ class SearchService:
         if tavily_keys:
             self._providers.append(TavilySearchProvider(tavily_keys))
             logger.info(f"已配置 Tavily 搜索，共 {len(tavily_keys)} 个 API Key")
+
+        if finnhub_api_key:
+            self._providers.append(FinnhubNewsProvider(api_key=finnhub_api_key))
+            logger.info("已启用 Finnhub 公司新闻源")
 
         if openbb_news_enabled:
 
@@ -1028,6 +1034,7 @@ def get_search_service() -> SearchService:
         
         _search_service = SearchService(
             tavily_keys=getattr(config, "tavily_api_keys", None),
+            finnhub_api_key=getattr(config, "finnhub_api_key", None),
             openbb_news_enabled=getattr(config, "openbb_news_enabled", False),
             openbb_news_provider=getattr(config, "openbb_news_provider", "yfinance"),
             news_max_age_days=getattr(config, "news_max_age_days", 3),

@@ -384,8 +384,8 @@ class TestPipelineRouting(unittest.TestCase):
             from src.enums import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
-            # Mock _analyze_with_agent to verify it gets called
-            pipeline._analyze_with_agent = MagicMock(return_value=None)
+            # Mock executor.analyze to verify it gets called
+            pipeline.executor.analyze = AsyncMock(return_value=None)
             pipeline.fetcher_manager.get_stock_name = AsyncMock(return_value="贵州茅台")
             pipeline.fetcher_manager.get_realtime_quote = AsyncMock(return_value=None)
             pipeline.fetcher_manager.get_chip_distribution = AsyncMock(return_value=None)
@@ -396,14 +396,14 @@ class TestPipelineRouting(unittest.TestCase):
 
             asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
 
-            pipeline._analyze_with_agent.assert_called_once()
-            call_args = pipeline._analyze_with_agent.call_args
-            # Positional args: code, report_type, query_id, stock_name, realtime_quote, chip_data, fundamental_context, trend_result
+            pipeline.executor.analyze.assert_called_once()
+            call_args = pipeline.executor.analyze.call_args
             self.assertEqual(call_args[0][0], "600519")
             self.assertEqual(call_args[0][1], ReportType.SIMPLE)
             self.assertEqual(call_args[0][2], "q1")
-            # trend_result (8th arg) should be present (may be a TrendAnalysisResult or None)
-            self.assertEqual(len(call_args[0]), 8)
+            # 4th arg should be a StockDataCollectionResult
+            from src.core.pipeline_data_collector import StockDataCollectionResult
+            self.assertIsInstance(call_args[0][3], StockDataCollectionResult)
 
     def test_auto_agent_route_escalates_complex_single_stock_runs(self):
         """When auto routing is enabled, complex runs should switch to Agent mode."""
@@ -432,7 +432,7 @@ class TestPipelineRouting(unittest.TestCase):
             from src.enums import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
-            pipeline._analyze_with_agent = MagicMock(return_value=None)
+            pipeline.executor.analyze = AsyncMock(return_value=None)
             pipeline.fetcher_manager.get_stock_name = AsyncMock(return_value="贵州茅台")
             pipeline.fetcher_manager.get_realtime_quote = AsyncMock(return_value=None)
             pipeline.fetcher_manager.get_chip_distribution = AsyncMock(return_value=None)
@@ -443,8 +443,8 @@ class TestPipelineRouting(unittest.TestCase):
 
             asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q-auto"))
 
-            pipeline._analyze_with_agent.assert_called_once()
-            args, kwargs = pipeline._analyze_with_agent.call_args
+            pipeline.executor.analyze.assert_called_once()
+            args, kwargs = pipeline.executor.analyze.call_args
             self.assertEqual(args[0], "600519")
 
     def test_legacy_mode_still_routes_through_unified_analysis(self):
@@ -488,12 +488,12 @@ class TestPipelineRouting(unittest.TestCase):
             pipeline.db.get_analysis_context.return_value = None
             pipeline.db.get_data_range_async = AsyncMock(return_value=[])
             pipeline.db.save_analysis_history_async = AsyncMock()
-            # Mock analyzer
-            pipeline._analyze_with_agent = MagicMock(return_value=None)
+            # Mock executor
+            pipeline.executor.analyze = AsyncMock(return_value=None)
 
             asyncio.run(pipeline.analyze_stock("600519", ReportType.SIMPLE, "q1"))
 
-            pipeline._analyze_with_agent.assert_called_once()
+            pipeline.executor.analyze.assert_called_once()
 
 
 # TestAnalyzeWithAgentStockName removed — _analyze_with_agent refactored to multi-agent path
