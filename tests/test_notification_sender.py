@@ -20,9 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.config import Config
 from src.notification_sender import (
     CustomWebhookSender,
-    DiscordSender,
     EmailSender,
-    FeishuSender,
     PushoverSender,
     PushplusSender,
     Serverchan3Sender,
@@ -51,77 +49,6 @@ def _mock_async_client(response):
     client = mock.AsyncMock()
     client.post = mock.AsyncMock(return_value=response)
     return client
-
-
-class TestDiscordSender(unittest.IsolatedAsyncioTestCase):
-    """Unit tests for DiscordSender."""
-
-    async def test_send_returns_false_when_not_configured(self):
-        cfg = _config()
-        sender = DiscordSender(cfg)
-        result = await sender.send_to_discord("hello")
-        self.assertFalse(result)
-
-    def test_is_discord_configured_webhook_only(self):
-        cfg = _config(discord_webhook_url="https://discord.com/webhook/1")
-        sender = DiscordSender(cfg)
-        self.assertTrue(sender._check_enabled())
-
-    def test_is_discord_configured_bot_only(self):
-        cfg = _config(discord_bot_token="T", discord_main_channel_id="123")
-        sender = DiscordSender(cfg)
-        self.assertTrue(sender._check_enabled())
-
-    def test_is_discord_configured_neither(self):
-        cfg = _config()
-        sender = DiscordSender(cfg)
-        self.assertFalse(sender._check_enabled())
-
-    async def test_send_webhook_success_builds_correct_payload(self):
-        resp = _mock_http_response(200)
-        mock_client = _mock_async_client(resp)
-        with mock.patch(
-            "src.notification_sender.async_base.get_sender_http_client",
-            return_value=mock_client,
-        ):
-            cfg = _config(discord_webhook_url="https://discord.com/webhook/1")
-            sender = DiscordSender(cfg)
-            result = await sender.send_to_discord("content")
-        self.assertTrue(result)
-        mock_client.post.assert_called_once()
-        call_kw = mock_client.post.call_args[1]
-        self.assertEqual(call_kw["json"]["content"], "content")
-        self.assertIn("username", call_kw["json"])
-
-    async def test_send_webhook_http_error_returns_false(self):
-        resp = _mock_http_response(400)
-        mock_client = _mock_async_client(resp)
-        with mock.patch(
-            "src.notification_sender.async_base.get_sender_http_client",
-            return_value=mock_client,
-        ):
-            cfg = _config(discord_webhook_url="https://discord.com/webhook/1")
-            sender = DiscordSender(cfg)
-            result = await sender.send_to_discord("content")
-        self.assertFalse(result)
-
-    async def test_send_bot_success_uses_channel_url(self):
-        resp = _mock_http_response(200)
-        mock_client = _mock_async_client(resp)
-        with mock.patch(
-            "src.notification_sender.async_base.get_sender_http_client",
-            return_value=mock_client,
-        ):
-            cfg = _config(discord_bot_token="TOKEN", discord_main_channel_id="CH123")
-            sender = DiscordSender(cfg)
-            result = await sender.send_to_discord("content")
-        self.assertTrue(result)
-        self.assertIn(
-            "discord.com/api/v10/channels/CH123/messages",
-            mock_client.post.call_args[0][0],
-        )
-        call_kw = mock_client.post.call_args[1]
-        self.assertEqual(call_kw["headers"]["Authorization"], "Bot TOKEN")
 
 
 class TestWechatSender(unittest.IsolatedAsyncioTestCase):
@@ -165,40 +92,6 @@ class TestWechatSender(unittest.IsolatedAsyncioTestCase):
         big = b"x" * (WECHAT_IMAGE_MAX_BYTES + 1)
         with mock.patch.object(sender, "_compress_image", return_value=None):
             result = await sender._send_wechat_image(big)
-        self.assertFalse(result)
-
-
-class TestFeishuSender(unittest.IsolatedAsyncioTestCase):
-    """Unit tests for FeishuSender."""
-
-    async def test_send_returns_false_when_no_webhook_url(self):
-        cfg = _config()
-        sender = FeishuSender(cfg)
-        result = await sender.send_to_feishu("hello")
-        self.assertFalse(result)
-
-    async def test_send_success_returns_true(self):
-        resp = _mock_http_response(200, {"code": 0})
-        mock_client = _mock_async_client(resp)
-        with mock.patch(
-            "src.notification_sender.async_base.get_sender_http_client",
-            return_value=mock_client,
-        ):
-            cfg = _config(feishu_webhook_url="https://feishu.example/hook")
-            sender = FeishuSender(cfg)
-            result = await sender.send_to_feishu("hello")
-        self.assertTrue(result)
-
-    async def test_send_http_error_returns_false(self):
-        resp = _mock_http_response(400)
-        mock_client = _mock_async_client(resp)
-        with mock.patch(
-            "src.notification_sender.async_base.get_sender_http_client",
-            return_value=mock_client,
-        ):
-            cfg = _config(feishu_webhook_url="https://feishu.example/hook")
-            sender = FeishuSender(cfg)
-            result = await sender.send_to_feishu("hello")
         self.assertFalse(result)
 
 

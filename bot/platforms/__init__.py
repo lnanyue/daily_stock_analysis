@@ -35,24 +35,6 @@ except ImportError:
     get_dingtalk_stream_client = lambda: None
     start_dingtalk_stream_background = lambda: False
 
-# 飞书 Stream 模式（可选）
-try:
-    from bot.platforms.feishu_stream import (
-        FeishuStreamClient,
-        FeishuStreamHandler,
-        FeishuReplyClient,
-        get_feishu_stream_client,
-        start_feishu_stream_background,
-        FEISHU_SDK_AVAILABLE,
-    )
-except ImportError:
-    FEISHU_SDK_AVAILABLE = False
-    FeishuStreamClient = None
-    FeishuStreamHandler = None
-    FeishuReplyClient = None
-    get_feishu_stream_client = lambda: None
-    start_feishu_stream_background = lambda: False
-
 __all__ = [
     'BotPlatform',
     'DingtalkPlatform',
@@ -63,11 +45,4 @@ __all__ = [
     'get_dingtalk_stream_client',
     'start_dingtalk_stream_background',
     'DINGTALK_STREAM_AVAILABLE',
-    # 飞书 Stream 模式
-    'FeishuStreamClient',
-    'FeishuStreamHandler',
-    'FeishuReplyClient',
-    'get_feishu_stream_client',
-    'start_feishu_stream_background',
-    'FEISHU_SDK_AVAILABLE',
 ]

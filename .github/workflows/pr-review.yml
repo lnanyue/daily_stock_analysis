@@ -275,9 +275,6 @@ jobs:
               if (filename.includes('notification') || filename.includes('webhook')) {
                 labels.add('notification');
               }
-              if (filename.includes('feishu')) {
-                labels.add('feishu');
-              }
               if (filename.includes('data_provider') || filename.includes('fetcher')) {
                 labels.add('data-source');
               }

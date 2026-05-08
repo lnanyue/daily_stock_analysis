@@ -29,9 +29,7 @@ from src.report_language import normalize_report_language
 from bot.models import BotMessage
 from src.notification_sender import (
     CustomWebhookSender,
-    DiscordSender,
     EmailSender,
-    FeishuSender,
     PushoverSender,
     PushplusSender,
     Serverchan3Sender,
@@ -47,13 +45,11 @@ logger = logging.getLogger(__name__)
 class NotificationChannel(Enum):
     """通知渠道类型"""
     WECHAT = "wechat"
-    FEISHU = "feishu"
     EMAIL = "email"
     PUSHOVER = "pushover"
     PUSHPLUS = "pushplus"
     SERVERCHAN3 = "serverchan3"
     CUSTOM = "custom"
-    DISCORD = "discord"
     UNKNOWN = "unknown"
 
 
@@ -63,13 +59,11 @@ class ChannelDetector:
     def get_channel_name(channel: NotificationChannel) -> str:
         names = {
             NotificationChannel.WECHAT: "企业微信",
-            NotificationChannel.FEISHU: "飞书",
             NotificationChannel.EMAIL: "邮件",
             NotificationChannel.PUSHOVER: "Pushover",
             NotificationChannel.PUSHPLUS: "PushPlus",
             NotificationChannel.SERVERCHAN3: "Server酱3",
             NotificationChannel.CUSTOM: "自定义Webhook",
-            NotificationChannel.DISCORD: "Discord机器人",
         }
         return names.get(channel, "未知渠道")
 
@@ -91,13 +85,11 @@ class NotificationService:
         # 初始化各渠道发送器 (组合模式)
         self._senders: Dict[NotificationChannel, Any] = {
             NotificationChannel.WECHAT: WechatSender(config),
-            NotificationChannel.FEISHU: FeishuSender(config),
             NotificationChannel.EMAIL: EmailSender(config),
             NotificationChannel.PUSHOVER: PushoverSender(config),
             NotificationChannel.PUSHPLUS: PushplusSender(config),
             NotificationChannel.SERVERCHAN3: Serverchan3Sender(config),
             NotificationChannel.CUSTOM: CustomWebhookSender(config),
-            NotificationChannel.DISCORD: DiscordSender(config),
         }
 
         self._available_channels = [ch for ch, s in self._senders.items() if s.enabled]
@@ -152,14 +144,12 @@ class NotificationService:
     # Forwarding methods to Senders (Legacy compatibility)
     # ------------------------------------------------------------------
     async def send_to_wechat(self, content: str) -> bool: return await self._senders[NotificationChannel.WECHAT].send(content)
-    async def send_to_feishu(self, content: str) -> bool: return await self._senders[NotificationChannel.FEISHU].send(content)
     async def send_to_telegram(self, content: str) -> bool: return False # Telegram handled via Bot dispatcher usually
     async def send_to_email(self, content: str, receivers=None) -> bool: return await self._senders[NotificationChannel.EMAIL].send(content, receivers=receivers)
     async def send_to_pushover(self, content: str) -> bool: return await self._senders[NotificationChannel.PUSHOVER].send(content)
     async def send_to_pushplus(self, content: str) -> bool: return await self._senders[NotificationChannel.PUSHPLUS].send(content)
     async def send_to_serverchan3(self, content: str) -> bool: return await self._senders[NotificationChannel.SERVERCHAN3].send(content)
     async def send_to_custom(self, content: str) -> bool: return await self._senders[NotificationChannel.CUSTOM].send(content)
-    async def send_to_discord(self, content: str) -> bool: return await self._senders[NotificationChannel.DISCORD].send(content)
 
     # ------------------------------------------------------------------
     # Pipeline notification helpers (called by pipeline_notifications.py)
@@ -183,8 +173,9 @@ class NotificationService:
         caller = inspect.getframeinfo(ctx.f_back) if ctx and ctx.f_back else None
         caller_info = f"{caller.filename}:{caller.lineno}" if caller else "unknown"
         h = hashlib.md5(content.encode()).hexdigest()[:8]
-        logger.info(
-            "[notif-diagnostic] send() called from %s | chars=%d hash=%s channels=%s",
+        _diagnostics_logger = logging.getLogger("diagnostics")
+        _diagnostics_logger.debug(
+            "send() called from %s | chars=%d hash=%s channels=%s",
             caller_info, len(content), h,
             [ch.value for ch in self._available_channels],
         )

@@ -89,15 +89,15 @@ class TestStorage(unittest.TestCase):
         DatabaseManager.reset_instance()
         db = DatabaseManager(db_url="sqlite:///:memory:")
 
-        db.save_conversation_message("feishu_u1", "user", "legacy chat")
-        db.save_conversation_message("feishu_u1:ask_600519", "user", "ask session")
+        db.save_conversation_message("test_u1", "user", "legacy chat")
+        db.save_conversation_message("test_u1:ask_600519", "user", "ask session")
 
         sessions = db.get_chat_sessions(
-            session_prefix="feishu_u1:",
-            extra_session_ids=["feishu_u1"],
+            session_prefix="test_u1:",
+            extra_session_ids=["test_u1"],
         )
 
-        self.assertEqual({item["session_id"] for item in sessions}, {"feishu_u1", "feishu_u1:ask_600519"})
+        self.assertEqual({item["session_id"] for item in sessions}, {"test_u1", "test_u1:ask_600519"})
 
         DatabaseManager.reset_instance()
 

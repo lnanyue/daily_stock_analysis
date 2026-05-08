@@ -15,7 +15,7 @@
 
 **AI-powered stock analysis system for A-shares / Hong Kong / US stocks**
 
-Analyze your watchlist daily → generate a decision dashboard → push to multiple channels (Telegram/Discord/Slack/Email/WeChat Work/Feishu)
+Analyze your watchlist daily → generate a decision dashboard → push to multiple channels (Telegram/Email/WeChat Work)
 
 **Zero-cost deployment** · Runs on GitHub Actions · No server required
 
@@ -45,7 +45,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 | Backtest | AI Backtest Validation | Auto-evaluate historical analysis accuracy, with a 1-day next-session validation view for AI prediction vs actual move and accuracy |
 | Intel | Announcement + Capital Flow Intelligence | IntelAgent now also pulls listed-company announcements (SSE/SZSE/CNINFO) and A-share main-force capital flow, and exposes `capital_flow_signal` (`inflow/outflow/neutral/not_available`) for flow direction context |
 | Agent Q&A | Strategy Chat | Multi-turn strategy chat with 11 built-in trading strategies (internally loaded as skills) (Bot/API) |
-| Notifications | Multi-channel Push | Telegram, Discord, Slack, Email, WeChat Work, Feishu, etc. |
+| Notifications | Multi-channel Push | Telegram, Email, WeChat Work, etc. |
 | Automation | Scheduled Runs | GitHub Actions scheduled execution, no server required |
 
 ### Tech Stack & Data Sources
@@ -98,14 +98,10 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 | Secret Name | Description | Required |
 |------------|------|:----:|
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL | Optional |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token (choose one with Webhook) | Optional |
-| `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID (required when using Bot) | Optional |
 | `EMAIL_SENDER` | Sender email (e.g., `xxx@qq.com`) | Optional |
 | `EMAIL_PASSWORD` | Email authorization code (not login password) | Optional |
 | `EMAIL_RECEIVERS` | Receiver emails (comma-separated, leave empty to send to yourself) | Optional |
 | `WECHAT_WEBHOOK_URL` | WeChat Work Webhook URL | Optional |
-| `FEISHU_WEBHOOK_URL` | Feishu Webhook URL | Optional |
 | `PUSHPLUS_TOKEN` | PushPlus Token ([Get it here](https://www.pushplus.plus), Chinese push service) | Optional |
 | `SERVERCHAN3_SENDKEY` | ServerChan v3 SendKey (([Get it here](https://sc3.ft07.com/), Mobile app push notification service) ) | Optional |
 | `CUSTOM_WEBHOOK_URLS` | Custom Webhook URLs (supports DingTalk, etc., comma-separated) | Optional |
@@ -238,20 +234,7 @@ python main.py --market-review
 
 ## 📱 Supported Notification Channels
 
-### 1. Discord
-
-Webhook:
-```bash
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
-```
-
-Bot:
-```bash
-DISCORD_BOT_TOKEN=your_bot_token
-DISCORD_MAIN_CHANNEL_ID=your_channel_id
-```
-
-### 2. Email
+### 1. Email
 
 ```bash
 EMAIL_SENDER=your_email@gmail.com
@@ -259,19 +242,13 @@ EMAIL_PASSWORD=your_app_password
 EMAIL_RECEIVERS=receiver@example.com  # Optional
 ```
 
-### 3. WeChat Work / Feishu
+### 2. WeChat Work
 
-WeChat Work:
 ```bash
 WECHAT_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
 ```
 
-Feishu:
-```bash
-FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
-```
-
-### 4. PushPlus
+### 3. PushPlus
 
 ```bash
 PUSHPLUS_TOKEN=your_token_here
@@ -411,7 +388,6 @@ The search functionality (available via Bot/API) now supports multi-signal match
 - [FAQ](FAQ_EN.md)
 - [Deployment Guide](DEPLOY_EN.md)
 - [Bot Command Reference](bot-command.md)
-- [Feishu Bot Setup](bot/feishu-bot-config.md)
 - [DingTalk Bot Setup](bot/dingding-bot-config.md)
 
 ---

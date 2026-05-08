@@ -27,15 +27,18 @@ from src.core.risk_screener import RiskLevel, RiskScreenResult, RiskFlag
 logger = logging.getLogger(__name__)
 
 
+_diagnostics_logger = logging.getLogger("diagnostics")
+
+
 def _log_content_diagnostic(label: str, content: str) -> None:
     """Log a content fingerprint for diagnosing notification duplication."""
     if not content:
-        logger.warning("[notif-diagnostic] %s: EMPTY content", label)
+        _diagnostics_logger.warning("%s: EMPTY content", label)
         return
     h = hashlib.md5(content.encode()).hexdigest()[:8]
     preview = content.strip()[:200].replace("\n", " ")
-    logger.info(
-        "[notif-diagnostic] %s | chars=%d hash=%s preview=%s ...",
+    _diagnostics_logger.debug(
+        "%s | chars=%d hash=%s preview=%s ...",
         label, len(content), h, preview,
     )
 
@@ -126,9 +129,8 @@ def start_bot_stream_clients(config: Config) -> None:
     if config.dingtalk_stream_enabled:
         from bot.platforms import start_dingtalk_stream_background
         start_dingtalk_stream_background()
-    if getattr(config, "feishu_stream_enabled", False):
-        from bot.platforms import start_feishu_stream_background
-        start_feishu_stream_background()
+
+
 
 
 # ── 完整分析编排 ────────────────────────────────────────────────
@@ -258,30 +260,7 @@ async def run_full_analysis(
                 _log_content_diagnostic("merge_combined(合并通知)", combined)
                 await pipeline.notifier.send(combined, email_send_to_all=True)
 
-        # 4. 飞书文档
-        try:
-            from src.feishu_doc import FeishuDocManager
-            feishu_doc = FeishuDocManager()
-            if feishu_doc.is_configured() and (results or market_report):
-                tz_cn = timezone(timedelta(hours=8))
-                doc_title = f"{datetime.now(tz_cn).strftime('%Y-%m-%d %H:%M')} 大盘复盘"
-                full_content = (
-                    f"# \U0001f4c8 大盘复盘\n\n{market_report}\n\n---\n\n"
-                    if market_report
-                    else ""
-                )
-                if results:
-                    full_content += (
-                        f"# \U0001f680 个股决策仪表盘\n\n"
-                        f"{pipeline.notifier.generate_aggregate_report(results, getattr(config, 'report_type', 'simple'))}"
-                    )
-                if portfolio_summary:
-                    full_content += f"\n\n# \U0001f4ca 组合综述\n\n{portfolio_summary}"
-                doc_url = await asyncio.to_thread(feishu_doc.create_daily_doc, doc_title, full_content)
-                if doc_url and not args.no_notify:
-                    await pipeline.notifier.send(f"复盘文档已生成: {doc_url}")
-        except Exception as e:
-            logger.error("飞书文档生成失败: %s", e)
+        # 4. 飞书文档（已移除）
 
         # 5. 自动回测
         if getattr(config, "backtest_enabled", False):

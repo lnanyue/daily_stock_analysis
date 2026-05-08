@@ -81,8 +81,12 @@ class TickFlowFetcher(BaseFetcher):
             pass
 
     def _build_client(self):
-        from tickflow import TickFlow
-
+        try:
+            from tickflow import TickFlow
+        except ImportError:
+            raise RuntimeError(
+                "tickflow is not installed. Install it with: pip install tickflow"
+            )
         return TickFlow(api_key=self.api_key, timeout=self.timeout)
 
     def _get_client(self):

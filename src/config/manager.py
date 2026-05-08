@@ -119,11 +119,7 @@ class Config:
     report_templates_dir: str = "templates"
     merge_email_notification: bool = False
     single_stock_notify: bool = False
-    feishu_webhook_url: Optional[str] = None
     wechat_webhook_url: Optional[str] = None
-    dingtalk_webhook_url: Optional[str] = None
-    dingtalk_stream_enabled: bool = False
-    feishu_stream_enabled: bool = False
     email_sender: Optional[str] = None
     email_sender_name: str = "股票分析助手"
     email_password: Optional[str] = None
@@ -134,17 +130,16 @@ class Config:
     pushplus_token: Optional[str] = None
     pushplus_topic: Optional[str] = None
     serverchan3_sendkey: Optional[str] = None
-    discord_bot_token: Optional[str] = None
-    discord_main_channel_id: Optional[str] = None
-    discord_webhook_url: Optional[str] = None
-    discord_max_words: int = 2000
     custom_webhook_urls: List[str] = field(default_factory=list)
     custom_webhook_bearer_token: Optional[str] = None
     webhook_verify_ssl: bool = True
     notification_timeout_sec: int = 15
     wechat_msg_type: str = "markdown"
     wechat_max_bytes: int = 4000
-    feishu_max_bytes: int = 20000
+
+    dingtalk_stream_enabled: bool = False
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
 
     schedule_enabled: bool = False
     schedule_time: str = "18:00"
@@ -214,9 +209,6 @@ class Config:
     openbb_fetcher_enabled: bool = False
     openbb_fetcher_provider: str = "yfinance"
 
-    feishu_app_id: Optional[str] = None
-    feishu_app_secret: Optional[str] = None
-    feishu_folder_token: Optional[str] = None
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
@@ -250,26 +242,22 @@ class Config:
 
     @staticmethod
     def _apply_config_yaml_defaults() -> None:
-        """Load ``config.yaml`` and set its values as os.environ defaults.
+        """Load YAML config files as os.environ defaults.
 
-        Priority chain:  os.environ > .env > config.yaml > class defaults
-        This runs after ``load_dotenv()``, so existing env vars are never
-        overwritten.  The env-var name for each YAML key is resolved via
-        ``config_registry`` when available; otherwise ``SECTION_KEY`` is used.
+        Priority chain:  os.environ > .env > config.yaml > config.example.yaml > class defaults
+        ``config.example.yaml`` is the template shipped in-tree; ``config.yaml`` is
+        the local business override (gitignored).  Both use ``setdefault()`` so
+        existing env vars and ``.env`` values are never overwritten.  Because
+        ``config.yaml`` is loaded second, its values override ``config.example.yaml``.
+
+        The env-var name for each YAML key is resolved via ``config_registry`` when
+        available; otherwise ``SECTION_KEY`` is used.
         """
         try:
             import yaml
             from pathlib import Path
 
             from src.core.config_registry import get_registered_field_keys
-
-            cfg_path = Path(os.getcwd()) / "config.yaml"
-            if not cfg_path.exists():
-                return
-            with open(cfg_path, encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if not isinstance(data, dict):
-                return
 
             registry_keys = set(get_registered_field_keys())
 
@@ -280,24 +268,37 @@ class Config:
                     if isinstance(v, dict):
                         _apply(v, sect_key)
                     else:
-                        # Try bare key, then config_registry key, then section-prefixed
                         candidate = upper if upper in registry_keys else sect_key
                         if isinstance(v, bool):
                             os.environ.setdefault(candidate, "true" if v else "false")
                         else:
                             os.environ.setdefault(candidate, str(v))
 
-            _apply(data)
+            # 1. Load template / defaults (lowest config priority)
+            example_path = Path(os.getcwd()) / "config.example.yaml"
+            if example_path.exists():
+                with open(example_path, encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    _apply(data)
+
+            # 2. Load local business override (higher priority — loaded second)
+            local_path = Path(os.getcwd()) / "config.yaml"
+            if local_path.exists():
+                with open(local_path, encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    _apply(data)
         except Exception:
-            pass  # config.yaml is optional; class defaults cover missing values
+            pass  # YAML config files are optional; class defaults cover missing values
 
     @classmethod
     def _load_from_env(cls) -> "Config":
         preexisting_report_language = os.getenv("REPORT_LANGUAGE")
         cls._call_setup_env()
 
-        # Load config.yaml as defaults (env vars still take priority).
-        # Priority chain:  os.environ > .env > config.yaml > class defaults
+        # Load YAML config files as os.environ defaults (env vars still take priority).
+        # Priority chain:  os.environ > .env > config.yaml > config.example.yaml > class defaults
         # Skipping when os.environ has been cleared (pytest clear=True): if
         # HOME is missing the env isn't a real process environment.
         if os.environ.get("HOME"):
@@ -522,11 +523,7 @@ class Config:
                 default=False,
             ),
             single_stock_notify=parse_env_bool(os.getenv("SINGLE_STOCK_NOTIFY"), default=False),
-            feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL"),
             wechat_webhook_url=os.getenv("WECHAT_WEBHOOK_URL"),
-            dingtalk_webhook_url=os.getenv("DINGTALK_WEBHOOK_URL"),
-            dingtalk_stream_enabled=parse_env_bool(os.getenv("DINGTALK_STREAM_ENABLED"), default=False),
-            feishu_stream_enabled=parse_env_bool(os.getenv("FEISHU_STREAM_ENABLED"), default=False),
             email_sender=os.getenv("EMAIL_SENDER"),
             email_sender_name=os.getenv("EMAIL_SENDER_NAME", "股票分析助手"),
             email_password=os.getenv("EMAIL_PASSWORD"),
@@ -537,27 +534,15 @@ class Config:
             pushplus_token=os.getenv("PUSHPLUS_TOKEN"),
             pushplus_topic=os.getenv("PUSHPLUS_TOPIC"),
             serverchan3_sendkey=os.getenv("SERVERCHAN3_SENDKEY"),
-            discord_bot_token=os.getenv("DISCORD_BOT_TOKEN"),
-            discord_main_channel_id=os.getenv("DISCORD_MAIN_CHANNEL_ID") or os.getenv("DISCORD_CHANNEL_ID"),
-            discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL"),
-            discord_max_words=parse_env_int(
-                os.getenv("DISCORD_MAX_WORDS"),
-                2000,
-                field_name="DISCORD_MAX_WORDS",
-                minimum=1,
-            ),
             custom_webhook_urls=[u.strip() for u in os.getenv("CUSTOM_WEBHOOK_URLS", "").split(",") if u.strip()],
             custom_webhook_bearer_token=os.getenv("CUSTOM_WEBHOOK_BEARER_TOKEN"),
             webhook_verify_ssl=parse_env_bool(os.getenv("WEBHOOK_VERIFY_SSL"), default=True),
             notification_timeout_sec=notification_timeout_sec,
             wechat_msg_type=wechat_msg_type,
             wechat_max_bytes=wechat_max_bytes,
-            feishu_max_bytes=parse_env_int(
-                os.getenv("FEISHU_MAX_BYTES"),
-                20000,
-                field_name="FEISHU_MAX_BYTES",
-                minimum=1,
-            ),
+            dingtalk_stream_enabled=parse_env_bool(os.getenv("DINGTALK_STREAM_ENABLED"), default=False),
+            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID"),
             schedule_enabled=parse_env_bool(
                 os.getenv("SCHEDULE_ENABLED"),
                 default=False,
@@ -699,9 +684,6 @@ class Config:
                 default=False,
             ),
             openbb_fetcher_provider=(os.getenv("OPENBB_FETCHER_PROVIDER") or "yfinance").strip() or "yfinance",
-            feishu_app_id=os.getenv("FEISHU_APP_ID"),
-            feishu_app_secret=os.getenv("FEISHU_APP_SECRET"),
-            feishu_folder_token=os.getenv("FEISHU_FOLDER_TOKEN"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             openai_base_url=os.getenv("OPENAI_BASE_URL"),
             openai_model=(os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip(),
@@ -977,11 +959,7 @@ class Config:
 
         has_notification = bool(
             self.wechat_webhook_url
-            or self.feishu_webhook_url
-            or self.dingtalk_webhook_url
             or (self.email_sender and self.email_password)
-            or (self.discord_bot_token and self.discord_main_channel_id)
-            or self.discord_webhook_url
             or self.pushplus_token
             or self.serverchan3_sendkey
             or (self.pushover_user_key and self.pushover_api_token)

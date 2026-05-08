@@ -52,34 +52,6 @@ class TestNotificationServiceSendToMethods(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.get_last_delivery_summary(), "未配置任何通知渠道")
 
     @mock.patch("src.notification.service.get_config")
-    async def test_send_records_delivery_summary_on_failure(self, mock_get_config):
-        cfg = _make_config(feishu_webhook_url="https://feishu.ex")
-        mock_get_config.return_value = cfg
-        service = NotificationService()
-
-        with mock.patch.object(
-            service,
-            "_send_channel_with_retry",
-            new=mock.AsyncMock(
-                return_value={
-                    "channel": "feishu",
-                    "channel_name": "飞书",
-                    "success": False,
-                    "attempts": 2,
-                    "error": "HTTP 403",
-                }
-            ),
-        ):
-            ok = await service.send("feishu content")
-
-        self.assertFalse(ok)
-        self.assertEqual(
-            service.get_last_delivery_summary(),
-            "失败[飞书(2次): HTTP 403]",
-        )
-        self.assertEqual(service.get_last_delivery_results()[0]["channel"], "feishu")
-
-    @mock.patch("src.notification.service.get_config")
     @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
     async def test_send_to_custom_webhook_via_notification_service(self, mock_post, mock_get_config):
         cfg = _make_config(custom_webhook_urls=["https://custom.example"])
@@ -92,48 +64,6 @@ class TestNotificationServiceSendToMethods(unittest.IsolatedAsyncioTestCase):
         ok = await service.send("custom content")
         self.assertTrue(ok)
         mock_post.assert_called_once()
-
-    @mock.patch("src.notification.service.get_config")
-    @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
-    async def test_send_to_discord_via_notification_service_with_webhook(self, mock_post, mock_get_config):
-        cfg = _make_config(discord_webhook_url="https://discord.webhook")
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(204)
-
-        service = NotificationService()
-        self.assertIn(NotificationChannel.DISCORD, service.get_available_channels())
-
-        ok = await service.send("discord webhook content")
-        self.assertTrue(ok)
-        mock_post.assert_called_once()
-
-    @mock.patch("src.notification.service.get_config")
-    @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
-    async def test_send_to_discord_via_notification_service_with_bot(self, mock_post, mock_get_config):
-        cfg = _make_config(discord_bot_token="TOKEN", discord_main_channel_id="CHANNEL")
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200)
-
-        service = NotificationService()
-        self.assertIn(NotificationChannel.DISCORD, service.get_available_channels())
-
-        ok = await service.send("discord bot content")
-        self.assertTrue(ok)
-        mock_post.assert_called_once()
-
-    @mock.patch("src.notification.service.get_config")
-    @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
-    async def test_send_to_discord_via_notification_service_with_bot_requires_chunking(self, mock_post, mock_get_config):
-        cfg = _make_config(discord_bot_token="TOKEN", discord_main_channel_id="CHANNEL", discord_max_words=10)
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200)
-
-        service = NotificationService()
-        long_content = "word " * 50
-        ok = await service.send(long_content)
-        self.assertTrue(ok)
-        self.assertGreater(mock_post.call_count, 1)
-
 
 class TestNotificationServiceReportGeneration(unittest.IsolatedAsyncioTestCase):
     """测试报告生成与发送逻辑"""
@@ -170,18 +100,6 @@ class TestNotificationServiceReportGeneration(unittest.IsolatedAsyncioTestCase):
         ok = await service.send("email content")
         self.assertTrue(ok)
         mock_smtp_ssl.assert_called_once()
-
-    @mock.patch("src.notification.service.get_config")
-    @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)
-    async def test_send_to_feishu_via_notification_service(self, mock_post, mock_get_config):
-        cfg = _make_config(feishu_webhook_url="https://feishu.ex")
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200, {"code": 0})
-
-        service = NotificationService()
-        ok = await service.send("feishu content")
-        self.assertTrue(ok)
-        mock_post.assert_called()
 
     @mock.patch("src.notification.service.get_config")
     @mock.patch("httpx.AsyncClient.post", new_callable=mock.AsyncMock)

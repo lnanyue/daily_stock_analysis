@@ -342,18 +342,6 @@ class StockAnalysisPipeline:
         should_route = bool(major_reasons) or len(minor_reasons) >= 2
         return should_route, reasons
 
-    async def _ensure_agent_history(self, code: str, min_days: int = 240) -> None:
-        """Delegate to AnalysisExecutor — kept for test compatibility."""
-        await self.executor.ensure_agent_history(code, min_days=min_days)
-
-    @staticmethod
-    def _apply_trend_fallback(
-        result: AnalysisResult,
-        trend_result: Optional[Any],
-        report_language: str,
-    ) -> None:
-        """Delegate to AnalysisExecutor — kept for test compatibility."""
-        AnalysisExecutor.apply_trend_fallback(result, trend_result, report_language)
 
     def _augment_historical_with_realtime(
         self, df: pd.DataFrame, realtime_quote: Any, code: str
@@ -583,71 +571,5 @@ class StockAnalysisPipeline:
         finally:
             reset_frozen_target_date(token)
 
-    async def _fetch_market_overview(self, region: str = "cn") -> Optional[Dict[str, Any]]:
-        """Delegate to AnalysisExecutor — kept for test compatibility."""
-        return await self.executor.fetch_market_overview(region=region)
-
-    async def _run_trader_agent(
-        self,
-        code: str,
-        stock_name: str,
-        enhanced_context: Dict[str, Any],
-        query_id: str,
-        report_type: Any,
-        trend_result: Any = None,
-        news_context: str = "",
-        route_reasons: Optional[List[str]] = None,
-        result: Optional[Any] = None,
-        realtime_quote: Optional[Any] = None,
-    ) -> None:
-        """Delegate to AnalysisExecutor — kept for test compatibility."""
-        await self.executor._run_trader_agent(
-            code=code, stock_name=stock_name,
-            enhanced_context=enhanced_context,
-            query_id=query_id, report_type=report_type,
-            trend_result=trend_result, news_context=news_context,
-            route_reasons=route_reasons, result=result,
-            realtime_quote=realtime_quote,
-        )
 
 
-    async def _analyze_with_agent(
-        self,
-        code: str,
-        report_type: ReportType,
-        query_id: str,
-        stock_name: Optional[str] = None,
-        realtime_quote: Any = None,
-        chip_data: Any = None,
-        fundamental_context: Optional[Dict[str, Any]] = None,
-        trend_result: Any = None,
-        *,
-        today_k: Optional[Dict[str, Any]] = None,
-        yesterday_k: Optional[Dict[str, Any]] = None,
-        peer_comparison: Optional[Dict[str, Any]] = None,
-        news_context: str = "",
-        route_reasons: Optional[List[str]] = None,
-        analysis_mode: str = "simple",
-    ) -> Optional[AnalysisResult]:
-        """Delegate to AnalysisExecutor — kept for test compatibility.
-
-        Builds a StockDataCollectionResult from the individual params and
-        delegates to self.executor.analyze().
-        """
-        collected = StockDataCollectionResult(
-            stock_name=stock_name or code,
-            realtime_quote=realtime_quote,
-            chip_data=chip_data,
-            fundamental_context=fundamental_context or {},
-            peer_comparison=peer_comparison,
-            trend_result=trend_result,
-            today_k=today_k or {},
-            yesterday_k=yesterday_k or {},
-            final_news=news_context,
-            analysis_mode=analysis_mode,
-        )
-        return await self.executor.analyze(
-            code, report_type, query_id, collected,
-            route_reasons=route_reasons,
-            analysis_mode=analysis_mode,
-        )

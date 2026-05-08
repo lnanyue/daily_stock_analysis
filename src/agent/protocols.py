@@ -87,7 +87,7 @@ class AgentContext:
 
     # --- arbitrary metadata ---
     meta: Dict[str, Any] = field(default_factory=dict)
-    # e.g. {"skills_requested": [...], "user_platform": "feishu"}
+    # e.g. {"skills_requested": [...], "user_platform": "dingtalk"}
 
     # --- timing ---
     created_at: float = field(default_factory=time.time)

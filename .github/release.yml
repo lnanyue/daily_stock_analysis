@@ -25,7 +25,6 @@ changelog:
     - title: "🔔 Notifications"
       labels:
         - notification
-        - feishu
     - title: "⚙️ Configuration"
       labels:
         - configuration

@@ -635,7 +635,12 @@ class LongbridgeFetcher(BaseFetcher):
         if ctx is None:
             raise RuntimeError("Longbridge QuoteContext not available")
 
-        from longbridge.openapi import Period, AdjustType
+        try:
+            from longbridge.openapi import Period, AdjustType
+        except ImportError:
+            raise RuntimeError(
+                "longbridge is not installed. Install it with: pip install longbridge"
+            )
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()

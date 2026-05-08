@@ -141,7 +141,6 @@ Use channel mode: set `LLM_CHANNELS=aihubmix,deepseek,gemini` and configure each
 
 **Cause**: Different platforms have different message length limits:
 - WeChat Work: 4KB
-- Feishu: 20KB
 - DingTalk: 20KB
 
 **Solution**:

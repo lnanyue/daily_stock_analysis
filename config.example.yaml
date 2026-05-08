@@ -1,6 +1,7 @@
-# A股自选股智能分析系统 - 业务配置
-# 本文件存放全部业务参数和 LLM 路由配置
-# 敏感 Key/Token 请放在 .env 文件中
+# A股自选股智能分析系统 - 业务配置示例
+# 本文件是入库模板，不包含任何个人路径或敏感信息。
+# 首次使用：cp config.example.yaml config.yaml 并编辑。
+# 敏感 Key/Token 请放在 .env 文件中。
 
 # 1. 分析策略设置
 analysis:
@@ -15,7 +16,7 @@ analysis:
 system:
   max_workers: 2                 # 最大并行分析股票数 (建议 1-3)
   log_level: INFO                # DEBUG, INFO, WARNING, ERROR
-  report_dir: "/Users/ming/obsidian/01_股票分析"         # 报告保存目录
+  report_dir: "./report"         # 报告保存目录
   schedule_enabled: false        # 是否启用定时分析
   schedule_time: "18:00"         # 定时分析时间 (24h)
   schedule_run_immediately: true  # 定时模式下启动时是否立即运行

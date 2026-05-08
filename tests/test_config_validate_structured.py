@@ -37,7 +37,6 @@ def _make_config(**kwargs) -> Config:
         tavily_api_keys=[],
         openbb_news_enabled=False,
         wechat_webhook_url="https://example.com/webhook",
-        feishu_webhook_url=None,
         email_sender=None,
         email_password=None,
         pushover_user_key=None,
@@ -45,9 +44,6 @@ def _make_config(**kwargs) -> Config:
         pushplus_token=None,
         serverchan3_sendkey=None,
         custom_webhook_urls=[],
-        discord_bot_token=None,
-        discord_main_channel_id=None,
-        discord_webhook_url=None,
         llm_channels=[],
         litellm_config_path=None,
         gemini_api_key=None,
@@ -387,52 +383,6 @@ class TestVisionKeyValidation:
         cfg = _make_config(vision_model="", gemini_api_keys=[])
         issues = cfg.validate_structured()
         assert not any(i.field == "VISION_MODEL" for i in issues)
-
-
-# ---------------------------------------------------------------------------
-# Env alias compatibility
-# ---------------------------------------------------------------------------
-
-class TestEnvAliasCompatibility:
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_discord_channel_id_legacy_alias_is_still_loaded(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ):
-        with patch.dict(
-            "os.environ",
-            {
-                "DISCORD_BOT_TOKEN": "token",
-                "DISCORD_CHANNEL_ID": "legacy-channel",
-            },
-            clear=True,
-        ):
-            config = Config._load_from_env()
-
-        assert config.discord_bot_token == "token"
-        assert config.discord_main_channel_id == "legacy-channel"
-
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_discord_main_channel_id_takes_precedence_over_legacy_alias(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ):
-        with patch.dict(
-            "os.environ",
-            {
-                "DISCORD_BOT_TOKEN": "token",
-                "DISCORD_CHANNEL_ID": "legacy-channel",
-                "DISCORD_MAIN_CHANNEL_ID": "main-channel",
-            },
-            clear=True,
-        ):
-            config = Config._load_from_env()
-
-        assert config.discord_main_channel_id == "main-channel"
 
 
 # ---------------------------------------------------------------------------

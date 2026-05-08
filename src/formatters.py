@@ -398,30 +398,6 @@ def slice_at_max_bytes(text: str, max_bytes: int) -> tuple[str, str]:
     return truncated, text[len(truncated):]
 
 
-def format_feishu_markdown(content: str) -> str:
-    """
-    将通用 Markdown 转换为飞书 lark_md 更友好的格式
-    
-    转换规则：
-    - 飞书不支持 Markdown 标题（# / ## / ###），用加粗代替
-    - 引用块使用前缀替代
-    - 分隔线统一为细线
-    - 表格转换为条目列表
-    
-    Args:
-        content: 原始 Markdown 内容
-        
-    Returns:
-        转换后的飞书 Markdown 格式内容
-        
-    Example:
-        >>> markdown = "# 标题\\n> 引用\\n| 列1 | 列2 |"
-        >>> formatted = format_feishu_markdown(markdown)
-        >>> print(formatted)
-        **标题**
-        💬 引用
-        • 列1：值1 | 列2：值2
-    """
     def _flush_table_rows(buffer: List[str], output: List[str]) -> None:
         """将表格缓冲区中的行转换为飞书格式"""
         if not buffer:

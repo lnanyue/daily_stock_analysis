@@ -15,7 +15,7 @@
 
 **基於 AI 大模型的 A股/港股/美股 智能分析系統**
 
-自動分析自選股 → 生成決策儀表盤 → 多渠道推送（Telegram/Discord/Slack/郵件/企業微信/飛書）
+自動分析自選股 → 生成決策儀表盤 → 多渠道推送（Telegram/郵件/企業微信）
 
 **零成本部署** · GitHub Actions 免費運行 · 無需伺服器
 
@@ -44,7 +44,7 @@
 | 復盤 | 大盤復盤 | 每日市場概覽、板塊漲跌、北向資金 |
 | 回測 | AI 回測驗證 | 自動評估歷史分析準確率，方向勝率、止盈止損命中率 |
 | **Agent 問股** | **策略對話** | **多輪策略問答，支援 11 種內建策略（Bot/API）** |
-| 推送 | 多渠道通知 | Telegram、Discord、Slack、郵件、企業微信、飛書等 |
+| 推送 | 多渠道通知 | Telegram、郵件、企業微信等 |
 | 自動化 | 定時運行 | GitHub Actions 定時執行，無需伺服器 |
 
 ### 技術棧與數據來源
@@ -94,14 +94,10 @@
 
 | Secret 名稱 | 說明 | 必填 |
 |------------|------|:----:|
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL | 可選 |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token（與 Webhook 二選一） | 可選 |
-| `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID（使用 Bot 時需要） | 可選 |
 | `EMAIL_SENDER` | 發件人郵箱（如 `xxx@qq.com`） | 可選 |
 | `EMAIL_PASSWORD` | 郵箱授權碼（非登錄密碼） | 可選 |
 | `EMAIL_RECEIVERS` | 收件人郵箱（多個用逗號分隔，留空則發給自己） | 可選 |
 | `WECHAT_WEBHOOK_URL` | 企業微信 Webhook URL | 可選 |
-| `FEISHU_WEBHOOK_URL` | 飛書 Webhook URL | 可選 |
 | `PUSHPLUS_TOKEN` | PushPlus Token（[獲取地址](https://www.pushplus.plus)，國內推送服務） | 可選 |
 | `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey（[獲取地址](https://sc3.ft07.com/)，手機軟體推播服務） | 可选 |
 | `CUSTOM_WEBHOOK_URLS` | 自定義 Webhook（支持釘釘等，多個用逗號分隔） | 可選 |
@@ -251,10 +247,9 @@ daily_stock_analysis/
 
 ### 🔔 通知渠道擴展
 - [x] 企業微信機器人
-- [x] 飛書機器人
 - [x] Telegram Bot
 - [x] 郵件通知（SMTP）
-- [x] 自定義 Webhook（支持釘釘、Discord、Slack、Bark 等）
+- [x] 自定義 Webhook（支持釘釘、Slack、Bark 等）
 - [x] iOS/Android 推送（Pushover）
 - [x] 釘釘機器人 （已支持命令交互 >> [相關配置](bot/dingding-bot-config.md)）
 ### 🤖 AI 模型支持

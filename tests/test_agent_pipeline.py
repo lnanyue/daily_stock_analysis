@@ -4,7 +4,7 @@ Tests for agent-mode pipeline integration.
 
 Covers:
 - Config: agent_mode, agent_max_steps, agent_skills fields
-- _analyze_with_agent method
+- executor.analyze() method (replaced _analyze_with_agent)
 - _agent_result_to_analysis_result conversion
 - YAML strategy loading (load_builtin_strategies)
 """
@@ -359,7 +359,7 @@ class TestPipelineRouting(unittest.TestCase):
     """Test that analyze_stock routes to agent mode when config.agent_mode is True."""
 
     def test_agent_mode_routes_to_agent(self):
-        """When agent_mode=True, analyze_stock should call _analyze_with_agent."""
+        """When agent_mode=True, analyze_stock should call executor.analyze()."""
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
@@ -448,7 +448,7 @@ class TestPipelineRouting(unittest.TestCase):
             self.assertEqual(args[0], "600519")
 
     def test_legacy_mode_still_routes_through_unified_analysis(self):
-        """When agent_mode=False, analyze_stock still calls _analyze_with_agent (unified entry point)."""
+        """When agent_mode=False, analyze_stock still calls executor.analyze()."""
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db') as mock_db, \
              patch('src.core.pipeline.DataFetcherManager') as mock_fm, \
@@ -923,7 +923,7 @@ class TestHybridAgentConversion(unittest.TestCase):
         # Build a mock realtime quote
         rt = SimpleNamespace(price=152.30, change_pct=1.25, name=self.stock_name)
 
-        # Simulate what _analyze_with_agent does: override deterministic fields
+        # Simulate what executor.analyze() does: override deterministic fields
         llm_result = AnalysisResult(
             code=self.code, name=self.stock_name,
             sentiment_score=75, trend_prediction="看多",
@@ -976,7 +976,7 @@ class TestHybridAgentConversion(unittest.TestCase):
 
 
 class TestHybridAgentIntegration(unittest.TestCase):
-    """Integration tests for the hybrid agent path (_analyze_with_agent)."""
+    """Integration tests for the hybrid agent path (executor.analyze())."""
 
     def setUp(self):
         self.code = "600519"

@@ -50,13 +50,6 @@ class DingTalkConfig(PlatformConfig):
 
 
 @dataclass
-class FeishuConfig(PlatformConfig):
-    """飞书配置"""
-    app_id: Optional[str] = None
-    app_secret: Optional[str] = None
-
-
-@dataclass
 class TelegramConfig(PlatformConfig):
     """Telegram 配置"""
     bot_token: Optional[str] = None

@@ -29,6 +29,34 @@ deterministic_checks() {
   echo "==> backend-gate: local deterministic checks"
   ./test.sh code
   ./test.sh yfinance
+
+  echo "==> backend-gate: config.yaml local-path check"
+  if grep -q '/Users/' config.yaml 2>/dev/null; then
+    echo "WARNING: config.yaml contains absolute paths (might be local-only):"
+    grep -n '/Users/' config.yaml
+  fi
+}
+
+optional_dep_checks() {
+  echo "==> backend-gate: optional-dependency import safety"
+
+  # openbb_fetcher — openbb is optional
+  "$PYTHON_BIN" -c "
+try:
+    import openbb
+    print('  openbb: available')
+except ImportError:
+    print('  openbb: not installed (expected if not using OpenBB)')
+"
+
+  # finnhub — optional news provider
+  "$PYTHON_BIN" -c "
+try:
+    import finnhub
+    print('  finnhub-python: available')
+except ImportError:
+    print('  finnhub-python: not installed (expected if not using Finnhub)')
+"
 }
 
 offline_test_suite() {
@@ -40,6 +68,7 @@ run_all() {
   syntax_check
   flake8_checks
   deterministic_checks
+  optional_dep_checks
   offline_test_suite
   echo "==> backend-gate: all checks passed"
 }
@@ -59,11 +88,14 @@ case "$phase" in
   deterministic)
     deterministic_checks
     ;;
+  optional-dep)
+    optional_dep_checks
+    ;;
   offline-tests)
     offline_test_suite
     ;;
   *)
-    echo "Usage: $0 [all|syntax|flake8|deterministic|offline-tests]" >&2
+    echo "Usage: $0 [all|syntax|flake8|deterministic|optional-dep|offline-tests]" >&2
     exit 2
     ;;
 esac

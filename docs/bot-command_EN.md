@@ -2,7 +2,7 @@
 
 This document covers the bot module architecture, supported commands, webhook routes, and how to configure platform integrations.
 
-> **Glossary:** "Enterprise bot" in this context means a chatbot that receives commands via webhook from a messaging platform (Feishu / DingTalk / WeChat Work / Telegram) and calls the analysis pipeline to reply inline.
+> **Glossary:** "Enterprise bot" in this context means a chatbot that receives commands via webhook from a messaging platform (DingTalk / WeChat Work / Telegram) and calls the analysis pipeline to reply inline.
 
 ---
 
@@ -11,7 +11,6 @@ This document covers the bot module architecture, supported commands, webhook ro
 ```mermaid
 flowchart TB
     subgraph Platforms [Messaging Platforms]
-        FS[Feishu]
         DT[DingTalk]
         WC[WeChat Work]
         TG[Telegram]
@@ -31,7 +30,6 @@ flowchart TB
         NS[NotificationService]
     end
 
-    FS -->|POST /bot/feishu| WH
     DT -->|POST /bot/dingtalk| WH
     WC -->|POST /bot/wecom| WH
     TG -->|POST /bot/telegram| WH
@@ -69,7 +67,6 @@ bot/
     ├── base.py             # Abstract base class for platforms
     ├── dingtalk.py         # DingTalk bot
     ├── dingtalk_stream.py  # DingTalk Stream bot
-    └── feishu_stream.py    # Feishu (Lark) Stream bot
 ```
 
 ---
@@ -81,7 +78,7 @@ bot/
 ```python
 @dataclass
 class BotMessage:
-    platform: str       # Platform ID: feishu / dingtalk / wecom / telegram
+    platform: str       # Platform ID: dingtalk / wecom / telegram
     user_id: str        # Sender ID
     user_name: str      # Sender display name
     chat_id: str        # Conversation ID (group or DM)
@@ -172,7 +169,6 @@ These routes are **not yet wired** into the FastAPI application — you must mou
 | Route | Method | Status | Notes |
 |-------|--------|--------|-------|
 | `/bot/dingtalk` | POST | **Ready** | `DingtalkPlatform` is registered in `ALL_PLATFORMS` |
-| `/bot/feishu` | POST | Stream only | Use `feishu_stream.py`; no Webhook adapter in `ALL_PLATFORMS` |
 | `/bot/wecom` | POST | Not implemented | Handler exists but no platform adapter |
 | `/bot/telegram` | POST | Not implemented | Handler exists but no platform adapter |
 
@@ -192,18 +188,12 @@ async def dingtalk_webhook(request: Request):
 
 ## 6. Configuration
 
-Add the following to your `.env`. Some of these bot-specific keys are already listed in `.env.example` (for example the DingTalk and Feishu app credentials), while others are not, so treat this section as a consolidated reference for bot setup:
+Add the following to your `.env`. Some of these bot-specific keys are already listed in `.env.example`, so treat this section as a consolidated reference for bot setup:
 
 ```dotenv
 # --- Bot general ---
 BOT_ENABLED=false
 BOT_COMMAND_PREFIX=/
-
-# --- Feishu (Lark) bot ---
-FEISHU_APP_ID=
-FEISHU_APP_SECRET=
-FEISHU_VERIFICATION_TOKEN=    # Event verification token
-FEISHU_ENCRYPT_KEY=           # Encryption key (optional)
 
 # --- DingTalk bot ---
 DINGTALK_APP_KEY=

@@ -68,7 +68,6 @@ class MainScheduleModeTestCase(unittest.TestCase):
             "log_dir": self.temp_dir.name,
             "webui_enabled": False,
             "dingtalk_stream_enabled": False,
-            "feishu_stream_enabled": False,
             "schedule_enabled": False,
             "schedule_time": "18:00",
             "schedule_run_immediately": True,

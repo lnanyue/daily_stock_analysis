@@ -65,10 +65,6 @@ daily_stock_analysis/
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | 企业微信 Webhook URL | 可选 |
-| `FEISHU_WEBHOOK_URL` | 飞书 Webhook URL | 可选 |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL（[创建方法](https://support.discord.com/hc/en-us/articles/228383668)） | 可选 |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token（与 Webhook 二选一） | 可选 |
-| `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID（使用 Bot 时需要） | 可选 |
 | `EMAIL_SENDER` | 发件人邮箱（如 `xxx@qq.com`） | 可选 |
 | `EMAIL_PASSWORD` | 邮箱授权码（非登录密码） | 可选 |
 | `EMAIL_RECEIVERS` | 收件人邮箱（多个用逗号分隔，留空则发给自己） | 可选 |
@@ -180,11 +176,6 @@ daily_stock_analysis/
 | 变量名 | 说明 | 必填 |
 |--------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | 企业微信机器人 Webhook URL | 可选 |
-| `FEISHU_WEBHOOK_URL` | 飞书机器人 Webhook URL | 可选 |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL | 可选 |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token（与 Webhook 二选一） | 可选 |
-| `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID（使用 Bot 时需要） | 可选 |
-| `DISCORD_MAX_WORDS` | Discord 最大字数限制（默认 免费服务器限制2000） | 可选 |
 | `EMAIL_SENDER` | 发件人邮箱 | 可选 |
 | `EMAIL_PASSWORD` | 邮箱授权码（非登录密码） | 可选 |
 | `EMAIL_RECEIVERS` | 收件人邮箱（逗号分隔，留空发给自己） | 可选 |
@@ -197,20 +188,6 @@ daily_stock_analysis/
 | `PUSHOVER_API_TOKEN` | Pushover API Token | 可选 |
 | `PUSHPLUS_TOKEN` | PushPlus Token（国内推送服务） | 可选 |
 | `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey | 可选 |
-
-#### 飞书云文档配置（可选，解决消息截断问题）
-
-| 变量名 | 说明 | 必填 |
-|--------|------|:----:|
-| `FEISHU_APP_ID` | 飞书应用 ID | 可选 |
-| `FEISHU_APP_SECRET` | 飞书应用 Secret | 可选 |
-| `FEISHU_FOLDER_TOKEN` | 飞书云盘文件夹 Token | 可选 |
-
-> 飞书云文档配置步骤：
-> 1. 在 [飞书开发者后台](https://open.feishu.cn/app) 创建应用
-> 2. 配置 GitHub Secrets
-> 3. 创建群组并添加应用机器人
-> 4. 在云盘文件夹中添加群组为协作者（可管理权限）
 
 ### 搜索服务配置
 
@@ -419,12 +396,6 @@ crontab -e
 2. 复制 Webhook URL
 3. 设置 `WECHAT_WEBHOOK_URL`
 
-### 飞书
-
-1. 在飞书群聊中添加"自定义机器人"
-2. 复制 Webhook URL
-3. 设置 `FEISHU_WEBHOOK_URL`
-
 ### 邮件
 
 1. 开启邮箱的 SMTP 服务
@@ -450,39 +421,11 @@ EMAIL_GROUP_2=user2@example.com
 
 支持任意 POST JSON 的 Webhook，包括：
 - 钉钉机器人
-- Discord Webhook
 - Slack Webhook
 - Bark（iOS 推送）
 - 自建服务
 
 设置 `CUSTOM_WEBHOOK_URLS`，多个用逗号分隔。
-
-### Discord
-
-Discord 支持两种方式推送：
-
-**方式一：Webhook（推荐，简单）**
-
-1. 在 Discord 频道设置中创建 Webhook
-2. 复制 Webhook URL
-3. 配置环境变量：
-
-```bash
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
-```
-
-**方式二：Bot API（需要更多权限）**
-
-1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 创建应用
-2. 创建 Bot 并获取 Token
-3. 邀请 Bot 到服务器
-4. 获取频道 ID（开发者模式下右键频道复制）
-5. 配置环境变量：
-
-```bash
-DISCORD_BOT_TOKEN=your_bot_token
-DISCORD_MAIN_CHANNEL_ID=your_channel_id
-```
 
 ### Pushover（iOS/Android 推送）
 

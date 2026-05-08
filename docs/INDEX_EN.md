@@ -25,7 +25,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [Bot Commands (EN)](bot-command_EN.md) | Bot architecture, commands, webhook routes, Feishu / DingTalk integration |
+| [Bot Commands (EN)](bot-command_EN.md) | Bot architecture, commands, webhook routes, DingTalk / WeChat / Telegram integration |
 
 ## 🤝 Contributing
 
@@ -56,7 +56,7 @@ Some terms in this project are specific to Chinese financial markets. Here is a 
 | **AkShare** | An open-source Python library for Chinese/HK/US market data; no key required for most endpoints |
 | **Baostock** | A free Python SDK for historical A-share data |
 | **WeChat Work** (企业微信) | Tencent's enterprise messaging platform; supports webhook-based notifications |
-| **Feishu** (飞书) | ByteDance's enterprise collaboration platform (similar to Slack); also supports webhooks |
+| **DingTalk** (钉钉) | Alibaba's enterprise collaboration platform; supports webhook-based notifications |
 | **PushPlus / ServerChan** | Chinese mobile push notification services |
 
 ---

@@ -5,7 +5,6 @@
 ```mermaid
 flowchart TB
     subgraph Platforms [外部平台]
-        FS[飞书]
         DT[钉钉]
         WC[企业微信（开发中）]
         TG[Telegram（开发中）]
@@ -25,7 +24,6 @@ flowchart TB
         NS[NotificationService]
     end
 
-    FS -->|POST /bot/feishu| WH
     DT -->|POST /bot/dingtalk| WH
     WC -->|POST /bot/wecom| WH
     TG -->|POST /bot/telegram| WH
@@ -59,7 +57,6 @@ bot/
 └── platforms/              # 平台适配器
     ├── __init__.py
     ├── base.py             # 平台抽象基类
-    ├── feishu.py           # 飞书机器人
     ├── dingtalk.py         # 钉钉机器人
     ├── dingtalk_stream.py  # 钉钉机器人Stream
     ├── wecom.py            # 企业微信机器人 （开发中）
@@ -74,7 +71,7 @@ bot/
 @dataclass
 class BotMessage:
     """统一的机器人消息模型"""
-    platform: str           # 平台标识: feishu/dingtalk/wecom/telegram
+    platform: str           # 平台标识: dingtalk/wecom/telegram
     user_id: str            # 发送者 ID
     user_name: str          # 发送者名称
     chat_id: str            # 会话 ID（群聊或私聊）
@@ -201,7 +198,6 @@ class CommandDispatcher:
 
 ```python
 # Webhook 路由
-/bot/feishu      # POST - 飞书事件回调
 /bot/dingtalk    # POST - 钉钉事件回调
 /bot/wecom       # POST - 企业微信事件回调 （开发中）
 /bot/telegram    # POST - Telegram 更新回调 （开发中）
@@ -215,12 +211,6 @@ class CommandDispatcher:
 # === 机器人配置 ===
 bot_enabled: bool = False              # 是否启用机器人
 bot_command_prefix: str = "/"          # 命令前缀
-
-# 飞书机器人（事件订阅）
-feishu_app_id: str                     # 已有
-feishu_app_secret: str                 # 已有
-feishu_verification_token: str         # 新增：事件校验 Token
-feishu_encrypt_key: str                # 新增：加密密钥
 
 # 钉钉机器人（应用）
 dingtalk_app_key: str                  # 新增

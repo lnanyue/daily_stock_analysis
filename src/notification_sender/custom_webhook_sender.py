@@ -63,7 +63,6 @@ class CustomWebhookSender(BaseNotificationSender):
         
         适用于：
         - 钉钉机器人
-        - Discord Webhook
         - Slack Incoming Webhook
         - 自建通知服务
         - 其他支持 POST JSON 的服务
@@ -85,7 +84,6 @@ class CustomWebhookSender(BaseNotificationSender):
                 # 通用 JSON 格式，兼容大多数 Webhook
                 # 钉钉格式: {"msgtype": "text", "text": {"content": "xxx"}}
                 # Slack 格式: {"text": "xxx"}
-                # Discord 格式: {"content": "xxx"}
                 
                 # 钉钉机器人对 body 有字节上限（约 20000 bytes），超长需要分批发送
                 if self._is_dingtalk_webhook(url):
@@ -114,44 +112,24 @@ class CustomWebhookSender(BaseNotificationSender):
     async def _send_custom_webhook_image(
         self, image_bytes: bytes, fallback_content: str = ""
     ) -> bool:
-        """Send image to Custom Webhooks; Discord supports file attachment (Issue #289)."""
+        """Send image to Custom Webhooks."""
         if not self._custom_webhook_urls:
             return False
         success_count = 0
         client = await get_sender_http_client()
         for i, url in enumerate(self._custom_webhook_urls):
             try:
-                if self._is_discord_webhook(url):
-                    files = {"file": ("report.png", image_bytes, "image/png")}
-                    data = {"content": "📈 股票智能分析报告"}
-                    headers = {"User-Agent": "StockAnalysis/1.0"}
-                    if self._custom_webhook_bearer_token:
-                        headers["Authorization"] = (
-                            f"Bearer {self._custom_webhook_bearer_token}"
+                if fallback_content:
+                    payload = self._build_custom_webhook_payload(url, fallback_content)
+                    if await self._post_custom_webhook(url, payload):
+                        logger.info(
+                            "自定义 Webhook %d（图片不支持，回退文本）推送成功", i + 1
                         )
-                    response = await client.post(
-                        url, data=data, files=files, headers=headers
-                    )
-                    if response.status_code in (200, 204):
-                        logger.info("自定义 Webhook %d（Discord 图片）推送成功", i + 1)
                         success_count += 1
-                    else:
-                        logger.error(
-                            "自定义 Webhook %d（Discord 图片）推送失败: HTTP %s",
-                            i + 1, response.status_code,
-                        )
                 else:
-                    if fallback_content:
-                        payload = self._build_custom_webhook_payload(url, fallback_content)
-                        if await self._post_custom_webhook(url, payload):
-                            logger.info(
-                                "自定义 Webhook %d（图片不支持，回退文本）推送成功", i + 1
-                            )
-                            success_count += 1
-                    else:
-                        logger.warning(
-                            "自定义 Webhook %d 不支持图片，且无回退内容，跳过", i + 1
-                        )
+                    logger.warning(
+                        "自定义 Webhook %d 不支持图片，且无回退内容，跳过", i + 1
+                    )
             except Exception:
                 logger.exception("自定义 Webhook %d 图片推送异常", i + 1)
         return success_count > 0
@@ -190,14 +168,6 @@ class CustomWebhookSender(BaseNotificationSender):
                     "title": "股票分析报告",
                     "text": content
                 }
-            }
-        
-        # Discord Webhook
-        if 'discord.com/api/webhooks' in url_lower or 'discordapp.com/api/webhooks' in url_lower:
-            # Discord 限制 2000 字符
-            truncated = content[:1900] + "..." if len(content) > 1900 else content
-            return {
-                "content": truncated
             }
         
         # Slack Incoming Webhook
@@ -262,11 +232,3 @@ class CustomWebhookSender(BaseNotificationSender):
     def _is_dingtalk_webhook(url: str) -> bool:
         url_lower = (url or "").lower()
         return 'dingtalk' in url_lower or 'oapi.dingtalk.com' in url_lower
-
-    @staticmethod
-    def _is_discord_webhook(url: str) -> bool:
-        url_lower = (url or "").lower()
-        return (
-            'discord.com/api/webhooks' in url_lower
-            or 'discordapp.com/api/webhooks' in url_lower
-        )

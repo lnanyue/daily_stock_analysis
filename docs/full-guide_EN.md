@@ -68,10 +68,6 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | Secret Name | Description | Required |
 |------------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | WeChat Work Webhook URL | Optional |
-| `FEISHU_WEBHOOK_URL` | Feishu Webhook URL | Optional |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL ([How to create](https://support.discord.com/hc/en-us/articles/228383668)) | Optional |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token (choose one with Webhook) | Optional |
-| `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID (required when using Bot) | Optional |
 | `EMAIL_SENDER` | Sender email (e.g., `xxx@qq.com`) | Optional |
 | `EMAIL_PASSWORD` | Email authorization code (not login password) | Optional |
 | `EMAIL_RECEIVERS` | Receiver emails (comma-separated, leave empty to send to self) | Optional |
@@ -171,11 +167,6 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 | Variable | Description | Required |
 |--------|------|:----:|
 | `WECHAT_WEBHOOK_URL` | WeChat Work Bot Webhook URL | Optional |
-| `FEISHU_WEBHOOK_URL` | Feishu Bot Webhook URL | Optional |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL | Optional |
-| `DISCORD_BOT_TOKEN` | Discord Bot Token (choose one with Webhook) | Optional |
-| `DISCORD_MAIN_CHANNEL_ID` | Discord Channel ID (required when using Bot) | Optional |
-| `DISCORD_MAX_WORDS` | Discord Word Limit (default 2000 for un-upgraded servers) | Optional |
 | `EMAIL_SENDER` | Sender email | Optional |
 | `EMAIL_PASSWORD` | Email authorization code (not login password) | Optional |
 | `EMAIL_RECEIVERS` | Receiver emails (comma-separated, leave empty to send to self) | Optional |
@@ -186,20 +177,6 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 | `PUSHOVER_API_TOKEN` | Pushover API Token | Optional |
 | `PUSHPLUS_TOKEN` | PushPlus Token (Chinese push service) | Optional |
 | `SERVERCHAN3_SENDKEY` | ServerChan v3 Sendkey | Optional |
-
-#### Feishu Cloud Document Configuration (Optional, solves message truncation issues)
-
-| Variable | Description | Required |
-|--------|------|:----:|
-| `FEISHU_APP_ID` | Feishu App ID | Optional |
-| `FEISHU_APP_SECRET` | Feishu App Secret | Optional |
-| `FEISHU_FOLDER_TOKEN` | Feishu Cloud Drive Folder Token | Optional |
-
-> Feishu Cloud Document setup steps:
-> 1. Create an app in [Feishu Developer Console](https://open.feishu.cn/app)
-> 2. Configure GitHub Secrets
-> 3. Create a group and add the app bot
-> 4. Add the group as a collaborator to the cloud drive folder (with manage permissions)
 
 ### Search Service Configuration
 
@@ -373,12 +350,6 @@ crontab -e
 2. Copy Webhook URL
 3. Set `WECHAT_WEBHOOK_URL`
 
-### Feishu
-
-1. Add "Custom Bot" in Feishu group chat
-2. Copy Webhook URL
-3. Set `FEISHU_WEBHOOK_URL`
-
 ### Email
 
 1. Enable SMTP service for your email
@@ -394,39 +365,11 @@ Supported email providers:
 
 Supports any POST JSON Webhook, including:
 - DingTalk Bot
-- Discord Webhook
 - Slack Webhook
 - Bark (iOS push)
 - Self-hosted services
 
 Set `CUSTOM_WEBHOOK_URLS`, separate multiple with commas.
-
-### Discord
-
-Discord supports two push methods:
-
-**Method 1: Webhook (Recommended, Simple)**
-
-1. Create Webhook in Discord channel settings
-2. Copy Webhook URL
-3. Configure environment variable:
-
-```bash
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
-```
-
-**Method 2: Bot API (Requires more permissions)**
-
-1. Create application in [Discord Developer Portal](https://discord.com/developers/applications)
-2. Create Bot and get Token
-3. Invite Bot to server
-4. Get Channel ID (right-click channel in developer mode)
-5. Configure environment variables:
-
-```bash
-DISCORD_BOT_TOKEN=your_bot_token
-DISCORD_MAIN_CHANNEL_ID=your_channel_id
-```
 
 ### Pushover (iOS/Android Push)
 
@@ -628,7 +571,7 @@ The project no longer ships a built-in FastAPI service. Use CLI commands for loc
 ## FAQ
 
 ### Q: Push messages getting truncated?
-A: WeChat Work/Feishu have message length limits, system already auto-segments messages. For complete content, configure Feishu Cloud Document feature.
+A: Different platforms have different message length limits, system already auto-segments messages.
 
 ### Q: Data fetch failed?
 A: AkShare uses scraping mechanism, may be temporarily rate-limited. System has retry mechanism configured, usually just wait a few minutes and retry.
