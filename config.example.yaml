@@ -4,20 +4,80 @@
 # 敏感 Key/Token 请放在 .env 文件中。
 system:
   stock_config_path: stocks.yaml
+  analysis_mode: simple
   max_workers: 3
+  bot_max_concurrent_analysis: 5
+  webui_port: 8000
   log_level: INFO
   log_dir: ./logs
   report_dir: report
   debug: false
-  schedule_enabled: false
-  schedule_time: '18:00'
+  config_validate_mode: warn
+  report_type: simple
+  report_summary_only: false
+  report_templates_dir: templates
   database_path: ./data/stock_analysis.db
 notification:
   report_language: zh
+  merge_email: false
+  single_stock_notify: false
   wechat_webhook_url: null
+  email_sender_name: 股票分析助手
+  webhook_verify_ssl: true
+  timeout_sec: 15
+  wechat_msg_type: markdown
   wechat_max_bytes: 4000
 data:
   news_max_age_days: 7
+  futu_api_host: 127.0.0.1
+  futu_api_port: 11111
+analysis:
+  news_strategy_profile: medium
+  bias_threshold: 5.0
+  request_delay: 2.0
+  report_integrity_enabled: true
+  report_integrity_retry: 1
+  debate_rounds: 2
+  debate_judge_scoring: true
+  trader_agent_enabled: true
+schedule:
+  enabled: false
+  time: '18:00'
+  run_immediately: true
+  market_review_enabled: true
+  market_review_region: cn
+  trading_day_check_enabled: true
+realtime:
+  prefetch_quotes: true
+  cache_ttl: 600
+  source_priority: akshare_em,tencent,akshare_sina,efinance
+  enable_eastmoney_patch: false
+  save_context_snapshot: true
+  enable_quote: true
+  enable_technical_indicators: true
+  enable_chip_distribution: true
+sqlite:
+  wal_enabled: true
+  busy_timeout_ms: 5000
+  write_retry_max: 3
+  write_retry_base_delay: 0.1
 llm:
   primary_model: null
   config_path: null
+  temperature: 0.7
+agent:
+  mode: false
+  auto_route_analysis: false
+  max_steps: 10
+  arch: single
+  risk_override: true
+  memory_enabled: false
+  skill_autoweight: true
+  skill_routing: auto
+  orchestrator_timeout_s: 600
+risk_screen:
+  enabled: true
+  debt_threshold: 80.0
+  pe_max: 100.0
+  pe_negative_warn: true
+  max_workers: 3

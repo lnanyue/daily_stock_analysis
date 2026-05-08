@@ -92,12 +92,13 @@ def generate_env_example() -> str:
             comment_parts = [hint]
             if "deprecated" in meta and meta["deprecated"]:
                 comment_parts.append("deprecated")
-            comment = "  # " + ", ".join(comment_parts) if comment_parts else ""
+            if comment_parts:
+                lines.append(f"# {', '.join(comment_parts)}")
 
             if default_str:
-                lines.append(f"{env_name}={default_str}{comment}")
+                lines.append(f"{env_name}={default_str}")
             else:
-                lines.append(f"{env_name}={comment}")
+                lines.append(f"{env_name}=")
 
     # Any group not in the explicit order list
     for group_key in groups:

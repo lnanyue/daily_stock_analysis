@@ -92,36 +92,37 @@ class Config:
 
     stock_list: List[str] = field(default_factory=list, metadata={"env": "STOCK_LIST", "group": "core"})
     stock_config_path: str = field(default="stocks.yaml", metadata={"env": "STOCK_CONFIG_PATH", "yaml": "system.stock_config_path", "group": "system"})
+    env_file: Optional[str] = field(default=None, metadata={"env": "ENV_FILE", "group": "system"})
 
     report_language: str = field(default="zh", metadata={"env": "REPORT_LANGUAGE", "yaml": "notification.report_language", "group": "notification"})
     news_max_age_days: int = field(default=7, metadata={"env": "NEWS_MAX_AGE_DAYS", "yaml": "data.news_max_age_days", "group": "data"})
-    news_strategy_profile: str = field(default="medium", metadata={"env": "NEWS_STRATEGY_PROFILE", "group": "data"})
-    bias_threshold: float = field(default=5.0, metadata={"env": "BIAS_THRESHOLD", "group": "data"})
-    gemini_request_delay: float = field(default=2.0, metadata={"env": "ANALYSIS_REQUEST_DELAY", "group": "data"})
-    report_integrity_enabled: bool = field(default=True, metadata={"env": "REPORT_INTEGRITY_ENABLED", "group": "data"})
-    report_integrity_retry: int = field(default=1, metadata={"env": "REPORT_INTEGRITY_RETRY", "group": "data"})
-    analysis_mode: str = field(default="simple", metadata={"env": "ANALYSIS_MODE", "group": "system"})
-    debate_rounds: int = field(default=2, metadata={"internal": True, "group": "data"})  # 辩论轮数（1-3）
-    debate_judge_scoring: bool = field(default=True, metadata={"internal": True, "group": "data"})  # 启用裁判量化评分
-    trader_agent_enabled: bool = field(default=True, metadata={"internal": True, "group": "data"})  # 启用 Trader Agent
+    news_strategy_profile: str = field(default="medium", metadata={"env": "NEWS_STRATEGY_PROFILE", "yaml": "analysis.news_strategy_profile", "group": "data"})
+    bias_threshold: float = field(default=5.0, metadata={"env": "BIAS_THRESHOLD", "yaml": "analysis.bias_threshold", "group": "data"})
+    gemini_request_delay: float = field(default=2.0, metadata={"env": "ANALYSIS_REQUEST_DELAY", "yaml": "analysis.request_delay", "group": "data"})
+    report_integrity_enabled: bool = field(default=True, metadata={"env": "REPORT_INTEGRITY_ENABLED", "yaml": "analysis.report_integrity_enabled", "group": "data"})
+    report_integrity_retry: int = field(default=1, metadata={"env": "REPORT_INTEGRITY_RETRY", "yaml": "analysis.report_integrity_retry", "group": "data"})
+    analysis_mode: str = field(default="simple", metadata={"env": "ANALYSIS_MODE", "yaml": "system.analysis_mode", "group": "system"})
+    debate_rounds: int = field(default=2, metadata={"internal": True, "yaml": "analysis.debate_rounds", "group": "data"})  # 辩论轮数（1-3）
+    debate_judge_scoring: bool = field(default=True, metadata={"internal": True, "yaml": "analysis.debate_judge_scoring", "group": "data"})  # 启用裁判量化评分
+    trader_agent_enabled: bool = field(default=True, metadata={"internal": True, "yaml": "analysis.trader_agent_enabled", "group": "data"})  # 启用 Trader Agent
 
     max_workers: int = field(default=3, metadata={"env": "MAX_WORKERS", "yaml": "system.max_workers", "group": "system"})
-    bot_max_concurrent_analysis: int = field(default=5, metadata={"env": "BOT_MAX_CONCURRENT_ANALYSIS", "group": "system"})
-    webui_port: int = field(default=8000, metadata={"env": "WEBUI_PORT", "group": "system"})
+    bot_max_concurrent_analysis: int = field(default=5, metadata={"env": "BOT_MAX_CONCURRENT_ANALYSIS", "yaml": "system.bot_max_concurrent_analysis", "group": "system"})
+    webui_port: int = field(default=8000, metadata={"env": "WEBUI_PORT", "yaml": "system.webui_port", "group": "system"})
     log_level: str = field(default="INFO", metadata={"env": "LOG_LEVEL", "yaml": "system.log_level", "group": "system"})
     log_dir: str = field(default="./logs", metadata={"env": "LOG_DIR", "yaml": "system.log_dir", "group": "system"})
     report_dir: str = field(default="report", metadata={"env": "REPORT_DIR", "yaml": "system.report_dir", "group": "system"})
     debug: bool = field(default=False, metadata={"env": "DEBUG", "yaml": "system.debug", "group": "system"})
-    config_validate_mode: str = field(default="warn", metadata={"env": "CONFIG_VALIDATE_MODE", "group": "system"})
+    config_validate_mode: str = field(default="warn", metadata={"env": "CONFIG_VALIDATE_MODE", "yaml": "system.config_validate_mode", "group": "system"})
 
-    report_type: str = field(default="simple", metadata={"env": "REPORT_TYPE", "group": "system"})
-    report_summary_only: bool = field(default=False, metadata={"env": "REPORT_SUMMARY_ONLY", "group": "system"})
-    report_templates_dir: str = field(default="templates", metadata={"env": "REPORT_TEMPLATES_DIR", "group": "system"})
-    merge_email_notification: bool = field(default=False, metadata={"env": "MERGE_EMAIL_NOTIFICATION", "group": "notification"})
-    single_stock_notify: bool = field(default=False, metadata={"env": "SINGLE_STOCK_NOTIFY", "group": "notification"})
+    report_type: str = field(default="simple", metadata={"env": "REPORT_TYPE", "yaml": "system.report_type", "group": "system"})
+    report_summary_only: bool = field(default=False, metadata={"env": "REPORT_SUMMARY_ONLY", "yaml": "system.report_summary_only", "group": "system"})
+    report_templates_dir: str = field(default="templates", metadata={"env": "REPORT_TEMPLATES_DIR", "yaml": "system.report_templates_dir", "group": "system"})
+    merge_email_notification: bool = field(default=False, metadata={"env": "MERGE_EMAIL_NOTIFICATION", "yaml": "notification.merge_email", "group": "notification"})
+    single_stock_notify: bool = field(default=False, metadata={"env": "SINGLE_STOCK_NOTIFY", "yaml": "notification.single_stock_notify", "group": "notification"})
     wechat_webhook_url: Optional[str] = field(default=None, metadata={"env": "WECHAT_WEBHOOK_URL", "yaml": "notification.wechat_webhook_url", "group": "notification"})
     email_sender: Optional[str] = field(default=None, metadata={"env": "EMAIL_SENDER", "group": "notification"})
-    email_sender_name: str = field(default="股票分析助手", metadata={"env": "EMAIL_SENDER_NAME", "group": "notification"})
+    email_sender_name: str = field(default="股票分析助手", metadata={"env": "EMAIL_SENDER_NAME", "yaml": "notification.email_sender_name", "group": "notification"})
     email_password: Optional[str] = field(default=None, metadata={"env": "EMAIL_PASSWORD", "group": "notification"})
     email_receivers: List[str] = field(default_factory=list, metadata={"env": "EMAIL_RECEIVERS", "group": "notification"})
     stock_email_groups: List[Tuple[List[str], List[str]]] = field(default_factory=list, metadata={"internal": True, "group": "notification"})
@@ -132,77 +133,82 @@ class Config:
     serverchan3_sendkey: Optional[str] = field(default=None, metadata={"env": "SERVERCHAN3_SENDKEY", "group": "notification"})
     custom_webhook_urls: List[str] = field(default_factory=list, metadata={"env": "CUSTOM_WEBHOOK_URLS", "group": "notification"})
     custom_webhook_bearer_token: Optional[str] = field(default=None, metadata={"env": "CUSTOM_WEBHOOK_BEARER_TOKEN", "group": "notification"})
-    webhook_verify_ssl: bool = field(default=True, metadata={"env": "WEBHOOK_VERIFY_SSL", "group": "notification"})
-    notification_timeout_sec: int = field(default=15, metadata={"env": "NOTIFICATION_TIMEOUT_SEC", "group": "notification"})
-    wechat_msg_type: str = field(default="markdown", metadata={"env": "WECHAT_MSG_TYPE", "group": "notification"})
+    webhook_verify_ssl: bool = field(default=True, metadata={"env": "WEBHOOK_VERIFY_SSL", "yaml": "notification.webhook_verify_ssl", "group": "notification"})
+    notification_timeout_sec: int = field(default=15, metadata={"env": "NOTIFICATION_TIMEOUT_SEC", "yaml": "notification.timeout_sec", "group": "notification"})
+    wechat_msg_type: str = field(default="markdown", metadata={"env": "WECHAT_MSG_TYPE", "yaml": "notification.wechat_msg_type", "group": "notification"})
     wechat_max_bytes: int = field(default=4000, metadata={"env": "WECHAT_MAX_BYTES", "yaml": "notification.wechat_max_bytes", "group": "notification"})
 
     dingtalk_stream_enabled: bool = field(default=False, metadata={"env": "DINGTALK_STREAM_ENABLED", "group": "notification"})
     telegram_bot_token: Optional[str] = field(default=None, metadata={"env": "TELEGRAM_BOT_TOKEN", "group": "notification"})
     telegram_chat_id: Optional[str] = field(default=None, metadata={"env": "TELEGRAM_CHAT_ID", "group": "notification"})
 
-    schedule_enabled: bool = field(default=False, metadata={"env": "SCHEDULE_ENABLED", "yaml": "system.schedule_enabled", "group": "system"})
-    schedule_time: str = field(default="18:00", metadata={"env": "SCHEDULE_TIME", "yaml": "system.schedule_time", "group": "system"})
-    schedule_run_immediately: bool = field(default=True, metadata={"env": "SCHEDULE_RUN_IMMEDIATELY", "group": "system"})
+    schedule_enabled: bool = field(default=False, metadata={"env": "SCHEDULE_ENABLED", "yaml": "schedule.enabled", "group": "system"})
+    schedule_time: str = field(default="18:00", metadata={"env": "SCHEDULE_TIME", "yaml": "schedule.time", "group": "system"})
+    schedule_run_immediately: bool = field(default=True, metadata={"env": "SCHEDULE_RUN_IMMEDIATELY", "yaml": "schedule.run_immediately", "group": "system"})
     run_immediately: bool = field(default=True, metadata={"env": "RUN_IMMEDIATELY", "group": "system"})
-    market_review_enabled: bool = field(default=True, metadata={"env": "MARKET_REVIEW_ENABLED", "group": "system"})
-    market_review_region: str = field(default="cn", metadata={"env": "MARKET_REVIEW_REGION", "group": "system"})
-    trading_day_check_enabled: bool = field(default=True, metadata={"env": "TRADING_DAY_CHECK_ENABLED", "group": "system"})
+    market_review_enabled: bool = field(default=True, metadata={"env": "MARKET_REVIEW_ENABLED", "yaml": "schedule.market_review_enabled", "group": "system"})
+    market_review_region: str = field(default="cn", metadata={"env": "MARKET_REVIEW_REGION", "yaml": "schedule.market_review_region", "group": "system"})
+    trading_day_check_enabled: bool = field(default=True, metadata={"env": "TRADING_DAY_CHECK_ENABLED", "yaml": "schedule.trading_day_check_enabled", "group": "system"})
 
-    prefetch_realtime_quotes: bool = field(default=True, metadata={"env": "PREFETCH_REALTIME_QUOTES", "group": "data"})
-    realtime_cache_ttl: int = field(default=600, metadata={"env": "REALTIME_CACHE_TTL", "group": "data"})
-    realtime_source_priority: str = field(default="akshare_em,tencent,akshare_sina,efinance", metadata={"env": "REALTIME_SOURCE_PRIORITY", "group": "data"})
-    enable_eastmoney_patch: bool = field(default=False, metadata={"env": "ENABLE_EASTMONEY_PATCH", "group": "data"})
+    prefetch_realtime_quotes: bool = field(default=True, metadata={"env": "PREFETCH_REALTIME_QUOTES", "yaml": "realtime.prefetch_quotes", "group": "data"})
+    realtime_cache_ttl: int = field(default=600, metadata={"env": "REALTIME_CACHE_TTL", "yaml": "realtime.cache_ttl", "group": "data"})
+    realtime_source_priority: str = field(default="akshare_em,tencent,akshare_sina,efinance", metadata={"env": "REALTIME_SOURCE_PRIORITY", "yaml": "realtime.source_priority", "group": "data"})
+    enable_eastmoney_patch: bool = field(default=False, metadata={"env": "ENABLE_EASTMONEY_PATCH", "yaml": "realtime.enable_eastmoney_patch", "group": "data"})
     database_path: str = field(default="./data/stock_analysis.db", metadata={"env": "DATABASE_PATH", "yaml": "system.database_path", "group": "system"})
-    save_context_snapshot: bool = field(default=True, metadata={"env": "SAVE_CONTEXT_SNAPSHOT", "group": "data"})
+    save_context_snapshot: bool = field(default=True, metadata={"env": "SAVE_CONTEXT_SNAPSHOT", "yaml": "realtime.save_context_snapshot", "group": "data"})
     tushare_token: Optional[str] = field(default=None, metadata={"env": "TUSHARE_TOKEN", "group": "data"})
     tickflow_api_key: Optional[str] = field(default=None, metadata={"env": "TICKFLOW_API_KEY", "group": "data"})
-    futu_api_host: str = field(default="127.0.0.1", metadata={"env": "FUTU_API_HOST", "group": "data"})
-    futu_api_port: int = field(default=11111, metadata={"env": "FUTU_API_PORT", "group": "data"})
+    futu_api_host: str = field(default="127.0.0.1", metadata={"env": "FUTU_API_HOST", "yaml": "data.futu_api_host", "group": "data"})
+    futu_api_port: int = field(default=11111, metadata={"env": "FUTU_API_PORT", "yaml": "data.futu_api_port", "group": "data"})
     futu_unlock_password: Optional[str] = field(default=None, metadata={"env": "FUTU_UNLOCK_PASSWORD", "group": "data"})
-    enable_realtime_quote: bool = field(default=True, metadata={"env": "ENABLE_REALTIME_QUOTE", "group": "data"})
-    enable_realtime_technical_indicators: bool = field(default=True, metadata={"env": "ENABLE_REALTIME_TECHNICAL_INDICATORS", "group": "data"})
-    enable_chip_distribution: bool = field(default=True, metadata={"env": "ENABLE_CHIP_DISTRIBUTION", "group": "data"})
-    sqlite_wal_enabled: bool = field(default=True, metadata={"env": "SQLITE_WAL_ENABLED", "group": "data"})
-    sqlite_busy_timeout_ms: int = field(default=5000, metadata={"env": "SQLITE_BUSY_TIMEOUT_MS", "group": "data"})
-    sqlite_write_retry_max: int = field(default=3, metadata={"env": "SQLITE_WRITE_RETRY_MAX", "group": "data"})
-    sqlite_write_retry_base_delay: float = field(default=0.1, metadata={"env": "SQLITE_WRITE_RETRY_BASE_DELAY", "group": "data"})
+    enable_realtime_quote: bool = field(default=True, metadata={"env": "ENABLE_REALTIME_QUOTE", "yaml": "realtime.enable_quote", "group": "data"})
+    enable_realtime_technical_indicators: bool = field(default=True, metadata={"env": "ENABLE_REALTIME_TECHNICAL_INDICATORS", "yaml": "realtime.enable_technical_indicators", "group": "data"})
+    enable_chip_distribution: bool = field(default=True, metadata={"env": "ENABLE_CHIP_DISTRIBUTION", "yaml": "realtime.enable_chip_distribution", "group": "data"})
+    sqlite_wal_enabled: bool = field(default=True, metadata={"env": "SQLITE_WAL_ENABLED", "yaml": "sqlite.wal_enabled", "group": "data"})
+    sqlite_busy_timeout_ms: int = field(default=5000, metadata={"env": "SQLITE_BUSY_TIMEOUT_MS", "yaml": "sqlite.busy_timeout_ms", "group": "data"})
+    sqlite_write_retry_max: int = field(default=3, metadata={"env": "SQLITE_WRITE_RETRY_MAX", "yaml": "sqlite.write_retry_max", "group": "data"})
+    sqlite_write_retry_base_delay: float = field(default=0.1, metadata={"env": "SQLITE_WRITE_RETRY_BASE_DELAY", "yaml": "sqlite.write_retry_base_delay", "group": "data"})
 
     litellm_model: str = field(default="", metadata={"env": "LITELLM_MODEL", "yaml": "llm.primary_model", "group": "llm"})
     litellm_fallback_models: List[str] = field(default_factory=list, metadata={"env": "LITELLM_FALLBACK_MODELS", "group": "llm"})
+    gemini_model: str = field(default="gemini-3-flash-preview", metadata={"env": "GEMINI_MODEL", "group": "llm", "deprecated": True})
+    gemini_model_fallback: str = field(default="gemini-2.5-flash", metadata={"env": "GEMINI_MODEL_FALLBACK", "group": "llm", "deprecated": True})
     litellm_config_path: Optional[str] = field(default=None, metadata={"env": "LITELLM_CONFIG", "yaml": "llm.config_path", "group": "llm"})
     llm_channels: List[Dict[str, Any]] = field(default_factory=list, metadata={"env": "LLM_CHANNELS", "group": "llm"})
     llm_model_list: List[Dict[str, Any]] = field(default_factory=list, metadata={"internal": True, "group": "llm"})
-    llm_temperature: float = field(default=0.7, metadata={"env": "LLM_TEMPERATURE", "group": "llm"})
+    llm_temperature: float = field(default=0.7, metadata={"env": "LLM_TEMPERATURE", "yaml": "llm.temperature", "group": "llm"})
     llm_models_source: str = field(default="legacy_env", metadata={"internal": True, "group": "llm"})
     agent_litellm_model: str = field(default="", metadata={"env": "AGENT_LITELLM_MODEL", "group": "agent"})
 
-    agent_mode: bool = field(default=False, metadata={"env": "AGENT_MODE", "group": "agent"})
-    agent_auto_route_analysis: bool = field(default=False, metadata={"env": "AGENT_AUTO_ROUTE_ANALYSIS", "group": "agent"})
+    agent_mode: bool = field(default=False, metadata={"env": "AGENT_MODE", "yaml": "agent.mode", "group": "agent"})
+    agent_auto_route_analysis: bool = field(default=False, metadata={"env": "AGENT_AUTO_ROUTE_ANALYSIS", "yaml": "agent.auto_route_analysis", "group": "agent"})
     _agent_mode_explicit: bool = False
-    agent_max_steps: int = field(default=10, metadata={"env": "AGENT_MAX_STEPS", "group": "agent"})
+    agent_max_steps: int = field(default=10, metadata={"env": "AGENT_MAX_STEPS", "yaml": "agent.max_steps", "group": "agent"})
     agent_skills: List[str] = field(default_factory=list, metadata={"env": "AGENT_SKILLS", "group": "agent"})
-    agent_arch: str = field(default="single", metadata={"env": "AGENT_ARCH", "group": "agent"})
-    agent_risk_override: bool = field(default=True, metadata={"env": "AGENT_RISK_OVERRIDE", "group": "agent"})
-    agent_memory_enabled: bool = field(default=False, metadata={"env": "AGENT_MEMORY_ENABLED", "group": "agent"})
-    agent_skill_autoweight: bool = field(default=True, metadata={"env": "AGENT_SKILL_AUTOWEIGHT", "group": "agent"})
-    agent_skill_routing: str = field(default="auto", metadata={"env": "AGENT_SKILL_ROUTING", "group": "agent"})
-    agent_orchestrator_timeout_s: int = field(default=600, metadata={"env": "AGENT_ORCHESTRATOR_TIMEOUT_S", "group": "agent"})
+    agent_arch: str = field(default="single", metadata={"env": "AGENT_ARCH", "yaml": "agent.arch", "group": "agent"})
+    agent_risk_override: bool = field(default=True, metadata={"env": "AGENT_RISK_OVERRIDE", "yaml": "agent.risk_override", "group": "agent"})
+    agent_memory_enabled: bool = field(default=False, metadata={"env": "AGENT_MEMORY_ENABLED", "yaml": "agent.memory_enabled", "group": "agent"})
+    agent_skill_autoweight: bool = field(default=True, metadata={"env": "AGENT_SKILL_AUTOWEIGHT", "yaml": "agent.skill_autoweight", "group": "agent"})
+    agent_skill_routing: str = field(default="auto", metadata={"env": "AGENT_SKILL_ROUTING", "yaml": "agent.skill_routing", "group": "agent"})
+    agent_orchestrator_timeout_s: int = field(default=600, metadata={"env": "AGENT_ORCHESTRATOR_TIMEOUT_S", "yaml": "agent.orchestrator_timeout_s", "group": "agent"})
 
     # risk_screen 配置
-    risk_screen_enabled: bool = field(default=True, metadata={"env": "RISK_SCREEN_ENABLED", "group": "risk_screen"})
-    risk_screen_debt_threshold: float = field(default=80.0, metadata={"env": "RISK_SCREEN_DEBT_THRESHOLD", "group": "risk_screen"})
-    risk_screen_pe_max: float = field(default=100.0, metadata={"env": "RISK_SCREEN_PE_MAX", "group": "risk_screen"})
-    risk_screen_pe_negative_warn: bool = field(default=True, metadata={"env": "RISK_SCREEN_PE_NEGATIVE_WARN", "group": "risk_screen"})
-    risk_screen_max_workers: int = field(default=3, metadata={"env": "RISK_SCREEN_MAX_WORKERS", "group": "risk_screen"})
+    risk_screen_enabled: bool = field(default=True, metadata={"env": "RISK_SCREEN_ENABLED", "yaml": "risk_screen.enabled", "group": "risk_screen"})
+    risk_screen_debt_threshold: float = field(default=80.0, metadata={"env": "RISK_SCREEN_DEBT_THRESHOLD", "yaml": "risk_screen.debt_threshold", "group": "risk_screen"})
+    risk_screen_pe_max: float = field(default=100.0, metadata={"env": "RISK_SCREEN_PE_MAX", "yaml": "risk_screen.pe_max", "group": "risk_screen"})
+    risk_screen_pe_negative_warn: bool = field(default=True, metadata={"env": "RISK_SCREEN_PE_NEGATIVE_WARN", "yaml": "risk_screen.pe_negative_warn", "group": "risk_screen"})
+    risk_screen_max_workers: int = field(default=3, metadata={"env": "RISK_SCREEN_MAX_WORKERS", "yaml": "risk_screen.max_workers", "group": "risk_screen"})
 
     gemini_api_keys: List[str] = field(default_factory=list, metadata={"env": "GEMINI_API_KEYS", "group": "core"})
     gemini_api_key: Optional[str] = field(default=None, metadata={"env": "GEMINI_API_KEY", "group": "core"})
     anthropic_api_keys: List[str] = field(default_factory=list, metadata={"env": "ANTHROPIC_API_KEYS", "group": "core"})
     anthropic_api_key: Optional[str] = field(default=None, metadata={"env": "ANTHROPIC_API_KEY", "group": "core"})
     openai_api_keys: List[str] = field(default_factory=list, metadata={"env": "OPENAI_API_KEYS", "group": "core"})
+    aihubmix_key: Optional[str] = field(default=None, metadata={"env": "AIHUBMIX_KEY", "group": "core"})
     deepseek_api_keys: List[str] = field(default_factory=list, metadata={"env": "DEEPSEEK_API_KEYS", "group": "core"})
+    deepseek_api_key: Optional[str] = field(default=None, metadata={"env": "DEEPSEEK_API_KEY", "group": "core"})
     tavily_api_keys: List[str] = field(default_factory=list, metadata={"env": "TAVILY_API_KEYS", "group": "core"})
+    tavily_api_key: Optional[str] = field(default=None, metadata={"env": "TAVILY_API_KEY", "group": "core"})
     finnhub_api_key: Optional[str] = field(default=None, metadata={"env": "FINNHUB_API_KEY", "group": "core"})
     openbb_news_enabled: bool = field(default=False, metadata={"env": "OPENBB_NEWS_ENABLED", "group": "core"})
     openbb_news_provider: str = field(default="yfinance", metadata={"env": "OPENBB_NEWS_PROVIDER", "group": "core"})
@@ -479,6 +485,7 @@ class Config:
         return cls(
             stock_list=stock_list,
             stock_config_path=stock_config_path,
+            env_file=os.getenv("ENV_FILE"),
             report_language=report_language,
             news_max_age_days=parse_env_int(
                 os.getenv("NEWS_MAX_AGE_DAYS"),
@@ -633,6 +640,8 @@ class Config:
             ),
             litellm_model=litellm_model,
             litellm_fallback_models=litellm_fallback_models,
+            gemini_model=os.getenv("GEMINI_MODEL"),
+            gemini_model_fallback=os.getenv("GEMINI_MODEL_FALLBACK"),
             litellm_config_path=litellm_config_path,
             llm_channels=llm_channels,
             llm_model_list=llm_model_list,
@@ -693,8 +702,11 @@ class Config:
             anthropic_api_keys=anthropic_keys,
             anthropic_api_key=anthropic_keys[0] if anthropic_keys else None,
             openai_api_keys=openai_keys,
+            aihubmix_key=os.getenv("AIHUBMIX_KEY"),
             deepseek_api_keys=deepseek_keys,
+            deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
             tavily_api_keys=_get_keys("TAVILY_API_KEYS", "TAVILY_API_KEY"),
+            tavily_api_key=os.getenv("TAVILY_API_KEY"),
             finnhub_api_key=os.getenv("FINNHUB_API_KEY"),
             openbb_news_enabled=parse_env_bool(
                 os.getenv("OPENBB_NEWS_ENABLED"),
@@ -1018,14 +1030,6 @@ class Config:
         if self._agent_mode_explicit:
             return self.agent_mode
         return bool(get_effective_agent_primary_model(self))
-
-    @property
-    def gemini_model(self) -> str:
-        return self.litellm_model
-
-    @property
-    def gemini_model_fallback(self) -> Optional[str]:
-        return self.litellm_fallback_models[0] if self.litellm_fallback_models else None
 
     def get_db_url(self) -> str:
         db_path = Path(self.database_path)
