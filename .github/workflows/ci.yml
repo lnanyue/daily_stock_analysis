@@ -59,3 +59,15 @@ jobs:
         run: ./scripts/ci_gate.sh deterministic
       - name: Offline test suite
         run: ./scripts/ci_gate.sh offline-tests
+
+  config-contract:
+    name: Config Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml pytest
+      - run: python -m pytest tests/test_check_config_contract.py -v
+      - run: python scripts/check_config_contract.py --strict

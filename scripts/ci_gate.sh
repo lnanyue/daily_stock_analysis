@@ -37,6 +37,11 @@ deterministic_checks() {
   fi
 }
 
+config_contract_check() {
+  echo "==> backend-gate: config contract check"
+  "$PYTHON_BIN" scripts/check_config_contract.py --strict
+}
+
 optional_dep_checks() {
   echo "==> backend-gate: optional-dependency import safety"
 
@@ -68,6 +73,7 @@ run_all() {
   syntax_check
   flake8_checks
   deterministic_checks
+  config_contract_check
   optional_dep_checks
   offline_test_suite
   echo "==> backend-gate: all checks passed"
@@ -88,6 +94,9 @@ case "$phase" in
   deterministic)
     deterministic_checks
     ;;
+  config-contract)
+    config_contract_check
+    ;;
   optional-dep)
     optional_dep_checks
     ;;
@@ -95,7 +104,7 @@ case "$phase" in
     offline_test_suite
     ;;
   *)
-    echo "Usage: $0 [all|syntax|flake8|deterministic|optional-dep|offline-tests]" >&2
+    echo "Usage: $0 [all|syntax|flake8|deterministic|config-contract|optional-dep|offline-tests]" >&2
     exit 2
     ;;
 esac

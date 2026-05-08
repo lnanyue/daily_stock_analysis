@@ -10,6 +10,7 @@ import unittest
 from src.core.config_registry import (
     build_schema_response,
     get_field_definition,
+    get_registered_field_keys,
 )
 
 
@@ -26,6 +27,12 @@ class TestSensitiveFieldsUsePasswordControl(unittest.TestCase):
                     violations.append(field["key"])
         self.assertEqual(violations, [],
                          f"Sensitive fields with non-password ui_control: {violations}")
+
+
+def test_no_new_registry_entries():
+    """Config registry must not grow — use Config.metadata instead."""
+    count = len(get_registered_field_keys())
+    assert count <= 107, f"Registry grew to {count} — use Config metadata instead"
 
 
 if __name__ == "__main__":

@@ -3,6 +3,11 @@
 
 This module is the single source of truth for configuration UI metadata,
 validation hints, and category grouping.
+
+NOTE: This registry is deprecated. New configuration fields must be
+added to the Config dataclass in src/config/manager.py with metadata.
+This file is kept for WebUI backward compatibility and will be removed
+after all existing entries are migrated.
 """
 
 from __future__ import annotations
