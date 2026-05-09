@@ -265,10 +265,9 @@ class Config:
         ``config.example.yaml`` is the template shipped in-tree; ``config.yaml`` is
         the local business override (gitignored).
 
-        The env-var name for each YAML leaf key is the uppercased Config field name
-        (e.g. ``system.report_dir`` → ``REPORT_DIR``).  If no Config field matches,
-        the section-prefixed form is used as fallback (e.g. ``analysis.request_delay``
-        → ``ANALYSIS_REQUEST_DELAY``).
+        YAML paths are mapped to env vars via Config field metadata annotations
+        (e.g. ``llm.primary_model`` → ``LITELLM_MODEL``, not a guessed key).
+        YAML keys without a corresponding metadata annotation are silently skipped.
         """
         try:
             import yaml
@@ -276,24 +275,27 @@ class Config:
 
             from dataclasses import fields
 
-            # Build a set of valid Config field names (uppercased) so we can
-            # map YAML leaf keys directly to the env vars that _load_from_env reads.
-            config_field_names = {f.name.upper() for f in fields(Config)}
+            # Build {yaml_path: env_var} from Config field metadata so the
+            # loader and the contract checker use the same mapping.
+            yaml_to_env: dict[str, str] = {}
+            for f in fields(Config):
+                yaml_path = f.metadata.get("yaml")
+                env_var = f.metadata.get("env")
+                if yaml_path and env_var:
+                    yaml_to_env[yaml_path] = env_var
 
             def _apply(d: dict, prefix: str = "") -> None:
                 for k, v in d.items():
-                    upper = k.upper()
-                    sect_key = f"{prefix}_{upper}" if prefix else upper
+                    full_path = f"{prefix}.{k}" if prefix else k
                     if isinstance(v, dict):
-                        _apply(v, sect_key)
+                        _apply(v, full_path)
                     else:
-                        # Prefer the flat Config field name over a section-prefixed one.
-                        # This ensures system.report_dir → REPORT_DIR (not SYSTEM_REPORT_DIR).
-                        candidate = upper if upper in config_field_names else sect_key
-                        if isinstance(v, bool):
-                            os.environ.setdefault(candidate, "true" if v else "false")
-                        else:
-                            os.environ.setdefault(candidate, str(v))
+                        env_var = yaml_to_env.get(full_path)
+                        if env_var is not None:
+                            if isinstance(v, bool):
+                                os.environ.setdefault(env_var, "true" if v else "false")
+                            else:
+                                os.environ.setdefault(env_var, str(v))
 
             # 1. Load template / defaults (lowest config priority)
             merged: dict = {}
