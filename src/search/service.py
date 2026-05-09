@@ -527,6 +527,7 @@ class SearchService:
                 filtered_response = self._filter_news_response(
                     response, search_days=search_days, max_results=max_results,
                     log_scope=f"{stock_code}:{provider.name}:stock_news_async",
+                    strict=True,
                 )
                 had_provider_success = had_provider_success or bool(response.success)
                 if filtered_response.success and filtered_response.results:

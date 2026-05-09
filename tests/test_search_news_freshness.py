@@ -496,5 +496,97 @@ class TestIntelDimensionsAlignment:
         assert '指数' in risk_dim['query'] or 'index' in risk_dim['query'].lower()
 
 
+class TestAsyncFreshnessEnforcement:
+    """Verify async news path enforces strict freshness."""
+
+    def test_async_filter_passes_strict_when_dates_within_window(self):
+        """News items with published_date within window should pass strict=True."""
+        from datetime import datetime, timedelta
+        from src.search.types import SearchResult, SearchResponse
+        from src.search.service import SearchService
+
+        today = datetime.now().strftime('%Y-%m-%d')
+        svc = SearchService(tavily_keys=[])
+
+        response = SearchResponse(
+            query="test",
+            results=[
+                SearchResult(
+                    title="Recent news",
+                    snippet="Something",
+                    url="https://example.com/1",
+                    source="TestSource",
+                    published_date=today,
+                ),
+            ],
+            provider="tavily",
+            success=True,
+        )
+
+        filtered = svc._filter_news_response(
+            response, search_days=3, max_results=5,
+            log_scope="TEST:async_strict", strict=True,
+        )
+        assert len(filtered.results) == 1
+
+    def test_async_filter_rejects_old_news_when_strict(self):
+        """News items with dates outside window should be rejected with strict=True."""
+        from datetime import datetime, timedelta
+        from src.search.types import SearchResult, SearchResponse
+        from src.search.service import SearchService
+
+        old_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        svc = SearchService(tavily_keys=[])
+
+        response = SearchResponse(
+            query="test",
+            results=[
+                SearchResult(
+                    title="Old news",
+                    snippet="Something",
+                    url="https://example.com/1",
+                    source="TestSource",
+                    published_date=old_date,
+                ),
+            ],
+            provider="tavily",
+            success=True,
+        )
+
+        filtered = svc._filter_news_response(
+            response, search_days=3, max_results=5,
+            log_scope="TEST:async_strict_old", strict=True,
+        )
+        assert len(filtered.results) == 0
+
+    def test_async_filter_handles_missing_date_when_strict(self):
+        """News items without published_date should be rejected with strict=True."""
+        from src.search.types import SearchResult, SearchResponse
+        from src.search.service import SearchService
+
+        svc = SearchService(tavily_keys=[])
+
+        response = SearchResponse(
+            query="test",
+            results=[
+                SearchResult(
+                    title="Undated news",
+                    snippet="Something",
+                    url="https://example.com/1",
+                    source="TestSource",
+                    published_date=None,
+                ),
+            ],
+            provider="tavily",
+            success=True,
+        )
+
+        filtered = svc._filter_news_response(
+            response, search_days=3, max_results=5,
+            log_scope="TEST:async_strict_undated", strict=True,
+        )
+        assert len(filtered.results) == 0
+
+
 if __name__ == "__main__":
     unittest.main()
