@@ -55,6 +55,7 @@ rich>=15.0.0                # 华丽的 CLI 输出支持
 
 # Web Content Extraction
 newspaper3k>=0.2.8          # Article extraction
+trafilatura>=1.6.0          # Full-text web page extraction
 lxml_html_clean>=0.4.0      # Fix for lxml.html.clean ImportError in newer lxml versions
 
 # 报告模板引擎（Report Engine P0）

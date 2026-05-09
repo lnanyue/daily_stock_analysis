@@ -4,3 +4,6 @@
 # Test and lint tooling used by backend-gate.
 flake8
 pytest
+
+# Full-text extraction for search tools
+trafilatura>=1.6.0

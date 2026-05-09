@@ -8,10 +8,56 @@ Tools:
 """
 
 import logging
+from typing import Optional
+
+import trafilatura
 
 from src.agent.tools.registry import ToolParameter, ToolDefinition
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of search results to attempt full-text extraction on
+_MAX_EXTRACT_URLS = 3
+
+
+def _extract_full_text(url: str, timeout: int = 10) -> Optional[str]:
+    """Fetch and extract readable text from a URL using trafilatura.
+
+    Returns None on timeout, network error, or paywalled content.
+    """
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return None
+        text = trafilatura.extract(downloaded, include_links=False, include_images=False)
+        return text.strip() if text else None
+    except Exception as exc:
+        logger.debug("Full-text extraction failed for %s: %s", url, exc)
+        return None
+
+
+def _build_results_with_full_text(results: list) -> list:
+    """Build result dicts with full-text extraction for the first N results."""
+    built = []
+    for i, r in enumerate(results):
+        item = {
+            "title": r.title,
+            "url": r.url,
+            "source": r.source,
+            "published_date": r.published_date,
+        }
+        # Extract full text for first _MAX_EXTRACT_URLS results
+        if i < _MAX_EXTRACT_URLS:
+            full_text = _extract_full_text(r.url)
+            item["extracted"] = full_text is not None
+            item["full_text_snippet"] = full_text[:500] if full_text else ""
+            item["full_text"] = full_text or ""
+        else:
+            item["extracted"] = False
+            item["full_text_snippet"] = r.snippet or ""
+            item["full_text"] = ""
+        built.append(item)
+    return built
 
 
 def _get_search_service():
@@ -47,16 +93,7 @@ def _handle_search_stock_news(stock_code: str, stock_name: str) -> dict:
         "provider": response.provider,
         "success": True,
         "results_count": len(response.results),
-        "results": [
-            {
-                "title": r.title,
-                "snippet": r.snippet,
-                "url": r.url,
-                "source": r.source,
-                "published_date": r.published_date,
-            }
-            for r in response.results
-        ],
+        "results": _build_results_with_full_text(response.results),
     }
 
 
