@@ -870,15 +870,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 
             # 如果实时指数无效（非交易日），尝试从远程历史接口恢复
             if not is_valid_indices:
-                from src.storage import get_db
-                db = get_db()
-
-                # 1. 尝试从数据库获取最近一个交易日的日期
-                target_date_obj = db.get_global_latest_date()
-                if not target_date_obj:
-                    target_date_obj = date.today()
-
-                context.date = target_date_obj.isoformat()
+                context.date = date.today().isoformat()
                 logger.info(f"[大盘] 实时行情不可用，尝试获取远程历史数据 (日期: {context.date})")
 
                 # 2. 尝试从远程接口获取真实的指数历史 (000001, 399001, 399006)
@@ -937,28 +929,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 if stats and stats.get('volume_total', 0) > 0:
                     context.stats = stats
                 else:
-                    # 只有在完全拿不到远程真实快照时，才降级使用数据库个股样本推算
-                    from src.storage import get_db
-                    db = get_db()
-                    target_date = date.fromisoformat(context.date)
-                    with db.get_session() as session:
-                        from src.storage import StockDaily
-                        from sqlalchemy import select
-                        all_today = session.execute(
-                            select(StockDaily.pct_chg, StockDaily.amount).where(StockDaily.date == target_date)
-                        ).all()
-                        if all_today:
-                            ups = len([r for r in all_today if (r[0] or 0) > 0])
-                            downs = len([r for r in all_today if (r[0] or 0) < 0])
-                            total_amt = sum([(r[1] or 0) for r in all_today]) / 100000000.0
-                            context.stats = {
-                                'up': ups,
-                                'down': downs,
-                                'volume_total': round(total_amt, 2),
-                                'limit_up': 'N/A',
-                                'is_sample': True
-                            }
-                            logger.info(f"[大盘] 远程统计不可用，使用 DB 样本推算: {ups}涨/{downs}跌")
+                    logger.info("[大盘] 远程统计不可用，跳过样本推算（DB 已移除）")
             except Exception as e:
                 logger.error(f"[大盘] 获取市场统计失败: {e}")
 

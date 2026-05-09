@@ -3,7 +3,7 @@ Analysis execution — extracted from StockAnalysisPipeline.
 """
 import asyncio
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 from src.config import Config
@@ -561,25 +561,15 @@ class AnalysisExecutor:
     # Agent history prefetch
     # ------------------------------------------------------------------
     async def ensure_agent_history(self, code: str, min_days: int = 240) -> None:
-        """Ensure at least min_days of K-line history in DB for agent tools."""
-        from src.services.history_loader import get_frozen_target_date
-        from src.core.pipeline_helpers import resolve_resume_target_date
-
-        target = get_frozen_target_date()
-        if target is None:
-            target = resolve_resume_target_date(code)
-        start = target - timedelta(days=int(min_days * 1.8))
-        bars = await self.db.get_data_range_async(code, start, target)
-        if bars and len(bars) >= min(min_days, 200):
-            logger.debug("[%s] Agent history: %d bars in DB, sufficient", code, len(bars))
-            return
+        """Ensure at least min_days of K-line history available. Always fetches from network."""
         try:
             df, source = await self.fetcher_manager.get_daily_data(code, days=min_days)
             if df is not None and not df.empty:
-                await self.db.save_daily_data_async(df, code, source)
-                logger.info("[%s] Prefetched %d rows of history (source: %s)", code, len(df), source)
+                logger.info("[%s] Fetched %d rows of history (source: %s)", code, len(df), source)
+            else:
+                logger.warning("[%s] History fetch returned empty", code)
         except Exception as e:
-            logger.warning("[%s] Agent history prefetch failed: %s", code, e)
+            logger.warning("[%s] History fetch failed: %s", code, e)
 
     # ------------------------------------------------------------------
     # Market overview
