@@ -89,33 +89,35 @@ class FactCheckerEvaluateOneTest(TestCase):
 
 
 class FactCheckerGetClosePriceTest(TestCase):
-    """_get_close_price: DB lookup of close price."""
+    """_get_close_price: DataFetcherManager network lookup of close price."""
 
-    def test_returns_float_when_found(self):
-        db = MagicMock()
-        session = MagicMock()
-        db.get_session.return_value.__enter__.return_value = session
-        scalar = session.execute.return_value.scalar
-        scalar.return_value = 105.5
+    @patch("data_provider.DataFetcherManager")
+    def test_returns_float_when_found(self, mock_manager_cls):
+        import pandas as pd
+        df = pd.DataFrame({
+            "date": [date(2026, 5, 13)],
+            "close": [105.5],
+        })
+        mock_manager_cls.return_value.get_daily_data_sync.return_value = (df, "test")
 
-        checker = FactChecker(db)
+        checker = FactChecker(MagicMock())
         result = checker._get_close_price("600519", date(2026, 5, 13))
         self.assertAlmostEqual(result, 105.5)
 
-    def test_returns_none_when_not_found(self):
-        db = MagicMock()
-        session = MagicMock()
-        db.get_session.return_value.__enter__.return_value = session
-        scalar = session.execute.return_value.scalar
-        scalar.return_value = None
+    @patch("data_provider.DataFetcherManager")
+    def test_returns_none_when_not_found(self, mock_manager_cls):
+        import pandas as pd
+        df = pd.DataFrame({"date": [], "close": []})
+        mock_manager_cls.return_value.get_daily_data_sync.return_value = (df, "test")
 
-        checker = FactChecker(db)
+        checker = FactChecker(MagicMock())
         self.assertIsNone(checker._get_close_price("600519", date(2026, 5, 13)))
 
-    def test_returns_none_on_db_exception(self):
-        db = MagicMock()
-        db.get_session.side_effect = Exception("DB down")
-        checker = FactChecker(db)
+    @patch("data_provider.DataFetcherManager")
+    def test_returns_none_on_exception(self, mock_manager_cls):
+        mock_manager_cls.return_value.get_daily_data_sync.side_effect = Exception("Network down")
+
+        checker = FactChecker(MagicMock())
         self.assertIsNone(checker._get_close_price("600519", date(2026, 5, 13)))
 
 

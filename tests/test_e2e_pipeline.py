@@ -89,3 +89,31 @@ class TestFullPipeline:
 
         # Verify llm_analysis field is present (may be None if API not configured)
         assert "llm_analysis" in result
+
+    @pytest.mark.vcr
+    @pytest.mark.asyncio
+    async def test_market_review(self):
+        """Verify market review generates a report covering configured sectors."""
+        from src.config import get_config
+        from src.core.market_review import run_market_review
+
+        config = get_config()
+
+        # Create a no-op notifier that does not send notifications
+        class _NoopNotifier:
+            async def send_notification(self, title="", content="", msg_type="market_review"):
+                return True
+            async def send_market_review(self, content: str):
+                logger.info("Market review length: %d chars", len(content) if content else 0)
+                return True
+
+        notifier = _NoopNotifier()
+        report = await run_market_review(
+            notifier=notifier,
+            send_notification=False,
+            merge_notification=True,
+        )
+
+        assert report is not None
+        assert len(report) > 100
+        logger.info("Market review report generated: %d chars", len(report))

@@ -1,16 +1,14 @@
-"""DB-first K-line history loader for Agent tools.
+"""K-line history loader for Agent tools.
 
 Provides:
 - ContextVar-based frozen target_date propagation across threads
-- ``load_history_df``: read from DB first, DataFetcherManager fallback
-
-Fixes #1066 -- eliminates 45+ redundant HTTP requests per stock in Agent mode.
+- ``load_history_df``: network fetch via DataFetcherManager with fallback to ``"none"``
 """
 from __future__ import annotations
 
 import contextvars
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from threading import Lock
 from typing import Any, List, Optional, Tuple
 
@@ -60,79 +58,15 @@ def _get_fetcher_manager():
 # ---------------------------------------------------------------------------
 # DB-first history loader
 # ---------------------------------------------------------------------------
-def _history_code_candidates(stock_code: str) -> Tuple[List[str], str]:
-    from data_provider.base import canonical_stock_code, normalize_stock_code
-
-    raw_code = str(stock_code or "").strip()
-    normalized_code = canonical_stock_code(normalize_stock_code(raw_code))
-    candidates: List[str] = []
-    for candidate in (canonical_stock_code(raw_code), normalized_code):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-    return candidates, normalized_code
-
-
-def _coerce_bar_date(value: Any) -> date:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.strptime(value[:10], "%Y-%m-%d").date()
-        except ValueError:
-            return date.min
-    if hasattr(value, "date"):
-        try:
-            coerced = value.date()
-            return coerced if isinstance(coerced, date) else date.min
-        except Exception:
-            return date.min
-    return date.min
-
-
-def _bar_date(bar: Any) -> date:
-    row_date = _coerce_bar_date(getattr(bar, "date", None))
-    if row_date != date.min:
-        return row_date
-    if hasattr(bar, "to_dict"):
-        try:
-            return _coerce_bar_date((bar.to_dict() or {}).get("date"))
-        except Exception:
-            return date.min
-    return date.min
-
-
-def _select_best_bars(db, stock_code: str, start: date, end: date) -> Tuple[Optional[str], list]:
-    candidates, normalized_code = _history_code_candidates(stock_code)
-    best_code = None
-    best_bars = []
-    best_key = None
-
-    for candidate in candidates:
-        bars = list(db.get_data_range(candidate, start, end) or [])
-        if not bars:
-            continue
-        latest_date = max(_bar_date(bar) for bar in bars)
-        key = (latest_date, len(bars), candidate == normalized_code)
-        if best_key is None or key > best_key:
-            best_key = key
-            best_code = candidate
-            best_bars = bars
-
-    return best_code, best_bars
-
-
 def load_history_df(
     stock_code: str,
     days: int = 60,
     target_date: Optional[date] = None,
 ) -> Tuple[Optional[pd.DataFrame], str]:
-    """Load K-line history, DB first with DataFetcherManager fallback.
+    """Load K-line history via DataFetcherManager network fetch.
 
-    Returns ``(df, source)`` where *source* is ``"db_cache"`` on DB hit or the
-    actual provider name on network fallback.  Returns ``(None, "none")`` when
-    both paths fail.
+    Returns ``(df, source)`` where *source* is the provider name or ``"none"``
+    on failure.
     """
     # Resolve effective end date
     if target_date is not None:

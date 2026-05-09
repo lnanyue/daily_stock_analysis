@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import and_, delete, desc, func, select

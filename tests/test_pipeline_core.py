@@ -36,11 +36,7 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
         self.context_patch = patch('src.plugins.PluginContext')
         
         self.mock_db = self.get_db_patch.start().return_value
-        self.mock_db.get_data_range_async = AsyncMock(return_value=[])
-        self.mock_db.get_data_range = MagicMock(return_value=[])
         self.mock_db.save_analysis_history_async = AsyncMock()
-        self.mock_db.save_daily_data_async = AsyncMock()
-        self.mock_db.has_today_data = MagicMock(return_value=False)
         
         self.mock_search = self.search_service_patch.start().return_value
         self.mock_search.is_available = True
@@ -187,21 +183,6 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
 
     async def test_fetch_and_save_stock_data_breakpoint(self):
         """测试断点续传逻辑"""
-        pl = StockAnalysisPipeline(config=self.mock_config)
-        pl.db.has_today_data.return_value = True
-        
-        with patch('src.core.pipeline.resolve_resume_target_date', return_value=date(2026, 5, 2)):
-            # 数据已存在，且不强制刷新
-            success, error = await pl.fetch_and_save_stock_data("600519", force_refresh=False)
-            self.assertTrue(success)
-            pl.fetcher_manager.get_daily_data.assert_not_called()
-            
-            # 强制刷新
-            pl.fetcher_manager.get_daily_data = AsyncMock(return_value=(MagicMock(empty=False), "test_source"))
-            success, error = await pl.fetch_and_save_stock_data("600519", force_refresh=True)
-            self.assertTrue(success)
-            pl.fetcher_manager.get_daily_data.assert_called_once()
-
     def test_enhance_context_realtime_override(self):
         """测试实时行情覆盖逻辑 (Issue #234)"""
         pl = StockAnalysisPipeline(config=self.mock_config)

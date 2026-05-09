@@ -101,19 +101,6 @@ def _normalize_history_days(days: Any) -> Tuple[int, Dict[str, Any]]:
     return effective_days, metadata
 
 
-def _history_code_candidates(stock_code: str) -> Tuple[List[str], str]:
-    """Return cache lookup candidates plus canonical write code."""
-    from data_provider.base import canonical_stock_code, normalize_stock_code
-
-    raw_code = str(stock_code or "").strip()
-    normalized_code = canonical_stock_code(normalize_stock_code(raw_code))
-    candidates: List[str] = []
-    for candidate in (canonical_stock_code(raw_code), normalized_code):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-    return candidates, normalized_code
-
-
 def _append_history_metadata(response: dict, metadata: Dict[str, Any]) -> dict:
     if metadata:
         response.update(metadata)

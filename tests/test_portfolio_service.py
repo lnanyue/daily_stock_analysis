@@ -49,30 +49,43 @@ class PortfolioServiceTestCase(unittest.TestCase):
 
         self.db = DatabaseManager.get_instance()
         self.service = PortfolioService()
+        self._close_prices: list[tuple[str, date, float]] = []
 
     def tearDown(self) -> None:
+        self._stop_close_patch()
         DatabaseManager.reset_instance()
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
         self.temp_dir.cleanup()
 
+    def _stop_close_patch(self):
+        if hasattr(self, "_close_patcher") and self._close_patcher is not None:
+            self._close_patcher.stop()
+            self._close_patcher = None
+
     def _save_close(self, symbol: str, on_date: date, close: float) -> None:
-        df = pd.DataFrame(
-            [
-                {
-                    "date": on_date,
-                    "open": close,
-                    "high": close,
-                    "low": close,
-                    "close": close,
-                    "volume": 1.0,
-                    "amount": close,
-                    "pct_chg": 0.0,
-                }
-            ]
+        """Store a close price and patch DataFetcherManager to return it."""
+        import pandas as pd
+        from data_provider import DataFetcherManager
+
+        self._close_prices.append((symbol, on_date, close))
+        self._stop_close_patch()
+
+        def mock_get_daily_data_sync(_self, code, **kwargs):
+            matches = [(d, c) for s, d, c in self._close_prices if s == code]
+            if matches:
+                df = pd.DataFrame({
+                    "date": [d for d, _ in matches],
+                    "close": [c for _, c in matches],
+                }).sort_values("date", ascending=False)
+                return df, "test"
+            return (pd.DataFrame(), "test")
+
+        self._close_patcher = patch.object(
+            DataFetcherManager, "get_daily_data_sync", mock_get_daily_data_sync
         )
-        self.db.save_daily_data(df, code=symbol, data_source="unit-test")
+        self._close_patcher.start()
 
     def test_snapshot_fifo_vs_avg_on_partial_sell(self) -> None:
         account = self.service.create_account(name="Main", broker="Demo", market="cn", base_currency="CNY")

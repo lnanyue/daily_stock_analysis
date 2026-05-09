@@ -219,10 +219,7 @@ class TestStockDataCollectorIntegration(unittest.IsolatedAsyncioTestCase):
         fm.get_chip_distribution = fetcher.get_chip_distribution
         fm.get_fundamental_context = fetcher.get_fundamental_context
         fm.get_peer_comparison_context = fetcher.get_peer_comparison_context
-
-        db = MagicMock()
-        db.get_data_range_async = AsyncMock(return_value=[])
-        db.get_data_range = MagicMock(return_value=[])
+        fm.get_daily_data = AsyncMock(return_value=(MagicMock(), "mock"))
 
         search = MagicMock()
         search.is_available = False
@@ -235,7 +232,6 @@ class TestStockDataCollectorIntegration(unittest.IsolatedAsyncioTestCase):
         return StockDataCollector(
             config=config,
             fetcher_manager=fm,
-            db=db,
             search_service=search,
             analyzer=analyzer,
             trend_analyzer=trend_analyzer,
@@ -275,18 +271,17 @@ class TestStockDataCollectorIntegration(unittest.IsolatedAsyncioTestCase):
 
     async def test_collect_populates_trend_result(self):
         """Trend analysis is populated from historical data."""
+        import pandas as pd
         collector = self._make_collector()
 
-        hist_bars = []
-        for i in range(5):
-            bar = MagicMock()
-            bar.to_dict = MagicMock(return_value={
-                "date": date.today() - timedelta(days=i),
-                "open": 99.0, "close": 100.0 - i, "high": 101.0, "low": 98.0,
-                "volume": 100000, "amount": 10000000, "pct_chg": 0.5,
-            })
-            hist_bars.append(bar)
-        collector.db.get_data_range_async = AsyncMock(return_value=hist_bars)
+        dates = [date.today() - timedelta(days=i) for i in range(5)]
+        hist_df = pd.DataFrame({
+            "date": dates,
+            "open": 99.0, "close": [100.0 - i for i in range(5)],
+            "high": 101.0, "low": 98.0,
+            "volume": 100000, "amount": 10000000, "pct_chg": 0.5,
+        })
+        collector.fetcher_manager.get_daily_data = AsyncMock(return_value=(hist_df, "mock"))
 
         result = await collector.collect("600519")
         self.assertIsNotNone(result.trend_result)
@@ -306,15 +301,15 @@ class TestStockDataCollectorIntegration(unittest.IsolatedAsyncioTestCase):
 
     async def test_collect_today_k_populated(self):
         """today_k dict is populated from trend result."""
+        import pandas as pd
         collector = self._make_collector()
 
-        hist_bar = MagicMock()
-        hist_bar.to_dict = MagicMock(return_value={
+        hist_df = pd.DataFrame([{
             "date": date.today(),
             "open": 99.0, "close": 100.0, "high": 101.0, "low": 98.0,
             "volume": 100000,
-        })
-        collector.db.get_data_range_async = AsyncMock(return_value=[hist_bar])
+        }])
+        collector.fetcher_manager.get_daily_data = AsyncMock(return_value=(hist_df, "mock"))
 
         result = await collector.collect("600519")
         self.assertIn("close", result.today_k)
@@ -322,15 +317,15 @@ class TestStockDataCollectorIntegration(unittest.IsolatedAsyncioTestCase):
 
     async def test_collect_final_news_assembled(self):
         """final_news includes visual_description from trend."""
+        import pandas as pd
         collector = self._make_collector()
 
-        hist_bar = MagicMock()
-        hist_bar.to_dict = MagicMock(return_value={
+        hist_df = pd.DataFrame([{
             "date": date.today(),
             "open": 99.0, "close": 100.0, "high": 101.0, "low": 98.0,
             "volume": 100000,
-        })
-        collector.db.get_data_range_async = AsyncMock(return_value=[hist_bar])
+        }])
+        collector.fetcher_manager.get_daily_data = AsyncMock(return_value=(hist_df, "mock"))
 
         result = await collector.collect("600519")
         self.assertIn("趋势", result.final_news)

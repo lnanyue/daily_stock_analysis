@@ -10,6 +10,7 @@ A股自选股智能分析系统 - 存储层 (Refactored)
 3. 实现智能更新逻辑
 """
 
+import asyncio
 import atexit
 import json
 import logging
@@ -43,7 +44,6 @@ from sqlalchemy import (
     case,
     MetaData,
     Table,
-    text,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import sessionmaker, Session
@@ -895,6 +895,23 @@ class DatabaseManager:
 
             return 1
         return self._run_write_transaction(f"save_analysis_history[{result.code}]", _write)
+
+    async def save_analysis_history_async(
+        self,
+        result: Any,
+        query_id: str,
+        report_type: str = "standard",
+        news_content: Optional[str] = None,
+        news_intel: List[Dict] = None,
+        context_snapshot: Dict = None,
+        save_snapshot: bool = False
+    ) -> int:
+        """异步保存分析历史（B组 — 包装同步 save_analysis_history）"""
+        query_source = result.query_source if hasattr(result, "query_source") else "cli"
+        return await asyncio.to_thread(
+            self.save_analysis_history,
+            result, query_id, query_source, report_type, news_content, news_intel, context_snapshot, save_snapshot
+        )
 
     def get_analysis_history(
         self,
