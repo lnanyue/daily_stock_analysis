@@ -13,21 +13,19 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
-from src.repositories.stock_repo import StockRepository
-
 logger = logging.getLogger(__name__)
 
 
 class StockService:
     """
     股票数据服务
-    
+
     封装股票数据获取的业务逻辑
     """
-    
+
     def __init__(self):
         """初始化股票数据服务"""
-        self.repo = StockRepository()
+        pass
     
     def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """

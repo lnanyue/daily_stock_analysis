@@ -8,15 +8,26 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from sqlalchemy import and_, select
 
 from src.config import get_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
 from src.repositories.backtest_repo import BacktestRepository
-from src.repositories.stock_repo import StockRepository
 from src.storage import BacktestResult, BacktestSummary, DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+
+class _DailyBar:
+    """Minimal DailyBarLike adapter wrapping DataFrame row values."""
+    __slots__ = ('date', 'high', 'low', 'close')
+
+    def __init__(self, *, date, high, low, close):
+        self.date = date
+        self.high = high
+        self.low = low
+        self.close = close
 
 
 class BacktestService:
@@ -25,7 +36,6 @@ class BacktestService:
     def __init__(self, db_manager: Optional[DatabaseManager] = None):
         self.db = db_manager or DatabaseManager.get_instance()
         self.repo = BacktestRepository(self.db)
-        self.stock_repo = StockRepository(self.db)
 
     def run_backtest(
         self,
@@ -89,13 +99,9 @@ class BacktestService:
                         )
                     )
                     continue
-                start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
+                df = self._try_fill_daily_data(code=analysis.code, analysis_date=analysis_date, eval_window_days=eval_window_days)
 
-                if start_daily is None or start_daily.close is None:
-                    self._try_fill_daily_data(code=analysis.code, analysis_date=analysis_date, eval_window_days=eval_window_days)
-                    start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-
-                if start_daily is None or start_daily.close is None:
+                if df is None or df.empty:
                     insufficient += 1
                     results_to_save.append(
                         BacktestResult(
@@ -111,24 +117,45 @@ class BacktestService:
                     )
                     continue
 
-                forward_bars = self.stock_repo.get_forward_bars(
-                    code=analysis.code,
-                    analysis_date=start_daily.date,
-                    eval_window_days=int(eval_window_days),
-                )
+                date_col = 'date' if 'date' in df.columns else df.columns[0]
+                mask = df[date_col] <= analysis_date
+                if not mask.any():
+                    insufficient += 1
+                    results_to_save.append(
+                        BacktestResult(
+                            analysis_history_id=analysis.id,
+                            code=analysis.code,
+                            analysis_date=analysis_date,
+                            eval_window_days=int(eval_window_days),
+                            engine_version=str(engine_version),
+                            eval_status="insufficient_data",
+                            evaluated_at=datetime.now(),
+                            operation_advice=analysis.operation_advice,
+                        )
+                    )
+                    continue
+
+                start_row = df[mask].iloc[-1]
+                start_bar_date_val = start_row[date_col]
+                if isinstance(start_bar_date_val, pd.Timestamp):
+                    start_bar_date = start_bar_date_val.date()
+                else:
+                    start_bar_date = start_bar_date_val
+                start_price = float(start_row.get('close', start_row.get('收盘', 0)))
+
+                forward_df = df[df[date_col] > start_bar_date].head(eval_window_days)
+                forward_bars = self._df_to_bars(forward_df, date_col)
 
                 if len(forward_bars) < int(eval_window_days):
-                    self._try_fill_daily_data(code=analysis.code, analysis_date=start_daily.date, eval_window_days=eval_window_days)
-                    forward_bars = self.stock_repo.get_forward_bars(
-                        code=analysis.code,
-                        analysis_date=start_daily.date,
-                        eval_window_days=int(eval_window_days),
-                    )
+                    df2 = self._try_fill_daily_data(code=analysis.code, analysis_date=start_bar_date, eval_window_days=eval_window_days)
+                    if df2 is not None and not df2.empty:
+                        forward_df2 = df2[df2[date_col] > start_bar_date].head(eval_window_days)
+                        forward_bars = self._df_to_bars(forward_df2, date_col)
 
                 evaluation = BacktestEngine.evaluate_single(
                     operation_advice=analysis.operation_advice,
-                    analysis_date=start_daily.date,
-                    start_price=float(start_daily.close),
+                    analysis_date=start_bar_date,
+                    start_price=start_price,
                     forward_bars=forward_bars,
                     stop_loss=analysis.stop_loss,
                     take_profit=analysis.take_profit,
@@ -271,11 +298,11 @@ class BacktestService:
         logger.warning("无法确定分析日期，跳过记录: %s#%s", analysis.code, getattr(analysis, 'id', '?'))
         return None
 
-    def _try_fill_daily_data(self, *, code: str, analysis_date: date, eval_window_days: int) -> None:
+    def _try_fill_daily_data(self, *, code: str, analysis_date: date, eval_window_days: int) -> Optional[pd.DataFrame]:
+        """Fetch k-line data from network for backtest evaluation. Returns DataFrame or None."""
         try:
             from data_provider import DataFetcherManager
 
-            # fetch a window that covers start + forward bars
             end_date = analysis_date + timedelta(days=max(eval_window_days * 2, 30))
             manager = DataFetcherManager()
             df, source = manager.get_daily_data_sync(
@@ -284,11 +311,32 @@ class BacktestService:
                 end_date=end_date.strftime("%Y-%m-%d"),
                 days=eval_window_days * 2,
             )
-            if df is None or df.empty:
-                return
-            self.db.save_daily_data(df, code=code, data_source=source)
+            if df is not None and not df.empty:
+                logger.debug("Backtest filled %d rows from %s for %s", len(df), source, code)
+                return df
         except Exception as exc:
-            logger.warning("补全日线数据失败(%s): %s", code, exc)
+            logger.warning("Backtest data fetch failed(%s): %s", code, exc)
+        return None
+
+    @staticmethod
+    def _df_to_bars(df: pd.DataFrame, date_col: str = 'date') -> list:
+        """Convert DataFrame rows to list of _DailyBar objects."""
+        bars = []
+        for _, row in df.iterrows():
+            val = row[date_col]
+            if isinstance(val, pd.Timestamp):
+                d = val.date()
+            else:
+                d = val
+            bars.append(
+                _DailyBar(
+                    date=d,
+                    high=float(row.get('high', row.get('最高', 0))) if row.get('high', row.get('最高')) is not None else None,
+                    low=float(row.get('low', row.get('最低', 0))) if row.get('low', row.get('最低')) is not None else None,
+                    close=float(row.get('close', row.get('收盘', 0))) if row.get('close', row.get('收盘')) is not None else None,
+                )
+            )
+        return bars
 
     def _recompute_summaries(self, *, touched_codes: List[str], eval_window_days: int, engine_version: str) -> None:
         with self.db.get_session() as session:

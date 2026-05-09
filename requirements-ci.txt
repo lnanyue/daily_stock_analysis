@@ -7,3 +7,6 @@ pytest
 
 # Full-text extraction for search tools
 trafilatura>=1.6.0
+
+# VCR-based HTTP recording for network tests
+pytest-vcr>=1.0.2
