@@ -339,10 +339,13 @@ class AnalysisExecutor:
 
         result.market_snapshot = build_market_snapshot(enhanced_context)
 
-        passed, missing_fields = check_content_integrity(result)
-        if not passed:
-            logger.warning("[%s] Content integrity check failed, missing: %s", code, missing_fields)
-            apply_placeholder_fill(result, missing_fields)
+        if not result.success:
+            logger.warning("[%s] Analysis failed for %s: %s", code, name, result.error_message or "unknown")
+        else:
+            passed, missing_fields = check_content_integrity(result)
+            if not passed:
+                logger.warning("[%s] Content integrity check failed, missing: %s", code, missing_fields)
+                apply_placeholder_fill(result, missing_fields)
 
         # ----- TraderAgent -----
         if getattr(self.config, "trader_agent_enabled", True):

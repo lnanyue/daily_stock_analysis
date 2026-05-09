@@ -704,7 +704,15 @@ class GeminiAnalyzer:
     def _parse_response(self, text: str, code: str, name: str) -> AnalysisResult:
         from src.utils.data_processing import extract_json_from_text
 
-        data = extract_json_from_text(text) or {}
+        data = extract_json_from_text(text)
+        if not data:
+            return AnalysisResult(
+                code=code,
+                name=name,
+                success=False,
+                error_message="JSON extraction failed — model output could not be parsed",
+                raw_response=text,
+            )
         payload = data.get('decision_dashboard') if isinstance(data.get('decision_dashboard'), dict) else data
         summary_text = self._first_text(
             payload.get('analysis_summary') if isinstance(payload, dict) else "",

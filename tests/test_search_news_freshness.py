@@ -588,5 +588,53 @@ class TestAsyncFreshnessEnforcement:
         assert len(filtered.results) == 0
 
 
+class TestParseResponseQualityGate(unittest.TestCase):
+    """Verify _parse_response fails fast on empty/invalid JSON."""
+
+    def test_parse_response_fails_on_garbage_text(self):
+        """Garbage text with no JSON should return success=False."""
+        from src.analyzer.core import GeminiAnalyzer
+
+        analyzer = GeminiAnalyzer()
+        garbage_text = "This is not JSON at all, just some prose about the stock."
+
+        result = analyzer._parse_response(garbage_text, "600519", "贵州茅台")
+        assert result.success is False
+        assert result.error_message is not None
+        assert "JSON extraction failed" in result.error_message
+
+    def test_parse_response_fails_on_empty_json_object(self):
+        """Empty JSON {} should also fail — model produced no real content."""
+        from src.analyzer.core import GeminiAnalyzer
+
+        analyzer = GeminiAnalyzer()
+        result = analyzer._parse_response("{}", "600519", "贵州茅台")
+        assert result.success is False
+        assert result.error_message is not None
+        assert "JSON extraction failed" in result.error_message
+
+    def test_parse_response_succeeds_on_valid_json(self):
+        """Valid JSON with decision_dashboard should succeed."""
+        from src.analyzer.core import GeminiAnalyzer
+
+        analyzer = GeminiAnalyzer()
+        valid_text = '''
+        {
+            "decision_type": "持有",
+            "decision_dashboard": {
+                "analysis_summary": "短期震荡偏强",
+                "trend_prediction": "震荡上行",
+                "operation_advice": "可逢低加仓",
+                "confidence_level": "中"
+            }
+        }
+        '''
+
+        result = analyzer._parse_response(valid_text, "600519", "贵州茅台")
+        assert result.success is True
+        # decision_type "持有" + advice "可逢低加仓" -> normalized to "buy"
+        assert result.decision_type == "buy"
+
+
 if __name__ == "__main__":
     unittest.main()
