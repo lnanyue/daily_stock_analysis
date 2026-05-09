@@ -11,18 +11,13 @@ A股自选股智能分析系统 - 存储层 (Refactored)
 """
 
 import atexit
-import asyncio
-import hashlib
 import json
 import logging
 import re
 import threading
 import time
 
-import pandas as pd
 from contextlib import contextmanager
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any, Tuple, Callable, TypeVar
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar
 
@@ -61,25 +56,6 @@ from sqlalchemy.orm import (
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from src.config import get_config
-from src.schemas.storage_models import (
-    Base,
-    AnalysisHistory,
-    BacktestResult,
-    BacktestSummary,
-    ConversationMessage,
-    FundamentalSnapshot,
-    LLMUsage,
-    NewsIntel,
-    PortfolioAccount,
-    PortfolioCashLedger,
-    PortfolioCorporateAction,
-    PortfolioDailySnapshot,
-    PortfolioFxRate,
-    PortfolioPosition,
-    PortfolioPositionLot,
-    PortfolioTrade,
-    StockDaily,
-)
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -767,29 +743,6 @@ class DatabaseManager:
 
     # --- Data Access Methods ---
 
-    def has_today_data(self, code: str, target_date: Optional[date] = None) -> bool:
-        if target_date is None:
-            target_date = date.today()
-        with self.get_session() as session:
-            result = session.execute(
-                select(StockDaily.id).where(and_(StockDaily.code == code, StockDaily.date == target_date)).limit(1)
-            ).scalar()
-            return result is not None
-
-    def get_latest_data(self, code: str, days: int = 1) -> List[StockDaily]:
-        with self.get_session() as session:
-            results = session.execute(
-                select(StockDaily).where(StockDaily.code == code).order_by(desc(StockDaily.date)).limit(days)
-            ).scalars().all()
-            return list(results)
-
-    def get_global_latest_date(self) -> Optional[date]:
-        """获取数据库中存储的最新数据日期。"""
-        with self.get_session() as session:
-            result = session.execute(
-                select(StockDaily.date).order_by(desc(StockDaily.date)).limit(1)
-            ).scalar()
-            return result
 
     def save_conversation_message(self, session_id: str, role: str, content: str) -> int:
         """Persist a single Agent chat message."""
@@ -940,14 +893,6 @@ class DatabaseManager:
             }
             session.execute(history_table.insert().values(**insert_values))
 
-            if save_snapshot and context_snapshot and "context_snapshot" not in supported_columns:
-                snapshot = FundamentalSnapshot(
-                    query_id=query_id,
-                    code=result.code,
-                    payload=json.dumps(context_snapshot, ensure_ascii=False)
-                )
-                session.add(snapshot)
-            
             return 1
         return self._run_write_transaction(f"save_analysis_history[{result.code}]", _write)
 
@@ -1068,78 +1013,6 @@ class DatabaseManager:
             rows = session.execute(stmt).mappings().all()
             return [dict(r) for r in rows]
 
-    def get_news_intel_by_query_id(self, query_id: str, limit: int = 20) -> List[NewsIntel]:
-        with self.get_session() as session:
-            rows = session.execute(
-                select(NewsIntel)
-                .where(NewsIntel.query_id == query_id)
-                .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
-                .limit(limit)
-            ).scalars().all()
-            return list(rows)
-
-    def get_recent_news(self, code: str, days: int = 7, limit: int = 20) -> List[NewsIntel]:
-        cutoff = datetime.now() - timedelta(days=max(days, 0))
-        with self.get_session() as session:
-            rows = session.execute(
-                select(NewsIntel)
-                .where(and_(NewsIntel.code == code, NewsIntel.fetched_at >= cutoff))
-                .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
-                .limit(limit)
-            ).scalars().all()
-            return list(rows)
-
-    def save_fundamental_snapshot(
-        self,
-        *,
-        query_id: str,
-        code: str,
-        payload: Dict[str, Any],
-        source_chain: Optional[List[str]] = None,
-        coverage: Optional[Dict[str, Any]] = None,
-    ) -> int:
-        def _write(session: Session) -> int:
-            session.add(
-                FundamentalSnapshot(
-                    query_id=query_id,
-                    code=code,
-                    payload=json.dumps(payload or {}, ensure_ascii=False),
-                    source_chain=json.dumps(source_chain or [], ensure_ascii=False) if source_chain is not None else None,
-                    coverage=json.dumps(coverage or {}, ensure_ascii=False) if coverage is not None else None,
-                )
-            )
-            return 1
-
-        return self._run_write_transaction(f"save_fundamental_snapshot[{query_id}:{code}]", _write)
-    
-    
-    def _analyze_ma_status(self, data: StockDaily) -> str:
-        """
-        分析均线形态
-        
-        判断条件：
-        - 多头排列：close > ma5 > ma10 > ma20
-        - 空头排列：close < ma5 < ma10 < ma20
-        - 震荡整理：其他情况
-        """
-        # 注意：这里的均线形态判断基于“close/ma5/ma10/ma20”静态比较，
-        # 未考虑均线拐点、斜率、或不同数据源复权口径差异。
-        # 该行为目前保留（按需求不改逻辑）。
-        close = data.close or 0
-        ma5 = data.ma5 or 0
-        ma10 = data.ma10 or 0
-        ma20 = data.ma20 or 0
-        
-        if close > ma5 > ma10 > ma20 > 0:
-            return "多头排列 📈"
-        elif close < ma5 < ma10 < ma20 and ma20 > 0:
-            return "空头排列 📉"
-        elif close > ma5 and ma5 > ma10:
-            return "短期向好 🔼"
-        elif close < ma5 and ma5 < ma10:
-            return "短期走弱 🔽"
-        else:
-            return "震荡整理 ↔️"
 
     @staticmethod
     def _find_sniper_in_dashboard(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1178,23 +1051,6 @@ class DatabaseManager:
                 }
         return {}
 
-    def get_data_range(self, code: str, start_date: date, end_date: date) -> List[StockDaily]:
-        """获取指定日期范围内的数据"""
-        with self.get_session() as session:
-            results = session.execute(
-                select(StockDaily)
-                .where(and_(StockDaily.code == code, StockDaily.date >= start_date, StockDaily.date <= end_date))
-                .order_by(StockDaily.date.asc())
-            ).scalars().all()
-            return list(results)
-
-    async def get_data_range_async(self, code: str, start_date: date, end_date: date) -> List[StockDaily]:
-        """异步获取指定日期范围内的数据"""
-        return await asyncio.to_thread(self.get_data_range, code, start_date, end_date)
-
-    async def save_daily_data_async(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
-        """异步保存日线数据"""
-        return await asyncio.to_thread(self.save_daily_data, df, code, data_source)
 
     @staticmethod
     def _parse_sniper_value(value: Any) -> Optional[float]:
@@ -1229,34 +1085,6 @@ class DatabaseManager:
             return None
         return number_matches[-1]
 
-    async def save_analysis_history_async(
-        self, 
-        result: Any, 
-        query_id: str, 
-        report_type: str = "standard",
-        news_content: Optional[str] = None,
-        news_intel: List[Dict] = None,
-        context_snapshot: Dict = None,
-        save_snapshot: bool = False
-    ) -> int:
-        """异步保存分析历史"""
-        query_source = result.query_source if hasattr(result, "query_source") else "cli"
-        return await asyncio.to_thread(
-            self.save_analysis_history, 
-            result, query_id, query_source, report_type, news_content, news_intel, context_snapshot, save_snapshot
-        )
-
-    def get_analysis_context(self, code: str, target_date: Optional[date] = None) -> Optional[Dict[str, Any]]:
-        recent = self.get_latest_data(code, days=2)
-        if not recent: return None
-        today_data = recent[0]
-        context = {'code': code, 'date': today_data.date.isoformat(), 'today': today_data.to_dict()}
-        if len(recent) > 1:
-            yest = recent[1]
-            context['yesterday'] = yest.to_dict()
-            if yest.volume: context['volume_change_ratio'] = round(today_data.volume / yest.volume, 2)
-            if yest.close: context['price_change_ratio'] = round((today_data.close - yest.close) / yest.close * 100, 2)
-        return context
 
     def record_llm_usage(
         self,
@@ -1342,27 +1170,12 @@ class DatabaseManager:
         }
 
     # --- Internal Helpers ---
-    def _normalize_daily_date(self, val: Any) -> date:
-        if isinstance(val, date): return val
-        if isinstance(val, datetime): return val.date()
-        return datetime.strptime(str(val), "%Y-%m-%d").date()
-
-    def _normalize_sql_value(self, val: Any) -> Optional[float]:
-        try: return float(val) if val is not None else None
-        except Exception:
-            logger.debug("_normalize_sql_value failed for val=%r", val)
-            return None
-
     def _parse_published_date(self, value: Optional[str]) -> Optional[datetime]:
         if not value: return None
         try: return datetime.fromisoformat(str(value))
         except Exception:
             logger.debug("_parse_published_date failed for value=%r", value)
             return None
-
-    def _build_fallback_url_key(self, code: str, title: str, source: str, pub_date: Optional[datetime]) -> str:
-        raw = f"{code}|{title}|{source}|{pub_date}"
-        return f"no-url:{code}:{hashlib.md5(raw.encode()).hexdigest()}"
 
 
 class StorageManager(DatabaseManager):
