@@ -172,6 +172,8 @@ def _handle_search_comprehensive_intel(stock_code: str, stock_name: str) -> dict
                         "title": r.title,
                         "snippet": r.snippet,
                         "source": r.source,
+                        "url": r.url or "",
+                        "published_date": r.published_date or "",
                     }
                     for r in response.results[:3]  # limit to 3 per dimension to save tokens
                 ],

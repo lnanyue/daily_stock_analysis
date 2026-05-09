@@ -563,6 +563,10 @@ def format_analysis_prompt(
    - 输出到 `risk_alerts` / `positive_catalysts` / `latest_news` 的每一条都必须带具体日期（YYYY-MM-DD）
    - 超出近{news_window_days}日窗口的新闻一律忽略
    - 时间未知、无法确定发布日期的新闻一律忽略
+6. 📎 **信息来源溯源（强制）**：
+   - 引用任何事实或数据时，注明来源媒体和发布日期
+   - 格式示例：「据Reuters (2026-05-09) 报道，美联储维持利率不变」
+   - `latest_news` 汇总中每条新闻需包含来源名称
 
 ```
 {news_context}
@@ -616,6 +620,8 @@ def format_analysis_prompt(
 - **具体狙击点位**：买入价、止损价、目标价（精确到分）
 - **检查清单**：每项用 ✅/⚠️/❌ 标记
 - **消息面时间合规**：`latest_news`、`risk_alerts`、`positive_catalysts` 不得包含超出近{news_window_days}日或时间未知的信息
+
+- **📎 信息来源**：在 `intelligence.latest_news` 中，每条新闻必须包含来源和日期。关键结论必须在末尾 `analysis_summary` 中注明至少 3 条支撑依据的来源与日期。
 
 请输出完整的 JSON 格式决策仪表盘。"""
     prompt += _build_output_language_requirements(report_language, no_data_text)
