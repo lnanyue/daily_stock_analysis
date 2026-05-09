@@ -60,6 +60,63 @@ def _build_results_with_full_text(results: list) -> list:
     return built
 
 
+def _analyze_articles_with_llm(
+    stock_code: str,
+    stock_name: str,
+    articles: list,
+) -> Optional[dict]:
+    """Feed extracted article texts to LLM for structured analysis.
+
+    Returns dict with key_points, key_data, and ticker_impact.
+    Returns None if LLM call fails or no full text is available.
+    """
+    texts_with_content = [a for a in articles if a.get("full_text")]
+    if not texts_with_content:
+        return None
+
+    combined = "\n\n---\n\n".join(
+        f"Title: {a['title']}\n{a['full_text'][:2000]}"
+        for a in texts_with_content[:_MAX_EXTRACT_URLS]
+    )
+
+    prompt = (
+        f"Analyze the following news articles about {stock_name} ({stock_code}) "
+        f"and produce a structured analysis in JSON format:\n\n"
+        f"{combined}\n\n"
+        "Respond with ONLY a JSON object with these fields:\n"
+        "{\n"
+        '  "key_points": ["point 1", "point 2", ...],\n'
+        '  "key_data": {"metric_name": "value", ...},\n'
+        '  "ticker_impact": [\n'
+        '    {"ticker": "' + stock_code + '", "sentiment": "bullish/bearish/neutral", '
+        '"confidence": 0.0-1.0, "reason": "..."}\n'
+        "  ]\n"
+        "}"
+    )
+
+    try:
+        from src.analyzer import Analyzer
+        from src.config import get_config
+        analyzer = Analyzer(config=get_config())
+        raw = analyzer.generate_text(prompt, max_tokens=800, temperature=0.1)
+        import json
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            parts = cleaned.split("\n", 1)
+            if len(parts) > 1:
+                cleaned = parts[1]
+            cleaned = cleaned.rsplit("```", 1)[0] if "```" in cleaned else cleaned
+        result = json.loads(cleaned.strip())
+        return {
+            "key_points": result.get("key_points", []),
+            "key_data": result.get("key_data", {}),
+            "ticker_impact": result.get("ticker_impact", []),
+        }
+    except Exception as exc:
+        logger.debug("LLM article analysis failed: %s", exc)
+        return None
+
+
 def _get_search_service():
     """Return shared SearchService singleton."""
     from src.search_service import get_search_service
@@ -88,12 +145,16 @@ def _handle_search_stock_news(stock_code: str, stock_name: str) -> dict:
             "error": response.error_message,
         }
 
+    results = _build_results_with_full_text(response.results)
+    llm_analysis = _analyze_articles_with_llm(stock_code, stock_name, results)
+
     return {
         "query": response.query,
         "provider": response.provider,
         "success": True,
-        "results_count": len(response.results),
-        "results": _build_results_with_full_text(response.results),
+        "results_count": len(results),
+        "results": results,
+        "llm_analysis": llm_analysis,
     }
 
 
