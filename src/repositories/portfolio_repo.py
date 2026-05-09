@@ -24,7 +24,6 @@ from src.storage import (
     PortfolioPosition,
     PortfolioPositionLot,
     PortfolioTrade,
-    StockDaily,
 )
 
 logger = logging.getLogger(__name__)
@@ -687,21 +686,25 @@ class PortfolioRepository:
     # Price / FX
     # ------------------------------------------------------------------
     def get_latest_close(self, symbol: str, as_of: date) -> Optional[float]:
-        with self.db.get_session() as session:
-            row = session.execute(
-                select(StockDaily)
-                .where(
-                    and_(
-                        StockDaily.code == symbol,
-                        StockDaily.date <= as_of,
-                    )
-                )
-                .order_by(desc(StockDaily.date))
-                .limit(1)
-            ).scalar_one_or_none()
-            if row is None or row.close is None:
-                return None
-            return float(row.close)
+        try:
+            from data_provider import DataFetcherManager
+            manager = DataFetcherManager()
+            df, _ = manager.get_daily_data_sync(
+                symbol,
+                start_date=(as_of - timedelta(days=10)).isoformat(),
+                end_date=as_of.isoformat(),
+                days=15,
+            )
+            if df is not None and not df.empty:
+                date_col = 'date' if 'date' in df.columns else df.columns[0]
+                match = df[df[date_col] <= as_of].sort_values(date_col, ascending=False)
+                if not match.empty:
+                    close_col = 'close' if 'close' in df.columns else '收盘'
+                    return float(match.iloc[0][close_col])
+            return None
+        except Exception as exc:
+            logger.debug("[portfolio] get_latest_close failed for %s: %s", symbol, exc)
+            return None
 
     def save_fx_rate(
         self,
