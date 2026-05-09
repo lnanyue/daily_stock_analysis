@@ -13,9 +13,7 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
-
-from src.storage import DatabaseManager, StockDaily
+from src.storage import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -125,17 +123,31 @@ class FactChecker:
         )
 
     def _get_close_price(self, code: str, eval_date: date) -> Optional[float]:
-        """Look up close price from stock_daily for given code and date."""
+        """Look up close price from DataFetcherManager for given code and date."""
         try:
-            with self.db.get_session() as session:
-                row = session.execute(
-                    select(StockDaily.close)
-                    .where(StockDaily.code == code)
-                    .where(StockDaily.date == eval_date)
-                ).scalar()
-                return float(row) if row is not None else None
+            from data_provider import DataFetcherManager
+            manager = DataFetcherManager()
+            df, _ = manager.get_daily_data_sync(
+                code,
+                start_date=(eval_date - timedelta(days=5)).isoformat(),
+                end_date=(eval_date + timedelta(days=1)).isoformat(),
+                days=10,
+            )
+            if df is not None and not df.empty:
+                date_col = 'date' if 'date' in df.columns else df.columns[0]
+                match = df[df[date_col] == eval_date]
+                if not match.empty:
+                    close_col = 'close' if 'close' in df.columns else '收盘'
+                    return float(match.iloc[0].get(close_col, 0))
+                # Try nearest previous date
+                prior = df[df[date_col] < eval_date].sort_values(date_col, ascending=False)
+                if not prior.empty:
+                    close_col = 'close' if 'close' in df.columns else '收盘'
+                    logger.debug("[%s] No data for %s, using nearest prior", code, eval_date)
+                    return float(prior.iloc[0].get(close_col, 0))
+            return None
         except Exception as exc:
-            logger.debug("[%s] stock_daily lookup failed for %s: %s", code, eval_date, exc)
+            logger.debug("[%s] get_daily_data_sync failed for %s: %s", code, eval_date, exc)
             return None
 
     @staticmethod
