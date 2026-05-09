@@ -108,7 +108,6 @@ class Config:
 
     max_workers: int = field(default=3, metadata={"env": "MAX_WORKERS", "yaml": "system.max_workers", "group": "system"})
     bot_max_concurrent_analysis: int = field(default=5, metadata={"env": "BOT_MAX_CONCURRENT_ANALYSIS", "yaml": "system.bot_max_concurrent_analysis", "group": "system"})
-    webui_port: int = field(default=8000, metadata={"env": "WEBUI_PORT", "yaml": "system.webui_port", "group": "system"})
     log_level: str = field(default="INFO", metadata={"env": "LOG_LEVEL", "yaml": "system.log_level", "group": "system"})
     log_dir: str = field(default="./logs", metadata={"env": "LOG_DIR", "yaml": "system.log_dir", "group": "system"})
     report_dir: str = field(default="report", metadata={"env": "REPORT_DIR", "yaml": "system.report_dir", "group": "system"})
@@ -531,13 +530,6 @@ class Config:
                 5,
                 field_name="BOT_MAX_CONCURRENT_ANALYSIS",
                 minimum=1,
-            ),
-            webui_port=parse_env_int(
-                os.getenv("WEBUI_PORT"),
-                8000,
-                field_name="WEBUI_PORT",
-                minimum=1,
-                maximum=65535,
             ),
             log_level=(os.getenv("LOG_LEVEL") or "INFO").strip() or "INFO",
             log_dir=(os.getenv("LOG_DIR") or "./logs").strip() or "./logs",

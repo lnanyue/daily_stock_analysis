@@ -7,7 +7,6 @@ system:
   analysis_mode: simple
   max_workers: 3
   bot_max_concurrent_analysis: 5
-  webui_port: 8000
   log_level: INFO
   log_dir: ./logs
   report_dir: report

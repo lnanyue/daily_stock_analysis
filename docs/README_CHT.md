@@ -195,23 +195,6 @@
 | `python main.py --schedule` | 啟動本地定時任務 |
 | `python main.py --dry-run` | 只準備資料，不調用 LLM 分析 |
 
-### API 接口
-
-| 接口 | 方法 | 說明 |
-|------|------|------|
-| `/api/v1/analysis/analyze` | POST | 觸發股票分析 |
-| `/api/v1/analysis/tasks` | GET | 查詢任務列表 |
-| `/api/v1/analysis/status/{task_id}` | GET | 查詢任務狀態 |
-| `/api/v1/history` | GET | 查詢分析歷史記錄 |
-| `/api/v1/backtest/run` | POST | 觸發回測 |
-| `/api/v1/backtest/results` | GET | 查詢回測結果（分頁） |
-| `/api/v1/backtest/performance` | GET | 獲取整體回測表現 |
-| `/api/v1/backtest/performance/{code}` | GET | 獲取單股回測表現 |
-| `/api/v1/agent/skills` | GET | 取得可用策略技能清單（內建/自訂） |
-| `/api/v1/agent/chat/stream` | POST (SSE) | Agent 多輪策略對話（流式） |
-| `/api/health` | GET | 健康檢查 |
-
-> 備註：`POST /api/v1/analysis/analyze` 在 `async_mode=false` 時僅支援單一股票；批量 `stock_codes` 需使用 `async_mode=true`。異步 `202` 對單股回傳 `task_id`，對批量回傳 `accepted` / `duplicates` 匯總。
 
 ## 🔎 智慧搜尋補全 (MVP)
 
