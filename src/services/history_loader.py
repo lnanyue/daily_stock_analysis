@@ -134,8 +134,6 @@ def load_history_df(
     actual provider name on network fallback.  Returns ``(None, "none")`` when
     both paths fail.
     """
-    from src.storage import get_db
-
     # Resolve effective end date
     if target_date is not None:
         end = target_date
@@ -146,23 +144,7 @@ def load_history_df(
     # Calendar-day buffer: ~1.8x trading days + margin for long holidays
     start = end - timedelta(days=int(days * 1.8) + 10)
 
-    # --- 1. DB lookup (canonical code, then prefix-stripped fallback) ------
-    try:
-        db = get_db()
-        _code, bars = _select_best_bars(db, stock_code, start, end)
-        required_records = max(min(days, _CACHE_MIN_RECORDS), 1)
-        latest_date = max((_bar_date(bar) for bar in bars), default=date.min)
-        if bars and latest_date >= end and len(bars) >= required_records:
-            df = pd.DataFrame([b.to_dict() for b in bars])
-            logger.debug(
-                "load_history_df(%s): %d bars from DB (requested %d)",
-                stock_code, len(df), days,
-            )
-            return df, "db_cache"
-    except Exception as e:
-        logger.debug("load_history_df(%s): DB read failed: %s", stock_code, e)
-
-    # --- 2. Network fallback via singleton DataFetcherManager -------------
+    # --- Network fallback via singleton DataFetcherManager -------------
     try:
         manager = _get_fetcher_manager()
         df, source = manager.get_daily_data(stock_code, days=days)

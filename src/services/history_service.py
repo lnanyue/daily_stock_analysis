@@ -15,7 +15,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
-from src.config import get_config, resolve_news_window_days
+
 from src.report_language import (
     get_bias_status_emoji,
     get_localized_stock_name,
@@ -183,27 +183,6 @@ class HistoryService:
             logger.error("resolve_and_get_detail failed for %s: %s", record_id, e, exc_info=True)
             return None
 
-    def resolve_and_get_news(self, record_id: str, limit: int = 20) -> List[Dict[str, str]]:
-        """
-        Resolve record_id (int PK or query_id string) and return associated news.
-
-        Args:
-            record_id: integer PK (as string) or query_id string
-            limit: max items to return
-
-        Returns:
-            List of news intel dicts
-        """
-        try:
-            record = self._resolve_record(record_id)
-            if not record:
-                logger.warning("resolve_and_get_news: record not found for %s", record_id)
-                return []
-            return self.get_news_intel(query_id=record.query_id, limit=limit)
-        except Exception as e:
-            logger.error("resolve_and_get_news failed for %s: %s", record_id, e, exc_info=True)
-            return []
-
     def get_history_detail_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
         """
         Get history report detail.
@@ -312,120 +291,6 @@ class HistoryService:
         """
         return self.db.delete_analysis_history_records(record_ids)
 
-    def get_news_intel(self, query_id: str, limit: int = 20) -> List[Dict[str, str]]:
-        """
-        Get news intelligence associated with a specified query_id.
-
-        Args:
-            query_id: Unique analysis identifier
-            limit: Result limit
-
-        Returns:
-            List of news intelligence (containing title, snippet, and url)
-        """
-        try:
-            records = self.db.get_news_intel_by_query_id(query_id=query_id, limit=limit)
-
-            if not records:
-                records = self._fallback_news_by_analysis_context(query_id=query_id, limit=limit)
-
-            items: List[Dict[str, str]] = []
-            for record in records:
-                snippet = (record.snippet or "").strip()
-                if len(snippet) > 200:
-                    snippet = f"{snippet[:197]}..."
-                items.append({
-                    "title": record.title,
-                    "snippet": snippet,
-                    "url": record.url,
-                })
-
-            return items
-
-        except Exception as e:
-            logger.error("查询新闻情报失败: %s", e, exc_info=True)
-            return []
-
-    def get_news_intel_by_record_id(self, record_id: int, limit: int = 20) -> List[Dict[str, str]]:
-        """
-        Get associated news intelligence based on analysis history record ID.
-
-        Parses record_id to query_id, then calls get_news_intel.
-
-        Args:
-            record_id: Analysis history primary key ID
-            limit: Result limit
-
-        Returns:
-            List of news intelligence (containing title, snippet, and url)
-        """
-        try:
-            # Look up the corresponding AnalysisHistory record by record_id
-            record = self.db.get_analysis_history_by_id(record_id)
-            if not record:
-                logger.warning("No analysis record found for record_id=%s", record_id)
-                return []
-
-            # Get query_id from record, then call original method
-            return self.get_news_intel(query_id=record.query_id, limit=limit)
-
-        except Exception as e:
-            logger.error("根据 record_id 查询新闻情报失败: %s", e, exc_info=True)
-            return []
-
-    def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
-        """
-        Fallback by analysis context when direct query_id lookup returns no news.
-
-        Typical scenarios:
-        - URL-level dedup keeps one canonical news row across repeated analyses.
-        - Legacy records may have different historical query_id strategies.
-        """
-        records = self.db.get_analysis_history(query_id=query_id, limit=1)
-        if not records:
-            return []
-
-        analysis = records[0]
-        if not analysis.code or not analysis.created_at:
-            return []
-
-        # Narrow down to same-stock recent news, then filter by analysis time window.
-        days = max(1, (datetime.now() - analysis.created_at).days + 1)
-        candidates = self.db.get_recent_news(code=analysis.code, days=days, limit=max(limit * 5, 50))
-
-        start_time = analysis.created_at - timedelta(hours=6)
-        end_time = analysis.created_at + timedelta(hours=6)
-        matched = [
-            item for item in candidates
-            if item.fetched_at and start_time <= item.fetched_at <= end_time
-        ]
-
-        # 历史兜底链路也做发布时间硬过滤，避免旧库脏数据重新冒出。
-        cfg = get_config()
-        window_days = resolve_news_window_days(
-            news_max_age_days=getattr(cfg, "news_max_age_days", 3),
-            news_strategy_profile=getattr(cfg, "news_strategy_profile", "short"),
-        )
-        # Anchor to analysis date instead of "today" to preserve historical context.
-        anchor_date = analysis.created_at.date()
-        latest_allowed = anchor_date + timedelta(days=1)
-        earliest_allowed = anchor_date - timedelta(days=max(0, window_days - 1))
-
-        filtered = []
-        for item in matched:
-            if not item.published_date:
-                continue
-            if isinstance(item.published_date, datetime):
-                published = item.published_date.date()
-            elif isinstance(item.published_date, date):
-                published = item.published_date
-            else:
-                continue
-            if earliest_allowed <= published <= latest_allowed:
-                filtered.append(item)
-
-        return filtered[:limit]
-    
     def _get_sentiment_label(self, score: int) -> str:
         """
         Get sentiment label based on score.
