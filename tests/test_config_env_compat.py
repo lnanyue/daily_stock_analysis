@@ -204,7 +204,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
             "AGENT_ORCHESTRATOR_TIMEOUT_S": "oops",
             "NEWS_MAX_AGE_DAYS": "bad",
             "MAX_WORKERS": "",
-            "WEBUI_PORT": "invalid",
+            "BOT_MAX_CONCURRENT_ANALYSIS": "invalid",
         }
 
         with patch.dict(os.environ, env, clear=True):
@@ -213,7 +213,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.agent_orchestrator_timeout_s, 600)
         self.assertEqual(config.news_max_age_days, 3)
         self.assertEqual(config.max_workers, 3)
-        self.assertEqual(config.webui_port, 8000)
+        self.assertEqual(config.bot_max_concurrent_analysis, 5)
 
 
 if __name__ == "__main__":

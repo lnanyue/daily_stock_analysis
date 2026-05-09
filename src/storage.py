@@ -18,13 +18,14 @@ import logging
 import re
 import threading
 import time
+
+import pandas as pd
 from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Callable, TypeVar
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar
 
-import pandas as pd
 from sqlalchemy import (
     create_engine,
     Column,
@@ -66,8 +67,8 @@ from src.schemas.storage_models import (
     BacktestResult,
     BacktestSummary,
     ConversationMessage,
-    LLMUsage,
     FundamentalSnapshot,
+    LLMUsage,
     NewsIntel,
     PortfolioAccount,
     PortfolioCashLedger,
@@ -118,149 +119,6 @@ if TYPE_CHECKING:
 
 
 # === 数据模型定义 ===
-
-class StockDaily(Base):
-    """
-    股票日线数据模型
-    
-    存储每日行情数据和计算的技术指标
-    支持多股票、多日期的唯一约束
-    """
-    __tablename__ = 'stock_daily'
-    
-    # 主键
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # 股票代码（如 600519, 000001）
-    code = Column(String(10), nullable=False, index=True)
-    
-    # 交易日期
-    date = Column(Date, nullable=False, index=True)
-    
-    # OHLC 数据
-    open = Column(Float)
-    high = Column(Float)
-    low = Column(Float)
-    close = Column(Float)
-    
-    # 成交数据
-    volume = Column(Float)  # 成交量（股）
-    amount = Column(Float)  # 成交额（元）
-    pct_chg = Column(Float)  # 涨跌幅（%）
-    
-    # 技术指标
-    ma5 = Column(Float)
-    ma10 = Column(Float)
-    ma20 = Column(Float)
-    volume_ratio = Column(Float)  # 量比
-    
-    # 数据来源
-    data_source = Column(String(50))  # 记录数据来源（如 AkshareFetcher）
-    
-    # 更新时间
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    # 唯一约束：同一股票同一日期只能有一条数据
-    __table_args__ = (
-        UniqueConstraint('code', 'date', name='uix_code_date'),
-        Index('ix_code_date', 'code', 'date'),
-    )
-    
-    def __repr__(self):
-        return f"<StockDaily(code={self.code}, date={self.date}, close={self.close})>"
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        return {
-            'code': self.code,
-            'date': self.date,
-            'open': self.open,
-            'high': self.high,
-            'low': self.low,
-            'close': self.close,
-            'volume': self.volume,
-            'amount': self.amount,
-            'pct_chg': self.pct_chg,
-            'ma5': self.ma5,
-            'ma10': self.ma10,
-            'ma20': self.ma20,
-            'volume_ratio': self.volume_ratio,
-            'data_source': self.data_source,
-        }
-
-
-class NewsIntel(Base):
-    """
-    新闻情报数据模型
-
-    存储搜索到的新闻情报条目，用于后续分析与查询
-    """
-    __tablename__ = 'news_intel'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    # 关联用户查询操作
-    query_id = Column(String(64), index=True)
-
-    # 股票信息
-    code = Column(String(10), nullable=False, index=True)
-    name = Column(String(50))
-
-    # 搜索上下文
-    dimension = Column(String(32), index=True)  # latest_news / risk_check / earnings / market_analysis / industry
-    query = Column(String(255))
-    provider = Column(String(32), index=True)
-
-    # 新闻内容
-    title = Column(String(300), nullable=False)
-    snippet = Column(Text)
-    url = Column(String(1000), nullable=False)
-    source = Column(String(100))
-    published_date = Column(DateTime, index=True)
-
-    # 入库时间
-    fetched_at = Column(DateTime, default=datetime.now, index=True)
-    query_source = Column(String(32), index=True)  # bot/web/cli/system
-    requester_platform = Column(String(20))
-    requester_user_id = Column(String(64))
-    requester_user_name = Column(String(64))
-    requester_chat_id = Column(String(64))
-    requester_message_id = Column(String(64))
-    requester_query = Column(String(255))
-
-    __table_args__ = (
-        UniqueConstraint('url', name='uix_news_url'),
-        Index('ix_news_code_pub', 'code', 'published_date'),
-    )
-
-    def __repr__(self) -> str:
-        return f"<NewsIntel(code={self.code}, title={self.title[:20]}...)>"
-
-
-class FundamentalSnapshot(Base):
-    """
-    基本面上下文快照（P0 write-only）。
-
-    仅用于写入，主链路不依赖读取该表，便于后续回测/画像扩展。
-    """
-    __tablename__ = 'fundamental_snapshot'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    query_id = Column(String(64), nullable=False, index=True)
-    code = Column(String(10), nullable=False, index=True)
-    payload = Column(Text, nullable=False)
-    source_chain = Column(Text)
-    coverage = Column(Text)
-    created_at = Column(DateTime, default=datetime.now, index=True)
-
-    __table_args__ = (
-        Index('ix_fundamental_snapshot_query_code', 'query_id', 'code'),
-        Index('ix_fundamental_snapshot_created', 'created_at'),
-    )
-
-    def __repr__(self) -> str:
-        return f"<FundamentalSnapshot(query_id={self.query_id}, code={self.code})>"
 
 
 class AnalysisHistory(Base):
@@ -1026,164 +884,6 @@ class DatabaseManager:
                 }
                 for row in rows
             ]
-
-    def save_daily_data(self, df: pd.DataFrame, code: str, data_source: str = "Unknown") -> int:
-        """批量保存日线数据；返回本次真正新增的行数。"""
-        if df is None or df.empty:
-            return 0
-
-        normalized_rows: Dict[date, Dict[str, Any]] = {}
-        for _, row in df.iterrows():
-            row_date = self._normalize_daily_date(row.get("date"))
-            normalized_rows[row_date] = {
-                "code": code,
-                "date": row_date,
-                "open": self._normalize_sql_value(row.get("open")),
-                "high": self._normalize_sql_value(row.get("high")),
-                "low": self._normalize_sql_value(row.get("low")),
-                "close": self._normalize_sql_value(row.get("close")),
-                "volume": self._normalize_sql_value(row.get("volume")),
-                "amount": self._normalize_sql_value(row.get("amount")),
-                "pct_chg": self._normalize_sql_value(row.get("pct_chg")),
-                "ma5": self._normalize_sql_value(row.get("ma5")),
-                "ma10": self._normalize_sql_value(row.get("ma10")),
-                "ma20": self._normalize_sql_value(row.get("ma20")),
-                "volume_ratio": self._normalize_sql_value(row.get("volume_ratio")),
-                "data_source": data_source,
-                "updated_at": datetime.now(),
-            }
-
-        rows = list(normalized_rows.values())
-        target_dates = [item["date"] for item in rows]
-
-        def _write(session: Session) -> int:
-            existing_dates = set(
-                session.execute(
-                    select(StockDaily.date).where(
-                        and_(StockDaily.code == code, StockDaily.date.in_(target_dates))
-                    )
-                ).scalars().all()
-            )
-            new_count = sum(1 for item in rows if item["date"] not in existing_dates)
-
-            if self._is_sqlite_engine:
-                stmt = sqlite_insert(StockDaily).values(rows)
-                update_columns = {
-                    key: getattr(stmt.excluded, key)
-                    for key in (
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                        "amount",
-                        "pct_chg",
-                        "ma5",
-                        "ma10",
-                        "ma20",
-                        "volume_ratio",
-                        "data_source",
-                        "updated_at",
-                    )
-                }
-                session.execute(
-                    stmt.on_conflict_do_update(
-                        index_elements=["code", "date"],
-                        set_=update_columns,
-                    )
-                )
-            else:
-                for item in rows:
-                    existing = session.execute(
-                        select(StockDaily).where(
-                            and_(StockDaily.code == item["code"], StockDaily.date == item["date"])
-                        )
-                    ).scalar_one_or_none()
-                    if existing is None:
-                        session.add(StockDaily(**item))
-                        continue
-                    for key, value in item.items():
-                        if key in ("code", "date"):
-                            continue
-                        setattr(existing, key, value)
-
-            return new_count
-
-        return self._run_write_transaction(f"save_daily_data[{code}]", _write)
-
-    def save_news_intel(
-        self,
-        news_items: Optional[List[Any]] = None,
-        *,
-        code: Optional[str] = None,
-        name: Optional[str] = None,
-        dimension: Optional[str] = None,
-        query: Optional[str] = None,
-        response: Optional['SearchResponse'] = None,
-        query_context: Optional[Dict[str, str]] = None,
-        query_id: Optional[str] = None,
-    ) -> int:
-        if response is not None:
-            news_items = list(getattr(response, "results", []) or [])
-        if not news_items:
-            return 0
-        now = datetime.now()
-        query_ctx = dict(query_context or {})
-        current_query_id = query_id or query_ctx.get("query_id")
-
-        def _item_get(item: Any, key: str, default: Any = None) -> Any:
-            if isinstance(item, dict):
-                return item.get(key, default)
-            return getattr(item, key, default)
-
-        def _write(session: Session) -> int:
-            new_count = 0
-            for item in news_items:
-                item_code = code or _item_get(item, 'code') or ""
-                title = (_item_get(item, 'title') or "").strip()
-                source = (_item_get(item, 'source') or "").strip()
-                pub_date = self._parse_published_date(_item_get(item, 'published_date'))
-                url = (_item_get(item, 'url') or "").strip() or self._build_fallback_url_key(
-                    item_code,
-                    title,
-                    source,
-                    pub_date,
-                )
-                if not title and not url:
-                    continue
-                
-                record = {
-                    'query_id': current_query_id or _item_get(item, 'query_id'),
-                    'code': item_code,
-                    'name': name or _item_get(item, 'name'),
-                    'dimension': dimension or _item_get(item, 'dimension'),
-                    'query': query or getattr(response, "query", None) or _item_get(item, 'query'),
-                    'provider': getattr(response, "provider", None) or _item_get(item, 'provider'),
-                    'title': title,
-                    'snippet': _item_get(item, 'snippet'),
-                    'url': url,
-                    'source': source,
-                    'published_date': pub_date,
-                    'fetched_at': now,
-                    'query_source': query_ctx.get("query_source") or _item_get(item, 'query_source', 'system'),
-                    'requester_platform': query_ctx.get("requester_platform"),
-                    'requester_user_id': query_ctx.get("requester_user_id"),
-                    'requester_user_name': query_ctx.get("requester_user_name"),
-                    'requester_chat_id': query_ctx.get("requester_chat_id"),
-                    'requester_message_id': query_ctx.get("requester_message_id"),
-                    'requester_query': query_ctx.get("requester_query"),
-                }
-                
-                if self._is_sqlite_engine:
-                    stmt = sqlite_insert(NewsIntel).values(record).on_conflict_do_nothing(index_elements=['url'])
-                    if session.execute(stmt).rowcount > 0:
-                        new_count += 1
-                else:
-                    if not session.execute(select(NewsIntel.id).where(NewsIntel.url == url)).scalar():
-                        session.add(NewsIntel(**record))
-                        new_count += 1
-            return new_count
-        return self._run_write_transaction("save_news_intel", _write)
 
     def save_analysis_history(
         self, 
