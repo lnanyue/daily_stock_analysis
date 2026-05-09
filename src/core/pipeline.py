@@ -103,7 +103,6 @@ class StockAnalysisPipeline:
         self.data_collector = StockDataCollector(
             config=self.config,
             fetcher_manager=self.fetcher_manager,
-            db=self.db,
             search_service=self.search_service,
             analyzer=self.analyzer,
             trend_analyzer=self.trend_analyzer,
@@ -187,7 +186,6 @@ class StockAnalysisPipeline:
     async def fetch_and_save_stock_data(
         self,
         code: str,
-        force_refresh: bool = False,
         current_time: Optional[datetime] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
@@ -199,21 +197,14 @@ class StockAnalysisPipeline:
         except Exception as exc:
             return False, str(exc)
 
-        target_date = resolve_resume_target_date(code, current_time=current_time)
-
         try:
-            # 断点续传检查
-            if not force_refresh and await asyncio.to_thread(self.db.has_today_data, code, target_date):
-                logger.info(f"{stock_name}({code}) {target_date} 数据已存在，跳过获取（断点续传）")
-                return True, None
-            
             res = await self.fetcher_manager.get_daily_data(code, days=45)
             df, source_name = res
                 
             if df is None or df.empty: 
                 return False, "获取数据为空"
                 
-            await self.db.save_daily_data_async(df, code, source_name)
+            # save_daily_data_async removed — always fetch from network
             return True, None
         except Exception as e:
             logger.error(f"[{code}] 数据抓取失败: {e}")
@@ -232,16 +223,6 @@ class StockAnalysisPipeline:
         if stock_codes is None: stock_codes = self.config.stock_list
         if not stock_codes: return []
 
-        if not dry_run and hasattr(self.fetcher_manager, "prefetch_stock_names"):
-            try:
-                await asyncio.to_thread(
-                    self.fetcher_manager.prefetch_stock_names,
-                    list(stock_codes),
-                    use_bulk=False,
-                )
-            except Exception as exc:
-                logger.warning("股票名称预取失败，继续主流程: %s", exc)
-        
         concurrency_limit = max(1, min(self.max_workers, 2))
         semaphore = asyncio.Semaphore(concurrency_limit)
         
