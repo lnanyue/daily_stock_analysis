@@ -274,8 +274,8 @@ class TestValidateStructuredNotification:
         cfg = _make_config()
         issues = cfg.validate_structured()
         info = [i for i in issues if i.severity == "info"]
-        assert any("搜索引擎" in i.message for i in info)
-        search_issue = next(i for i in info if "搜索引擎" in i.message)
+        assert any("搜索能力" in i.message for i in info)
+        search_issue = next(i for i in info if "搜索能力" in i.message)
         assert search_issue.field == "TAVILY_API_KEYS"
 
     def test_openbb_news_enabled_counts_as_search_capability(self):

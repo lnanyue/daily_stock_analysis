@@ -996,13 +996,28 @@ class Config:
         if not has_notification:
             issues.append(ConfigIssue("warning", "未配置通知渠道，分析结果将不会自动推送。", field="WECHAT_WEBHOOK_URL"))
 
-        has_search = bool(
+        has_strong_search = bool(
             self.tavily_api_keys
             or self.finnhub_api_key
             or self.openbb_news_enabled
         )
-        if not has_search:
-            issues.append(ConfigIssue("info", "搜索引擎未配置，新闻检索能力将受限。", field="TAVILY_API_KEYS"))
+        # SearchService auto-enables AkShare (东方财富公告) when no other provider is configured.
+        # has_any_search is always True because AkShare is always available as a fallback.
+        has_any_search = True
+
+        if not has_strong_search:
+            if has_any_search:
+                issues.append(ConfigIssue(
+                    "info",
+                    "搜索能力：弱（仅 AkShare 东方财富公告），建议配置 TAVILY_API_KEYS 获取完整新闻与宏观信息。",
+                    field="TAVILY_API_KEYS",
+                ))
+            else:
+                issues.append(ConfigIssue(
+                    "info",
+                    "搜索引擎未配置，新闻检索能力将受限。",
+                    field="TAVILY_API_KEYS",
+                ))
 
         return issues
 
@@ -1014,11 +1029,8 @@ class Config:
         cls._instance = None
 
     def has_search_capability_enabled(self) -> bool:
-        return bool(
-            self.tavily_api_keys
-            or self.finnhub_api_key
-            or self.openbb_news_enabled
-        )
+        # SearchService always auto-enables AkShare fallback, so search is always available.
+        return True
 
     def is_agent_available(self) -> bool:
         if self._agent_mode_explicit:
