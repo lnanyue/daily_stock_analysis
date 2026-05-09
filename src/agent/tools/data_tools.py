@@ -49,11 +49,6 @@ def reset_fetcher_manager() -> None:
         _fetcher_manager_singleton = None
 
 
-def _get_db():
-    """Lazy import for DatabaseManager."""
-    from src.storage import get_db
-    return get_db()
-
 
 def _resolve_sync_value(value):
     if inspect.isawaitable(value):
@@ -332,23 +327,6 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
             metadata,
         )
 
-    if source != "db_cache":
-        _, normalized_code = _history_code_candidates(stock_code)
-        try:
-            saved_count = _get_db().save_daily_data(df, normalized_code, source)
-            logger.info(
-                "Agent daily history persisted for %s (source=%s, new_records=%s)",
-                normalized_code,
-                source,
-                saved_count,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Agent daily history persistence failed for %s: %s",
-                normalized_code,
-                exc,
-            )
-
     # Convert DataFrame to list of dicts (last N records)
     records = df.tail(min(effective_days, len(df))).to_dict(orient="records")
     # Ensure date is string
@@ -451,7 +429,8 @@ get_chip_distribution_tool = ToolDefinition(
 
 def _handle_get_analysis_context(stock_code: str) -> dict:
     """Get stored analysis context from database."""
-    db = _get_db()
+    from src.storage import get_db
+    db = get_db()
     context = db.get_analysis_context(stock_code)
 
     if context is None:

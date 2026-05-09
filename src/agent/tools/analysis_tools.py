@@ -15,42 +15,20 @@ logger = logging.getLogger(__name__)
 
 
 def _fetch_trend_data(stock_code: str):
-    """Fetch historical OHLCV (DataFrame) for trend analysis. DB first, then DataFetcher fallback."""
-    from datetime import date, timedelta
+    """Fetch historical OHLCV (DataFrame) for trend analysis via DataFetcherManager."""
     import pandas as pd
     from data_provider import canonical_stock_code, DataFetchError
     from data_provider import DataFetcherManager
-    from src.storage import get_db
 
     code = canonical_stock_code(stock_code)
     if not code:
         return None
-    end_date = date.today()
-    start_date = end_date - timedelta(days=89)  # ~60 trading days, mirrors pipeline Step 3
 
-    # 1. Try DB
-    try:
-        db = get_db()
-        bars = db.get_data_range(code, start_date, end_date)
-        if bars:
-            df = pd.DataFrame([b.to_dict() for b in bars])
-            logger.debug("analyze_trend(%s): loaded %d rows from DB", stock_code, len(df))
-            return df
-    except Exception as e:
-        logger.debug(
-            "analyze_trend(%s): DB lookup failed (%s), falling back to DataFetcherManager",
-            stock_code, e
-        )
-
-    # 2. Fallback to DataFetcherManager
     try:
         manager = DataFetcherManager()
         df, _ = manager.get_daily_data_sync(code, days=90)
         if df is not None and not df.empty:
-            logger.info(
-                "analyze_trend(%s): DB empty, loaded %d rows from DataFetcherManager",
-                stock_code, len(df)
-            )
+            logger.debug("analyze_trend(%s): loaded %d rows from DataFetcherManager", stock_code, len(df))
             return df
     except DataFetchError as e:
         logger.warning("analyze_trend(%s): DataFetcherManager failed: %s", stock_code, e)
@@ -58,10 +36,6 @@ def _fetch_trend_data(stock_code: str):
         logger.warning("analyze_trend(%s): DataFetcherManager unexpected error: %s", stock_code, e)
 
     return None
-    from src.services.history_loader import load_history_df
-
-    df, _ = load_history_df(stock_code, days=60)
-    return df
 
 
 def _handle_analyze_trend(stock_code: str) -> dict:
