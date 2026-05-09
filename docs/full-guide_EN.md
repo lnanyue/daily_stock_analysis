@@ -184,6 +184,8 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 |--------|------|:----:|
 | `TAVILY_API_KEYS` | Tavily Search API Key (recommended) | Recommended |
 
+> Single-stock analysis now pulls both company/sector news and macro news. The macro layer focuses on Fed/central-bank rates, inflation, Treasury yields, USD/CNY or USD/HKD FX moves, policy, and liquidity shifts, so the final decision can account for valuation pressure, capital flows, and broad risk appetite.
+
 ### Data Source Configuration
 
 | Variable | Description | Default | Required |

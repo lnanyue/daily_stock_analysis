@@ -70,6 +70,7 @@ class MarketAnalysisContext:
     stats: Dict[str, Any] = field(default_factory=dict)
     sector_rankings: Dict[str, Any] = field(default_factory=dict)
     market_news: List[Any] = field(default_factory=list)
+    macro_news: List[Any] = field(default_factory=list)
     strategy_blueprint: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -286,7 +287,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         number = self._as_float(value)
         if number is None or number == 0:
             return "N/A"
-        # 实时指数接口常返回“元”，表格统一展示为“亿元”。
+        # 实时指数接口常返回"元"，表格统一展示为"亿元"。
         if abs(number) > 1_000_000:
             number = number / 100_000_000
         return self._format_number(number, digits=0 if abs(number) >= 100 else 2)
@@ -408,15 +409,15 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
     def _get_prompt_scaffold(self, context: MarketAnalysisContext) -> tuple[str, str, str]:
         """Return role, missing-data guidance, and output template by region."""
         if context.region == "global":
-            role = "你是一位专业的全球市场分析师"
+            role = "你是一位专业的全球市场分析师，擅长结合宏观环境（利率、汇率、政策、流动性）解读跨市场联动"
             missing_data_guidance = (
-                "若市场新闻为空或缺少跨市场消息，不要把“无新闻”直接等同于“无法评估全球市场”；"
+                '若市场新闻为空或缺少跨市场消息，不要把"无新闻"直接等同于"无法评估全球市场"；'
                 "应明确说明消息面样本有限，并优先基于已提供的指数、统计与板块数据完成复盘。"
             )
             template = f"""## {context.date} 全球市场联动复盘
 
 ### 一、全球视野
-（总结今日中美市场整体表现及联动主线，2-3句话）
+（总结今日中美市场整体表现及联动主线，结合宏观新闻分析利率、汇率、政策对全球资金流动的影响，2-3句话）
 
 ### 二、行情联动点评
 （仅基于已提供的数据，对比分析 A 股与美股主要指数的走势特征及相互影响；若缺少某一侧数据，需要明确说明，不要臆测。）
@@ -425,14 +426,14 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 （重点解析强势板块及跨市场映射逻辑）
 
 ### 四、后市展望
-（结合走势与背景，给出后续预判）
+（结合走势、宏观背景与消息催化，给出后续预判）
 
 ### 五、策略建议
-（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
+（仓位与方向建议；最后补充"建议仅供参考，不构成投资建议"。）"""
             return role, missing_data_guidance, template
 
         if context.region == "us":
-            role = "你是一位专业的美股市场分析师"
+            role = "你是一位专业的美股市场分析师，擅长结合宏观环境（美联储利率、通胀、美债收益率、美元）解读美股走势"
             missing_data_guidance = (
                 "若市场新闻为空，请明确说明消息面样本有限，并以已提供的美股指数与主题线索为主完成复盘；"
                 "不要臆测 A 股表现或中美联动。"
@@ -440,7 +441,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             template = f"""## {context.date} 美股市场复盘
 
 ### 一、市场总览
-（总结今日美股整体表现与主要驱动，2-3句话）
+（总结今日美股整体表现与主要驱动，结合宏观新闻分析利率和通胀预期对市场的影响，2-3句话）
 
 ### 二、指数与风格点评
 （分析标普、纳指、道指、波动率或风格轮动特征）
@@ -449,13 +450,13 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 （重点解析强势/弱势板块及主题主线）
 
 ### 四、后市展望
-（结合走势与背景，给出后续预判）
+（结合走势、宏观背景与消息催化，给出后续预判）
 
 ### 五、策略建议
-（仓位与方向建议；最后补充“建议仅供参考，不构成投资建议”。）"""
+（仓位与方向建议；最后补充"建议仅供参考，不构成投资建议"。）"""
             return role, missing_data_guidance, template
 
-        role = "你是一位专业的A股市场分析师"
+        role = "你是一位专业的A股市场分析师，擅长结合宏观环境（利率、汇率、政策、流动性）解读大盘走势"
         missing_data_guidance = (
             "若市场数据（指数、成交额等）缺失或显示为 N/A，但提供了市场新闻，请务必以新闻和历史背景为主要依据进行推断性复盘；"
             "若当前日期为回溯的交易日，请在报告中明确说明；不要臆测全球市场或跨市场联动。"
@@ -465,25 +466,25 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 > 一句话给出今日市场状态、核心矛盾和明日优先观察方向。
 
 ### 一、盘面总览
-（2-3句话概括指数、涨跌家数、成交额和情绪温度，明确“强势/偏暖/震荡/偏弱”判断；必须保留提供的市场宽度行。）
+（2-3句话概括指数、涨跌家数、成交额和情绪温度，明确"强势/偏暖/震荡/偏弱"判断；必须保留提供的市场宽度行。）
 
 ### 二、指数结构
 （{self._get_index_hint()}，说明谁在护盘、谁在拖累，以及关键支撑/压力；必须输出提供的指数表。）
 
 ### 三、板块主线
-（分析领涨/领跌板块背后的逻辑、持续性和是否形成主线；必须输出“🔥 领涨”和“💧 领跌”两行。）
+（分析领涨/领跌板块背后的逻辑、持续性和是否形成主线；必须输出"🔥 领涨"和"💧 领跌"两行。）
 
 ### 四、资金与情绪
 （解读成交额、涨跌停结构、市场宽度和风险偏好。）
 
 ### 五、消息催化
-（结合近三日新闻，提炼真正影响明日交易的催化或扰动。）
+（结合近三日新闻和宏观新闻，提炼真正影响明日交易的催化或扰动；必须明确提及利率、汇率、政策或流动性等宏观因子对大盘的影响。）
 
 ### 六、明日交易计划
 （给出进攻/均衡/防守结论、仓位区间、关注方向、回避方向和一个触发失效条件。）
 
 ### 七、风险提示
-（列出需要关注的风险点；最后补充“建议仅供参考，不构成投资建议”。）"""
+（列出需要关注的风险点；最后补充"建议仅供参考，不构成投资建议"。）"""
         return role, missing_data_guidance, template
 
     def search_market_news(self) -> List[Dict]:
@@ -716,6 +717,26 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             signal = self._escape_table_cell(str(snippet).strip().replace("\n", " ")[:58] or "-")
             lines.append(f"| {idx} | {title} | {signal} |")
         return "\n".join(lines)
+
+    def _build_fallback_news_section(self, context: MarketAnalysisContext) -> str:
+        """Build the news catalyst section for fallback (no-LLM) reports."""
+        lines = []
+        if context.market_news:
+            for n in context.market_news[:3]:
+                title = getattr(n, 'title', '') or (n.get('title') if isinstance(n, dict) else '')
+                if title:
+                    lines.append(f"- {title}")
+        if context.macro_news:
+            macro_titles = []
+            for n in context.macro_news[:3]:
+                title = getattr(n, 'title', '') or (n.get('title') if isinstance(n, dict) else '')
+                if title:
+                    macro_titles.append(title)
+            if macro_titles:
+                lines.append(f"- 🌐 宏观: {'; '.join(macro_titles)}")
+        if lines:
+            return "\n".join(lines)
+        return "- 暂无可用新闻时，应降低对题材持续性的确定性判断。"
 
     @staticmethod
     def _format_optional_number(value: float) -> str:
@@ -964,6 +985,19 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         except Exception as e:
             logger.error(f"[大盘] 搜索市场新闻失败: {e}")
 
+        # 5. 搜索宏观新闻（利率、汇率、政策、流动性等）
+        try:
+            macro_resp = await self.search_service.search_macro_news_async(
+                stock_code=target_region,
+                stock_name=market_name,
+                max_results=5,
+            )
+            if macro_resp and macro_resp.results:
+                context.macro_news = macro_resp.results
+                logger.info(f"[大盘] 获取 {len(macro_resp.results)} 条宏观新闻")
+        except Exception as e:
+            logger.error(f"[大盘] 搜索宏观新闻失败: {e}")
+
         context.strategy_blueprint = get_market_strategy_blueprint(target_region)
         return await self._generate_report(context)
 
@@ -1039,6 +1073,15 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 lines.append(f"- [{p_date}] {title}")
             if lines: news_text = "\n".join(lines) + "\n"
 
+        macro_news_text = "暂无宏观新闻\n"
+        if context.macro_news:
+            lines = []
+            for n in context.macro_news[:5]:
+                title = getattr(n, 'title', '') or (n.get('title') if isinstance(n, dict) else '')
+                p_date = getattr(n, 'published_date', '今日') or (n.get('published_date') if isinstance(n, dict) else '今日')
+                lines.append(f"- [{p_date}] {title}")
+            if lines: macro_news_text = "\n".join(lines) + "\n"
+
         blueprint = context.strategy_blueprint
         strategy_section_title = "## 策略计划" if context.region == "cn" else "## Strategy Plan"
         if blueprint and hasattr(blueprint, "to_prompt_block"):
@@ -1050,11 +1093,11 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 
         cn_requirements = ""
         if context.region == "cn":
-            cn_requirements = """- A 股复盘必须严格使用模板中的七段标题，不要改写成“市场总结 / 指数点评 / 策略计划”
-- A 股复盘的“一、盘面总览”必须保留下方市场宽度行
-- A 股复盘的“二、指数结构”必须输出表头为“指数 / 最新 / 涨跌幅 / 成交额(亿)”的指数表
-- A 股复盘的“三、板块主线”必须保留“🔥 领涨”和“💧 领跌”两行
-- A 股复盘的“六、明日交易计划”必须包含“结论 / 仓位 / 关注方向 / 回避方向 / 失效条件”
+            cn_requirements = """- A 股复盘必须严格使用模板中的七段标题，不要改写成"市场总结 / 指数点评 / 策略计划"
+- A 股复盘的"一、盘面总览"必须保留下方市场宽度行
+- A 股复盘的"二、指数结构"必须输出表头为"指数 / 最新 / 涨跌幅 / 成交额(亿)"的指数表
+- A 股复盘的"三、板块主线"必须保留"🔥 领涨"和"💧 领跌"两行
+- A 股复盘的"六、明日交易计划"必须包含"结论 / 仓位 / 关注方向 / 回避方向 / 失效条件"
 """
 
         return f"""{role}，请根据以下数据生成一份结构化的{self._get_market_scope_name('zh')}大盘复盘报告。
@@ -1090,6 +1133,9 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 
 ## 市场新闻
 {news_text}
+
+## 宏观新闻（利率/汇率/政策/流动性）
+{macro_news_text}
 
 {strategy_text}
 
@@ -1176,10 +1222,10 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 {sector_lines[1]}
 
 ### 四、资金与情绪
-两市成交额为 {turnover} 亿。结合上涨/下跌家数与涨跌停结构看，当前资金风险偏好处于“{state}”状态，后续需要观察成交额是否继续配合。
+两市成交额为 {turnover} 亿。结合上涨/下跌家数与涨跌停结构看，当前资金风险偏好处于"{state}"状态，后续需要观察成交额是否继续配合。
 
 ### 五、消息催化
-- 暂无可用新闻时，应降低对题材持续性的确定性判断。
+{self._build_fallback_news_section(context)}
 
 ### 六、明日交易计划
 - **结论**：{state}观察。

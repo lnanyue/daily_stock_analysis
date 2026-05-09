@@ -61,7 +61,7 @@ class TestMarketAnalyzerStrategyPrompt(unittest.TestCase):
         self.assertIn("你是一位专业的全球市场分析师", prompt)
         self.assertIn("### 一、全球视野", prompt)
         self.assertIn("A 股与美股主要指数", prompt)
-        self.assertIn("不要把“无新闻”直接等同于“无法评估全球市场”", prompt)
+        self.assertIn('不要把"无新闻"直接等同于"无法评估全球市场"', prompt)
 
 
 if __name__ == "__main__":

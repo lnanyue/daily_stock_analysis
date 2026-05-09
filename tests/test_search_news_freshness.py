@@ -7,7 +7,7 @@ import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Mock newspaper before search_service import (optional dependency)
 if "newspaper" not in sys.modules:
@@ -16,7 +16,7 @@ if "newspaper" not in sys.modules:
     mock_np.Config = MagicMock()
     sys.modules["newspaper"] = mock_np
 
-from src.search_service import SearchResponse, SearchResult, SearchService
+from src.search_service import SearchResponse, SearchResult, SearchService, TavilySearchProvider
 
 
 def _result(title: str, published_date: str | None) -> SearchResult:
@@ -327,6 +327,43 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
 
         self.assertIn("announcements", intel)
 
+    def test_macro_news_dimension_included_within_main_search_budget(self) -> None:
+        """The main comprehensive intel budget should include macro news."""
+        fresh_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        fresh_text = fresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        service = SearchService(
+            tavily_keys=["dummy_key"],
+            news_max_age_days=3,
+            news_strategy_profile="short",
+        )
+        provider = TavilySearchProvider(["dummy_key"])
+        provider.search = MagicMock(
+            side_effect=[
+                _response([_result("latest_news", fresh_text)]),
+                _response([_result("market_analysis", None)]),
+                _response([_result("risk_check", fresh_text)]),
+                _response([_result("announcement_item", fresh_text)]),
+                _response([_result("macro_item", fresh_text)]),
+            ]
+        )
+        service._providers = [provider]
+
+        with patch("src.search_service.time.sleep"):
+            intel = service.search_comprehensive_intel(
+                stock_code="600519",
+                stock_name="贵州茅台",
+                max_searches=5,
+            )
+
+        self.assertIn("announcements", intel)
+        self.assertIn("macro_news", intel)
+        self.assertEqual([item.title for item in intel["macro_news"].results], ["macro_item"])
+
+        macro_call = provider.search.call_args_list[4]
+        self.assertIn("美联储", macro_call.args[0])
+        self.assertEqual(macro_call.kwargs["topic"], "news")
+
     def test_effective_window_helper_has_no_side_effect(self) -> None:
         """_effective_news_window_days should not mutate stored news_window_days."""
         service, _ = self._create_service_with_mock_provider(
@@ -361,6 +398,66 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         expected_local_date = dt_utc.astimezone().date()
         parsed = SearchService._normalize_news_publish_date(rfc_text)
         self.assertEqual(parsed, expected_local_date)
+
+
+class SearchComprehensiveIntelAsyncTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_async_comprehensive_intel_includes_macro_news_when_budget_allows(self) -> None:
+        fresh_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        fresh_text = fresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        async def fake_search(query, max_results=5, days=7, **kwargs):
+            return _response([_result(f"item:{query}", fresh_text)])
+
+        service = SearchService(
+            tavily_keys=["dummy_key"],
+            news_max_age_days=3,
+            news_strategy_profile="short",
+        )
+        provider = TavilySearchProvider(["dummy_key"])
+        provider.search_async = AsyncMock(side_effect=fake_search)
+        service._providers = [provider]
+
+        intel = await service.search_comprehensive_intel_async(
+            stock_code="AAPL",
+            stock_name="Apple",
+            max_searches=5,
+        )
+
+        self.assertIn("macro_news", intel)
+        self.assertTrue(intel["macro_news"].results)
+        queries = [call.args[0] for call in provider.search_async.call_args_list]
+        self.assertTrue(any("Federal Reserve" in query for query in queries))
+        macro_call = next(
+            call for call in provider.search_async.call_args_list
+            if "Federal Reserve" in call.args[0]
+        )
+        self.assertEqual(macro_call.kwargs["topic"], "news")
+
+    async def test_async_budget_two_still_keeps_risk_check(self) -> None:
+        fresh_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        fresh_text = fresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        async def fake_search(query, max_results=5, days=7, **kwargs):
+            return _response([_result(f"item:{query}", fresh_text)])
+
+        service = SearchService(
+            tavily_keys=["dummy_key"],
+            news_max_age_days=3,
+            news_strategy_profile="short",
+        )
+        provider = TavilySearchProvider(["dummy_key"])
+        provider.search_async = AsyncMock(side_effect=fake_search)
+        service._providers = [provider]
+
+        intel = await service.search_comprehensive_intel_async(
+            stock_code="600519",
+            stock_name="贵州茅台",
+            max_searches=2,
+        )
+
+        self.assertIn("latest_news", intel)
+        self.assertIn("risk_check", intel)
+        self.assertNotIn("macro_news", intel)
 
 
 if __name__ == "__main__":

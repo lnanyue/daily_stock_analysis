@@ -38,7 +38,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 | Module | Feature | Description |
 |--------|---------|-------------|
 | AI | Decision Dashboard | One-sentence conclusion + precise entry/exit levels + action checklist |
-| Analysis | Multi-dimensional Analysis | Technicals + chip distribution + sentiment + real-time quotes |
+| Analysis | Multi-dimensional Analysis | Technicals + chip distribution + sentiment + real-time quotes + macro news such as Fed rates, yields, FX, policy, and liquidity |
 | Market | Global Markets | A-shares, Hong Kong stocks, US stocks |
 | Search | Smart Autocomplete (MVP) | **[Beta]** Local index covers A-shares, Hong Kong, and US stocks and can be refreshed from Tushare or AkShare data |
 | Review | Market Review | Daily overview, sectors, northbound capital flow |
@@ -54,7 +54,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 |------|----------|
 | LLMs | Gemini (free), OpenAI-compatible, DeepSeek, Qwen, Claude, Ollama |
 | Market Data | AkShare, Tushare, Baostock, YFinance, optional OpenBB |
-| News Search | Tavily |
+| News Search | Tavily (company, sector, and macro news) |
 
 ### Built-in Trading Rules
 

@@ -161,6 +161,29 @@ class SearchService:
             return any(kw in name_upper for kw in SearchService._ETF_NAME_KEYWORDS)
         return False
 
+    @staticmethod
+    def _is_hk_stock_code(stock_code: str) -> bool:
+        code = (stock_code or "").strip().lower()
+        return code.startswith("hk") or (code.isdigit() and len(code) == 5)
+
+    @classmethod
+    def _build_macro_news_query(cls, stock_code: str, stock_name: str) -> str:
+        """Build a broad macro-news query for the stock's market context."""
+        if cls._is_hk_stock_code(stock_code):
+            return (
+                "Federal Reserve interest rates HKMA liquidity China policy "
+                "Hong Kong stocks market risk appetite latest news"
+            )
+        if cls._is_foreign_stock(stock_code):
+            return (
+                "Federal Reserve interest rates inflation treasury yields "
+                "dollar market risk appetite latest news"
+            )
+        return (
+            "美联储 利率 美债收益率 美元 人民币 中国央行 政策 "
+            "A股 风险偏好 最新消息"
+        )
+
     @property
     def is_available(self) -> bool:
         return any(p.is_available for p in self._providers)
@@ -497,6 +520,8 @@ class SearchService:
             if not provider.is_available: continue
 
             search_kwargs: Dict[str, Any] = {}
+            if isinstance(provider, TavilySearchProvider):
+                search_kwargs["topic"] = "news"
             if hasattr(provider, "search_async"):
                 response = await provider.search_async(query, provider_max_results, days=search_days, **search_kwargs)
                 filtered_response = self._filter_news_response(
@@ -510,6 +535,51 @@ class SearchService:
             
         return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
 
+    async def search_macro_news_async(
+        self,
+        stock_code: str,
+        stock_name: str,
+        max_results: int = 5,
+    ) -> SearchResponse:
+        """Search recent market-level macro news for the stock's region."""
+        search_days = self._effective_news_window_days()
+        provider_max_results = self._provider_request_size(max_results)
+        query = self._build_macro_news_query(stock_code, stock_name)
+
+        cache_key = self._cache_key(f"macro:{query}", max_results, search_days)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        had_provider_success = False
+        for provider in self._providers:
+            if not provider.is_available:
+                continue
+            if not isinstance(provider, TavilySearchProvider):
+                continue
+            if not hasattr(provider, "search_async"):
+                continue
+
+            response = await provider.search_async(
+                query,
+                provider_max_results,
+                days=search_days,
+                topic="news",
+            )
+            filtered_response = self._filter_news_response(
+                response,
+                search_days=search_days,
+                max_results=max_results,
+                log_scope=f"{stock_code}:{provider.name}:macro_news_async",
+                strict=True,
+            )
+            had_provider_success = had_provider_success or bool(response.success)
+            if filtered_response.success and filtered_response.results:
+                self._put_cache(cache_key, filtered_response)
+                return filtered_response
+
+        return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
+
     async def search_comprehensive_intel_async(
         self,
         stock_code: str,
@@ -517,7 +587,6 @@ class SearchService:
         max_searches: int = 3
     ) -> Dict[str, SearchResponse]:
         """并发执行多维度的异步深度情报搜索"""
-        is_foreign = self._is_foreign_stock(stock_code)
         is_index_etf = self.is_index_or_etf(stock_code, stock_name)
 
         search_dimensions = [
@@ -544,6 +613,12 @@ class SearchService:
                 'query': f"{stock_name} {stock_code} earnings forecast revenue profit" if not is_index_etf else f"{stock_name} performance outlook",
                 'desc': '业绩预期',
                 'strict_freshness': False,
+            },
+            {
+                'name': 'macro_news',
+                'query': self._build_macro_news_query(stock_code, stock_name),
+                'desc': '宏观新闻',
+                'strict_freshness': True,
             }
         ]
 
@@ -551,6 +626,10 @@ class SearchService:
         search_dimensions = search_dimensions[:max_searches]
         
         async def _single_dimension_search(dim):
+            if dim['name'] == 'macro_news':
+                return dim['name'], await self.search_macro_news_async(
+                    stock_code, stock_name, max_results=5
+                )
             return dim['name'], await self.search_stock_news_async(
                 stock_code, stock_name, max_results=5, focus_keywords=[dim['query']]
             )
@@ -647,6 +726,59 @@ class SearchService:
             query=query, results=[], provider="None",
             success=False, error_message="所有搜索引擎都不可用或搜索失败"
         )
+
+    def search_macro_news(
+        self,
+        stock_code: str,
+        stock_name: str,
+        max_results: int = 5,
+    ) -> SearchResponse:
+        """Search recent market-level macro news for the stock's region."""
+        search_days = self._effective_news_window_days()
+        provider_max_results = self._provider_request_size(max_results)
+        query = self._build_macro_news_query(stock_code, stock_name)
+
+        logger.info(
+            (
+                "搜索宏观新闻: %s(%s), query='%s', 时间范围: 近%s天 "
+                "(profile=%s, NEWS_MAX_AGE_DAYS=%s), 目标条数=%s, provider请求条数=%s"
+            ),
+            stock_name, stock_code, query, search_days,
+            self.news_strategy_profile, self.news_max_age_days,
+            max_results, provider_max_results,
+        )
+
+        cache_key = self._cache_key(f"macro:{query}", max_results, search_days)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        had_provider_success = False
+        for provider in self._providers:
+            if not provider.is_available:
+                continue
+            if not isinstance(provider, TavilySearchProvider):
+                continue
+
+            response = provider.search(
+                query,
+                provider_max_results,
+                days=search_days,
+                topic="news",
+            )
+            filtered_response = self._filter_news_response(
+                response,
+                search_days=search_days,
+                max_results=max_results,
+                log_scope=f"{stock_code}:{provider.name}:macro_news",
+                strict=True,
+            )
+            had_provider_success = had_provider_success or bool(response.success)
+            if filtered_response.success and filtered_response.results:
+                self._put_cache(cache_key, filtered_response)
+                return filtered_response
+
+        return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
     
     def search_stock_events(
         self,
@@ -716,6 +848,13 @@ class SearchService:
                     'strict_freshness': not is_index_etf,
                 },
                 {
+                    'name': 'macro_news',
+                    'query': self._build_macro_news_query(stock_code, stock_name),
+                    'desc': '宏观新闻',
+                    'tavily_topic': 'news',
+                    'strict_freshness': True,
+                },
+                {
                     'name': 'earnings',
                     'query': (
                         f"{stock_name} {stock_code} index performance composition outlook"
@@ -773,6 +912,13 @@ class SearchService:
                     'strict_freshness': True,
                 },
                 {
+                    'name': 'macro_news',
+                    'query': self._build_macro_news_query(stock_code, stock_name),
+                    'desc': '宏观新闻',
+                    'tavily_topic': 'news',
+                    'strict_freshness': True,
+                },
+                {
                     'name': 'earnings',
                     'query': (
                         f"{stock_name} 指数成分 净值 跟踪表现"
@@ -818,6 +964,22 @@ class SearchService:
 
             response = None
             provider = None
+            if dim['name'] == 'macro_news':
+                filtered_response = self.search_macro_news(
+                    stock_code,
+                    stock_name,
+                    max_results=target_per_dimension,
+                )
+                results[dim['name']] = filtered_response
+                search_count += 1
+                logger.info(
+                    "[情报搜索] %s: 过滤后=%s条",
+                    dim['desc'],
+                    len(filtered_response.results),
+                )
+                time.sleep(0.5)
+                continue
+
             for candidate in available_providers:
                 provider = candidate
                 logger.info(f"[情报搜索] {dim['desc']}: 使用 {provider.name}")
@@ -872,10 +1034,11 @@ class SearchService:
     def format_intel_report(self, intel_results: Dict[str, SearchResponse], stock_name: str) -> str:
         lines = [f"【{stock_name} 情报搜索结果】"]
         
-        display_order = ['latest_news', 'announcements', 'market_analysis', 'risk_check', 'bearish_check', 'earnings', 'industry']
+        display_order = ['latest_news', 'macro_news', 'announcements', 'market_analysis', 'risk_check', 'bearish_check', 'earnings', 'industry']
 
         dim_labels = {
             'latest_news': '📰 最新消息',
+            'macro_news': '🌐 宏观新闻',
             'announcements': '📋 公司公告',
             'market_analysis': '📈 机构分析',
             'risk_check': '⚠️ 风险排查',
