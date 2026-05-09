@@ -4,7 +4,7 @@ Stock data collector — extracted from StockAnalysisPipeline.analyze_stock.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Callable
 
 import pandas as pd
@@ -58,7 +58,6 @@ class StockDataCollector:
         self,
         config: Config,
         fetcher_manager: DataFetcherManager,
-        db: Any,
         search_service: SearchService,
         analyzer: Any,
         trend_analyzer: StockTrendAnalyzer,
@@ -67,7 +66,6 @@ class StockDataCollector:
     ):
         self.config = config
         self.fetcher_manager = fetcher_manager
-        self.db = db
         self.search_service = search_service
         self.analyzer = analyzer
         self.trend_analyzer = trend_analyzer
@@ -258,11 +256,14 @@ class StockDataCollector:
     # ------------------------------------------------------------------
     async def _collect_trend_and_kline(self, code: str, result: StockDataCollectionResult) -> None:
         end_date = result.analysis_date
-        hist = await self.db.get_data_range_async(code, end_date - timedelta(days=90), end_date)
-        if not hist:
+        hist_df, _ = await self.fetcher_manager.get_daily_data(
+            code, days=90,
+            end_date=end_date.isoformat() if isinstance(end_date, date) else None,
+        )
+        if hist_df is None or hist_df.empty:
             return
 
-        df = pd.DataFrame([bar.to_dict() for bar in hist])
+        df = hist_df
         if self.config.enable_realtime_quote and result.realtime_quote and self._augment_fn is not None:
             df = self._augment_fn(df, result.realtime_quote, code)
 
