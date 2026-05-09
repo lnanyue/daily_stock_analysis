@@ -580,6 +580,136 @@ class SearchService:
 
         return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
 
+    @staticmethod
+    def _build_intel_dimensions(
+        stock_code: str,
+        stock_name: str,
+        is_foreign: bool,
+        is_index_etf: bool,
+    ) -> list:
+        """Build the unified intelligence dimension definitions.
+
+        Used by both sync (search_comprehensive_intel) and async
+        (search_comprehensive_intel_async) to keep dimensions in sync.
+        """
+        if is_foreign:
+            return [
+                {
+                    'name': 'latest_news',
+                    'query': f"{stock_name} {stock_code} latest news events",
+                    'desc': '最新消息',
+                    'tavily_topic': 'news',
+                    'strict_freshness': True,
+                },
+                {
+                    'name': 'market_analysis',
+                    'query': f"{stock_name} analyst rating target price report",
+                    'desc': '机构分析',
+                    'tavily_topic': None,
+                    'strict_freshness': False,
+                },
+                {
+                    'name': 'risk_check',
+                    'query': (
+                        f"{stock_name} {stock_code} index performance outlook tracking error"
+                        if is_index_etf else f"{stock_name} risk insider selling lawsuit litigation"
+                    ),
+                    'desc': '风险排查',
+                    'tavily_topic': None if is_index_etf else 'news',
+                    'strict_freshness': not is_index_etf,
+                },
+                {
+                    'name': 'macro_news',
+                    'query': SearchService._build_macro_news_query(stock_code, stock_name),
+                    'desc': '宏观新闻',
+                    'tavily_topic': 'news',
+                    'strict_freshness': True,
+                },
+                {
+                    'name': 'earnings',
+                    'query': (
+                        f"{stock_name} {stock_code} index performance composition outlook"
+                        if is_index_etf else f"{stock_name} earnings revenue profit growth forecast"
+                    ),
+                    'desc': '业绩预期',
+                    'tavily_topic': None,
+                    'strict_freshness': False,
+                },
+                {
+                    'name': 'industry',
+                    'query': (
+                        f"{stock_name} {stock_code} index sector allocation holdings"
+                        if is_index_etf else f"{stock_name} industry competitors market share outlook"
+                    ),
+                    'desc': '行业分析',
+                    'tavily_topic': None,
+                    'strict_freshness': False,
+                },
+            ]
+        return [
+            {
+                'name': 'latest_news',
+                'query': f"{stock_name} {stock_code} 最新 新闻 重大 事件",
+                'desc': '最新消息',
+                'tavily_topic': 'news',
+                'strict_freshness': True,
+            },
+            {
+                'name': 'market_analysis',
+                'query': f"{stock_name} 研报 目标价 评级 深度分析",
+                'desc': '机构分析',
+                'tavily_topic': None,
+                'strict_freshness': False,
+            },
+            {
+                'name': 'risk_check',
+                'query': (
+                    f"{stock_name} 指数走势 跟踪误差 净值 表现"
+                    if is_index_etf else f"{stock_name} 减持 处罚 违规 诉讼 利空 风险"
+                ),
+                'desc': '风险排查',
+                'tavily_topic': None if is_index_etf else 'news',
+                'strict_freshness': not is_index_etf,
+            },
+            {
+                'name': 'announcements',
+                'query': (
+                    f"{stock_name} {stock_code} 公告 指数调整 成分变化"
+                    if is_index_etf else f"{stock_name} {stock_code} 公司公告 重要公告 上交所 深交所 cninfo"
+                ),
+                'desc': '公司公告',
+                'tavily_topic': 'news',
+                'strict_freshness': True,
+            },
+            {
+                'name': 'macro_news',
+                'query': SearchService._build_macro_news_query(stock_code, stock_name),
+                'desc': '宏观新闻',
+                'tavily_topic': 'news',
+                'strict_freshness': True,
+            },
+            {
+                'name': 'earnings',
+                'query': (
+                    f"{stock_name} 指数成分 净值 跟踪表现"
+                    if is_index_etf else f"{stock_name} 业绩预告 财报 营收 净利润 同比增长"
+                ),
+                'desc': '业绩预期',
+                'tavily_topic': None,
+                'strict_freshness': False,
+            },
+            {
+                'name': 'industry',
+                'query': (
+                    f"{stock_name} 指数成分股 行业配置 权重"
+                    if is_index_etf else f"{stock_name} 所在行业 竞争对手 市场份额 行业前景"
+                ),
+                'desc': '行业分析',
+                'tavily_topic': None,
+                'strict_freshness': False,
+            },
+        ]
+
     async def search_comprehensive_intel_async(
         self,
         stock_code: str,
@@ -588,39 +718,11 @@ class SearchService:
     ) -> Dict[str, SearchResponse]:
         """并发执行多维度的异步深度情报搜索"""
         is_index_etf = self.is_index_or_etf(stock_code, stock_name)
+        is_foreign = self._is_foreign_stock(stock_code)
 
-        search_dimensions = [
-            {
-                'name': 'latest_news',
-                'query': f"{stock_name} {stock_code} latest news events",
-                'desc': '最新消息',
-                'strict_freshness': True,
-            },
-            {
-                'name': 'risk_check',
-                'query': f"{stock_name} {stock_code} risk insider selling lawsuit" if not is_index_etf else f"{stock_name} tracking error outlook",
-                'desc': '风险排查',
-                'strict_freshness': not is_index_etf,
-            },
-            {
-                'name': 'bearish_check',
-                'query': f"{stock_name} {stock_code} 利空 风险 下跌 处罚 诉讼 预警" if not is_index_etf else f"{stock_name} downside risk warning",
-                'desc': '利空排查',
-                'strict_freshness': True,
-            },
-            {
-                'name': 'earnings',
-                'query': f"{stock_name} {stock_code} earnings forecast revenue profit" if not is_index_etf else f"{stock_name} performance outlook",
-                'desc': '业绩预期',
-                'strict_freshness': False,
-            },
-            {
-                'name': 'macro_news',
-                'query': self._build_macro_news_query(stock_code, stock_name),
-                'desc': '宏观新闻',
-                'strict_freshness': True,
-            }
-        ]
+        search_dimensions = self._build_intel_dimensions(
+            stock_code, stock_name, is_foreign, is_index_etf
+        )
 
         # 限制维度数量
         search_dimensions = search_dimensions[:max_searches]
@@ -821,125 +923,10 @@ class SearchService:
         is_foreign = self._is_foreign_stock(stock_code)
         is_index_etf = self.is_index_or_etf(stock_code, stock_name)
 
-        if is_foreign:
-            search_dimensions = [
-                {
-                    'name': 'latest_news',
-                    'query': f"{stock_name} {stock_code} latest news events",
-                    'desc': '最新消息',
-                    'tavily_topic': 'news',
-                    'strict_freshness': True,
-                },
-                {
-                    'name': 'market_analysis',
-                    'query': f"{stock_name} analyst rating target price report",
-                    'desc': '机构分析',
-                    'tavily_topic': None,
-                    'strict_freshness': False,
-                },
-                {
-                    'name': 'risk_check',
-                    'query': (
-                        f"{stock_name} {stock_code} index performance outlook tracking error"
-                        if is_index_etf else f"{stock_name} risk insider selling lawsuit litigation"
-                    ),
-                    'desc': '风险排查',
-                    'tavily_topic': None if is_index_etf else 'news',
-                    'strict_freshness': not is_index_etf,
-                },
-                {
-                    'name': 'macro_news',
-                    'query': self._build_macro_news_query(stock_code, stock_name),
-                    'desc': '宏观新闻',
-                    'tavily_topic': 'news',
-                    'strict_freshness': True,
-                },
-                {
-                    'name': 'earnings',
-                    'query': (
-                        f"{stock_name} {stock_code} index performance composition outlook"
-                        if is_index_etf else f"{stock_name} earnings revenue profit growth forecast"
-                    ),
-                    'desc': '业绩预期',
-                    'tavily_topic': None,
-                    'strict_freshness': False,
-                },
-                {
-                    'name': 'industry',
-                    'query': (
-                        f"{stock_name} {stock_code} index sector allocation holdings"
-                        if is_index_etf else f"{stock_name} industry competitors market share outlook"
-                    ),
-                    'desc': '行业分析',
-                    'tavily_topic': None,
-                    'strict_freshness': False,
-                },
-            ]
-        else:
-            search_dimensions = [
-                {
-                    'name': 'latest_news',
-                    'query': f"{stock_name} {stock_code} 最新 新闻 重大 事件",
-                    'desc': '最新消息',
-                    'tavily_topic': 'news',
-                    'strict_freshness': True,
-                },
-                {
-                    'name': 'market_analysis',
-                    'query': f"{stock_name} 研报 目标价 评级 深度分析",
-                    'desc': '机构分析',
-                    'tavily_topic': None,
-                    'strict_freshness': False,
-                },
-                {
-                    'name': 'risk_check',
-                    'query': (
-                        f"{stock_name} 指数走势 跟踪误差 净值 表现"
-                        if is_index_etf else f"{stock_name} 减持 处罚 违规 诉讼 利空 风险"
-                    ),
-                    'desc': '风险排查',
-                    'tavily_topic': None if is_index_etf else 'news',
-                    'strict_freshness': not is_index_etf,
-                },
-                {
-                    'name': 'announcements',
-                    'query': (
-                        f"{stock_name} {stock_code} 公告 指数调整 成分变化"
-                        if is_index_etf else f"{stock_name} {stock_code} 公司公告 重要公告 上交所 深交所 cninfo"
-                    ),
-                    'desc': '公司公告',
-                    'tavily_topic': 'news',
-                    'strict_freshness': True,
-                },
-                {
-                    'name': 'macro_news',
-                    'query': self._build_macro_news_query(stock_code, stock_name),
-                    'desc': '宏观新闻',
-                    'tavily_topic': 'news',
-                    'strict_freshness': True,
-                },
-                {
-                    'name': 'earnings',
-                    'query': (
-                        f"{stock_name} 指数成分 净值 跟踪表现"
-                        if is_index_etf else f"{stock_name} 业绩预告 财报 营收 净利润 同比增长"
-                    ),
-                    'desc': '业绩预期',
-                    'tavily_topic': None,
-                    'strict_freshness': False,
-                },
-                {
-                    'name': 'industry',
-                    'query': (
-                        f"{stock_name} 指数成分股 行业配置 权重"
-                        if is_index_etf else f"{stock_name} 所在行业 竞争对手 市场份额 行业前景"
-                    ),
-                    'desc': '行业分析',
-                    'tavily_topic': None,
-                    'strict_freshness': False,
-                },
-            ]
-        
+        search_dimensions = self._build_intel_dimensions(
+            stock_code, stock_name, is_foreign, is_index_etf
+        )
+
         search_days = self._effective_news_window_days()
         target_per_dimension = 3
         provider_max_results = self._provider_request_size(target_per_dimension)

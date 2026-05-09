@@ -452,12 +452,48 @@ class SearchComprehensiveIntelAsyncTestCase(unittest.IsolatedAsyncioTestCase):
         intel = await service.search_comprehensive_intel_async(
             stock_code="600519",
             stock_name="贵州茅台",
-            max_searches=2,
+            max_searches=3,
         )
 
         self.assertIn("latest_news", intel)
         self.assertIn("risk_check", intel)
+        self.assertIn("market_analysis", intel)
         self.assertNotIn("macro_news", intel)
+
+
+class TestIntelDimensionsAlignment:
+    """Verify sync and async comprehensive intel use the same dimensions."""
+
+    def test_async_and_sync_dimensions_match(self):
+        from src.search.service import SearchService
+        dims = SearchService._build_intel_dimensions(
+            "600519", "贵州茅台", is_foreign=False, is_index_etf=False
+        )
+        names = [d['name'] for d in dims]
+        assert 'market_analysis' in names
+        assert 'announcements' in names
+        assert 'industry' in names
+        assert 'macro_news' in names
+        assert len(names) == 7
+
+    def test_foreign_dimensions_include_market_analysis_and_industry(self):
+        from src.search.service import SearchService
+        dims = SearchService._build_intel_dimensions(
+            "AAPL", "Apple", is_foreign=True, is_index_etf=False
+        )
+        names = [d['name'] for d in dims]
+        assert 'market_analysis' in names
+        assert 'industry' in names
+        assert 'macro_news' in names
+        assert len(names) == 6
+
+    def test_index_etf_uses_adapted_queries(self):
+        from src.search.service import SearchService
+        dims = SearchService._build_intel_dimensions(
+            "510050", "上证50ETF", is_foreign=False, is_index_etf=True
+        )
+        risk_dim = next(d for d in dims if d['name'] == 'risk_check')
+        assert '指数' in risk_dim['query'] or 'index' in risk_dim['query'].lower()
 
 
 if __name__ == "__main__":
