@@ -456,20 +456,22 @@ class TestAnalysisExecutorIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.current_price, 100.0)
 
     async def test_debate_analysis_mode(self):
-        """Debate mode triggers DebateAnalyzer path."""
+        """Debate mode triggers DebateAnalyzer path; non-debate doesn't."""
         debate_mock = MagicMock()
         debate_mock.analyze = AsyncMock(return_value=AnalysisResult(
             code="600519", name="测试股票", sentiment_score=65,
             trend_prediction="震荡", operation_advice="持有",
             analysis_summary="辩论分析结果", success=True,
         ))
-        # DebateAnalyzer is imported inside executor.analyze(), so patch the module
         with patch("src.agent.debate_analyzer.DebateAnalyzer", return_value=debate_mock):
             collected = self._make_collected(analysis_mode="debate")
             from src.enums import ReportType
-            result = await self.executor.analyze("600519", ReportType.SIMPLE, "q-debate", collected)
-            self.assertIsInstance(result, AnalysisResult)
+            result = await self.executor.analyze(
+                "600519", ReportType.SIMPLE, "q-debate", collected,
+                analysis_mode="debate",
+            )
             self.assertTrue(result.success)
+            debate_mock.analyze.assert_awaited_once()
 
     async def test_analyze_with_missing_quote(self):
         """Analyze works with missing realtime_quote (fallback to today_k)."""
@@ -648,7 +650,7 @@ class TestPipelineOrchestrationPurity(unittest.IsolatedAsyncioTestCase):
         from src.enums import ReportType
 
         pipeline = StockAnalysisPipeline(config=self.config)
-        pipeline.fetch_and_save_stock_data = AsyncMock(return_value=(True, None))
+        pipeline.prefetch_stock_data = AsyncMock(return_value=(True, None))
         pipeline.analyze_stock = AsyncMock(
             return_value=AnalysisResult(
                 code="600519", name="测试股票", sentiment_score=70,

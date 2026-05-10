@@ -95,5 +95,8 @@ async def run_with_cleanup(coro) -> int:
     try:
         await coro
         return 0
+    except Exception:
+        logger.exception("run_with_cleanup 捕获异常，返回 1")
+        return 1
     finally:
         await cleanup()

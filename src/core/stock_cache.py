@@ -82,8 +82,10 @@ class StockCache:
 def find_close_for_date(df: pd.DataFrame, target_date: date) -> Optional[float]:
     """Find the close price nearest to and <= target_date."""
     date_col = "date"
-    close_col = "close" if "close" in df.columns else "收盘"
     if date_col not in df.columns:
+        return None
+    close_col = "close" if "close" in df.columns else ("收盘" if "收盘" in df.columns else None)
+    if close_col is None:
         return None
     # Normalize date column to datetime64 for reliable comparison
     if not pd.api.types.is_datetime64_any_dtype(df[date_col]):

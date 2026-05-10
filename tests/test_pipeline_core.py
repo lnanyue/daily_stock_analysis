@@ -77,7 +77,7 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
         pl.fetcher_manager.get_realtime_quote = AsyncMock(return_value=MagicMock(price=100.0, change_pct=1.5, name="测试股票"))
         
         # 模拟内部方法
-        pl.fetch_and_save_stock_data = AsyncMock(return_value=(True, None))
+        pl.prefetch_stock_data = AsyncMock(return_value=(True, None))
         pl.analyze_stock = AsyncMock(return_value=AnalysisResult(
             code="600519", name="测试股票", sentiment_score=80,
             trend_prediction="看多", operation_advice="买入", confidence_level="高", success=True

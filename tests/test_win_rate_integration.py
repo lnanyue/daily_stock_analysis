@@ -98,7 +98,7 @@ class TestWinRateIntegration(unittest.IsolatedAsyncioTestCase):
             "overall": {"win_rate_pct": 55.0, "direction_accuracy_pct": 58.0, "total_evaluations": 100},
         }
 
-        with patch.object(pl, 'fetch_and_save_stock_data', return_value=(True, None)), \
+        with patch.object(pl, 'prefetch_stock_data', return_value=(True, None)), \
              patch.object(pl.executor, 'analyze', new_callable=AsyncMock, return_value=expected_result):
             result = await pl.analyze_stock("600519", MagicMock(), "query_123")
 

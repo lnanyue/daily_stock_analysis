@@ -180,7 +180,7 @@ class Config:
     agent_litellm_model: str = field(default="", metadata={"env": "AGENT_LITELLM_MODEL", "group": "agent"})
 
     agent_mode: bool = field(default=False, metadata={"env": "AGENT_MODE", "yaml": "agent.mode", "group": "agent"})
-    agent_auto_route_analysis: bool = field(default=False, metadata={"env": "AGENT_AUTO_ROUTE_ANALYSIS", "yaml": "agent.auto_route_analysis", "group": "agent"})
+    agent_auto_route_analysis: bool = field(default=False, metadata={"env": "AGENT_AUTO_ROUTE_ANALYSIS", "yaml": "agent.auto_route_analysis", "group": "agent", "deprecated": "true"})
     _agent_mode_explicit: bool = False
     agent_max_steps: int = field(default=10, metadata={"env": "AGENT_MAX_STEPS", "yaml": "agent.max_steps", "group": "agent"})
     agent_skills: List[str] = field(default_factory=list, metadata={"env": "AGENT_SKILLS", "group": "agent"})

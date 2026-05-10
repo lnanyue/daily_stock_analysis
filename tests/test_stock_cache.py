@@ -73,3 +73,82 @@ class TestStockCache(TestCase):
         })
         close = find_close_for_date(df, date.today())
         self.assertAlmostEqual(close, 100.0)
+
+    def test_read_returns_cached_data(self):
+        """Read succeeds after write, regardless of freshness."""
+        df = pd.DataFrame({
+            "date": [date.today() - timedelta(days=1)],
+            "close": [99.0],
+        })
+        self.cache.write("600519", df)
+        cached, source = self.cache.read("600519")
+        self.assertIsNotNone(cached)
+        self.assertEqual(source, "parquet_cache")
+
+    def test_is_fresh_returns_false_when_meta_missing(self):
+        """Parquet exists but meta file deleted — is_fresh returns False."""
+        import json as _json
+        df = self._make_df()
+        self.cache.write("600519", df)
+        # Delete meta file
+        from src.core.stock_cache import _meta_path
+        _meta_path(self.temp_dir, "600519").unlink()
+        self.assertFalse(self.cache.is_fresh("600519"))
+        # Read still works (graceful degradation)
+        cached, source = self.cache.read("600519")
+        self.assertIsNotNone(cached)
+        self.assertEqual(source, "parquet_cache")
+
+    def test_is_fresh_returns_false_when_meta_stale(self):
+        """Meta file with yesterday's date — is_fresh returns False."""
+        import json as _json
+        df = self._make_df()
+        self.cache.write("600519", df)
+        # Overwrite meta with yesterday's date
+        from src.core.stock_cache import _meta_path
+        stale_meta = {"fetch_date": (date.today() - timedelta(days=1)).isoformat(), "code": "600519", "rows": 5}
+        _meta_path(self.temp_dir, "600519").write_text(_json.dumps(stale_meta))
+        self.assertFalse(self.cache.is_fresh("600519"))
+
+    def test_find_close_for_date_empty_df(self):
+        """Empty DataFrame returns None."""
+        df = pd.DataFrame({"date": [], "close": []})
+        self.assertIsNone(find_close_for_date(df, date.today()))
+
+    def test_find_close_for_date_all_future(self):
+        """All dates after target — returns earliest available."""
+        df = pd.DataFrame({
+            "date": [date.today() + timedelta(days=1), date.today() + timedelta(days=2)],
+            "close": [110.0, 120.0],
+        })
+        close = find_close_for_date(df, date.today())
+        self.assertAlmostEqual(close, 110.0)
+
+    def test_find_close_for_date_chinese_columns(self):
+        """Works with Chinese column names."""
+        df = pd.DataFrame({
+            "date": [date.today() - timedelta(days=1)],
+            "收盘": [99.0],
+        })
+        close = find_close_for_date(df, date.today())
+        self.assertAlmostEqual(close, 99.0)
+
+    def test_find_close_for_date_missing_both_close_columns(self):
+        """Returns None when neither 'close' nor '收盘' exists."""
+        df = pd.DataFrame({
+            "date": [date.today()],
+            "open": [100.0],
+        })
+        self.assertIsNone(find_close_for_date(df, date.today()))
+
+    def test_write_normalizes_chinese_date_column(self):
+        """'日期' column is renamed to 'date' on write."""
+        df = pd.DataFrame({
+            "日期": [date.today()],
+            "close": [100.0],
+        })
+        self.cache.write("600519", df)
+        cached, _ = self.cache.read("600519")
+        self.assertIsNotNone(cached)
+        self.assertIn("date", cached.columns)
+        self.assertNotIn("日期", cached.columns)

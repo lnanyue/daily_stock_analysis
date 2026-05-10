@@ -271,6 +271,12 @@ async def run_full_analysis(
             except Exception as e:
                 logger.warning("自动回测失败: %s", e)
 
+        # 6. 全失败检查
+        if results:
+            all_failed = all(r is None or not r.success for r in results)
+            if all_failed:
+                raise RuntimeError("所有个股分析均失败")
+
     except Exception as e:
         logger.exception("分析流程执行失败: %s", e)
 

@@ -41,6 +41,7 @@ from src.core.trading_calendar import (
 )
 from src.core.pipeline_data_collector import StockDataCollector, StockDataCollectionResult
 from src.core.pipeline_executor import AnalysisExecutor
+from src.core.stock_cache import StockCache
 from bot.models import BotMessage
 
 
@@ -74,6 +75,7 @@ class StockAnalysisPipeline:
         self.progress_callback = progress_callback
         
         self.db = get_db()
+        self.cache = StockCache()
         self.search_service = SearchService(
             tavily_keys=self.config.tavily_api_keys,
             finnhub_api_key=getattr(self.config, "finnhub_api_key", None),
@@ -183,13 +185,18 @@ class StockAnalysisPipeline:
 
         return self._coerce_bool_setting(getattr(self.config, "agent_mode", False), default=False)
 
-    async def fetch_and_save_stock_data(
+    async def prefetch_stock_data(
         self,
         code: str,
         current_time: Optional[datetime] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
-        获取并保存单只股票数据
+        预取并缓存单只股票的日线数据。
+
+        1. 检查 parquet 缓存今天是否已 fetch → 是则跳过网络
+        2. 网络拉取 45 天数据
+        3. 成功 → 写入 parquet 缓存
+        4. 失败 → fallback 读缓存（不限新旧）
         """
         stock_name = code
         try:
@@ -197,24 +204,42 @@ class StockAnalysisPipeline:
         except Exception as exc:
             return False, str(exc)
 
+        # 1. Check cache freshness
+        if self.cache.is_fresh(code):
+            logger.info("[%s] 缓存有效，跳过网络请求", code)
+            return True, None
+
+        # 2. Network fetch
         try:
             res = await self.fetcher_manager.get_daily_data(code, days=45)
             df, source_name = res
-                
-            if df is None or df.empty: 
+            if df is None or df.empty:
+                # 3a. Network returned empty — fallback to cache
+                cached, _ = self.cache.read(code)
+                if cached is not None and not cached.empty:
+                    logger.warning("[%s] 网络获取为空，使用缓存数据", code)
+                    return True, None
                 return False, "获取数据为空"
-                
-            # save_daily_data_async removed — always fetch from network
-            return True, None
+            # 3b. Write to cache
+            self.cache.write(code, df)
+            return True, source_name
         except Exception as e:
-            logger.error(f"[{code}] 数据抓取失败: {e}")
+            logger.error("[%s] 数据抓取失败: %s", code, e)
+            # 4. Fallback to cache
+            cached, _ = self.cache.read(code)
+            if cached is not None and not cached.empty:
+                logger.warning("[%s] 网络异常，使用缓存数据: %s", code, e)
+                return True, None
             return False, str(e)
 
     async def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """分析单只股票 — 委托 StockDataCollector + AnalysisExecutor 执行。"""
         try:
             collected = await self.data_collector.collect(code)
-            return await self.executor.analyze(code, report_type, query_id, collected)
+            return await self.executor.analyze(
+                code, report_type, query_id, collected,
+                analysis_mode=collected.analysis_mode,
+            )
         except Exception as e:
             logger.error(f"[{code}] AI 分析失败: {e}", exc_info=True)
             return None
@@ -279,6 +304,10 @@ class StockAnalysisPipeline:
             default=False,
         ):
             return False, []
+        logger.warning(
+            "[%s] agent_auto_route_analysis 已弃用，配置不生效，自动分流路径未连接",
+            code,
+        )
 
         if not self._is_agent_runtime_available():
             logger.info("[%s] 自动 Agent 分流已启用，但当前 Agent 运行时不可用，继续使用经典分析链路", code)
@@ -480,10 +509,9 @@ class StockAnalysisPipeline:
         处理单只股票的完整流程
 
         包括：
-        1. 获取数据
-        2. 保存数据
-        3. AI 分析
-        4. 单股推送（可选，#55）
+        1. 获取并缓存数据
+        2. AI 分析
+        3. 单股推送（可选，#55）
 
         此方法会被线程池调用，需要处理好异常
 
@@ -505,8 +533,15 @@ class StockAnalysisPipeline:
         token = set_frozen_target_date(frozen_td)
         try:
             self._emit_progress(12, f"{code}：正在准备分析任务")
-            # Step 1: 获取并保存数据
-            success, error = await self.fetch_and_save_stock_data(
+            # dry-run: 只检查缓存，不拉数据
+            if skip_analysis:
+                if self.cache.is_fresh(code):
+                    logger.info("[%s] dry-run: 缓存有效", code)
+                else:
+                    logger.info("[%s] dry-run: 数据未缓存", code)
+                return None
+            # Step 1: 获取并缓存数据
+            success, error = await self.prefetch_stock_data(
                 code, current_time=current_time
             )
             
@@ -517,10 +552,6 @@ class StockAnalysisPipeline:
                 self._emit_progress(16, f"{code}：行情数据准备完成")
             
             # Step 2: AI 分析
-            if skip_analysis:
-                logger.info(f"[{code}] 跳过 AI 分析（dry-run 模式）")
-                return None
-            
             effective_query_id = analysis_query_id or self.query_id or uuid.uuid4().hex
             result = await self.analyze_stock(code, report_type, query_id=effective_query_id)
             
