@@ -37,6 +37,27 @@ class TestSearchDegradationLogging(TestCase):
         asyncio.run(self.service.search_macro_news_async("000000", "测试股票"))
         mock_logger.warning.assert_any_call("[%s] 宏观新闻搜索 provider 均不可用或搜索失败", "000000")
 
+    def test_macro_news_uses_non_tavily_provider_sync(self):
+        """非 Tavily provider 也能服务宏观新闻（同步路径）。"""
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.name = "mock_provider_sync"
+        mock_provider.search = MagicMock(return_value=SearchResponse(
+            query="test", results=[
+                SearchResult(
+                    title="r1", url="http://x.com", snippet="c1",
+                    source="mock", published_date="2026-05-10",
+                ),
+            ], provider="mock_provider_sync", success=True,
+        ))
+
+        service = SearchService()
+        service._providers = [mock_provider]
+
+        result = service.search_macro_news("000000", "测试", max_results=3)
+        self.assertTrue(result.success)
+        self.assertGreater(len(result.results), 0)
+
     def test_macro_news_uses_non_tavily_provider(self):
         """非 Tavily provider 也能服务宏观新闻。"""
         mock_provider = MagicMock()
