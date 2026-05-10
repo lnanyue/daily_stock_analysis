@@ -45,7 +45,6 @@ class TraderAgent:
                 user_message,
                 {"max_tokens": 2048, "temperature": 0.3},
                 system_prompt=system_prompt,
-                timeout=timeout_seconds,
             )
         except Exception as e:
             logger.error("[TraderAgent] LLM call failed: %s", e)
