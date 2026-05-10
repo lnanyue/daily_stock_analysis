@@ -63,6 +63,7 @@ async def cleanup() -> None:
     try:
         from src.utils.async_http import AsyncHttpClientManager
         await AsyncHttpClientManager().close()
+        await asyncio.sleep(0)  # 让 SSL transport 完成最终化
     except Exception as e:
         logger.debug("AsyncHttpClient cleanup: %s", e)
 

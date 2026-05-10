@@ -98,11 +98,29 @@ def main() -> int:
         # 模式 A.5: 排雷筛选
         if getattr(args, "risk_screen", False):
             stock_codes = _parse_cli_stock_codes(args)
-            return asyncio.run(run_risk_screen(config, args, stock_codes))
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(run_risk_screen(config, args, stock_codes))
+            finally:
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                loop.close()
 
         # 模式 B: 仅大盘复盘
         if args.market_review:
-            return asyncio.run(run_market_review_only(config, args))
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(run_market_review_only(config, args))
+            finally:
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                loop.close()
 
         # 模式 C: 定时任务 (长驻进程)
         if args.schedule or config.schedule_enabled:
@@ -110,7 +128,18 @@ def main() -> int:
 
         # 模式 D: 默认分析流程 (个股 + 复盘)
         stock_codes = _parse_cli_stock_codes(args)
-        return asyncio.run(run_with_cleanup(run_full_analysis(config, args, stock_codes)))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                run_with_cleanup(run_full_analysis(config, args, stock_codes))
+            )
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            loop.close()
 
     except KeyboardInterrupt:
         logger.info("用户中断执行")
