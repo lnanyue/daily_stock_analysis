@@ -533,24 +533,22 @@ class StockAnalysisPipeline:
         token = set_frozen_target_date(frozen_td)
         try:
             self._emit_progress(12, f"{code}：正在准备分析任务")
-            # dry-run: 只检查缓存，不拉数据
-            if skip_analysis:
-                if self.cache.is_fresh(code):
-                    logger.info("[%s] dry-run: 缓存有效", code)
-                else:
-                    logger.info("[%s] dry-run: 数据未缓存", code)
-                return None
             # Step 1: 获取并缓存数据
             success, error = await self.prefetch_stock_data(
                 code, current_time=current_time
             )
-            
+
             if not success:
                 logger.warning(f"[{code}] 数据获取失败: {error}")
                 # 即使获取失败，也尝试用已有数据分析
             else:
                 self._emit_progress(16, f"{code}：行情数据准备完成")
-            
+
+            # dry-run: 数据已拉，跳过 AI 分析
+            if skip_analysis:
+                logger.info("[%s] dry-run 模式：数据已缓存，跳过 AI 分析", code)
+                return None
+
             # Step 2: AI 分析
             effective_query_id = analysis_query_id or self.query_id or uuid.uuid4().hex
             result = await self.analyze_stock(code, report_type, query_id=effective_query_id)

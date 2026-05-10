@@ -209,5 +209,21 @@ class TestStockAnalysisPipeline(unittest.IsolatedAsyncioTestCase):
         # 验证涨跌幅
         self.assertEqual(enhanced['price_change_ratio'], 8.0)
 
+    async def test_dry_run_calls_prefetch(self):
+        """dry-run 模式调 prefetch_stock_data 但跳过 analyze_stock。"""
+        pl = StockAnalysisPipeline(config=self.mock_config)
+        pl.prefetch_stock_data = AsyncMock(return_value=(True, None))
+        pl.analyze_stock = AsyncMock(return_value=AnalysisResult(
+            code="600519", name="测试股票", sentiment_score=80,
+            trend_prediction="看多", operation_advice="买入",
+            analysis_summary="测试", success=True,
+        ))
+
+        result = await pl.process_single_stock("600519", skip_analysis=True)
+
+        self.assertIsNone(result)
+        pl.prefetch_stock_data.assert_awaited_once()
+        pl.analyze_stock.assert_not_awaited()
+
 if __name__ == '__main__':
     unittest.main()
