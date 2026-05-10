@@ -50,7 +50,7 @@ def run_backtest(backtest_code: Optional[str] = None) -> int:
     """回测模式。"""
     from src.services.backtest_service import BacktestService
     service = BacktestService()
-    service.run_backtest(backtest_code)
+    service.run_backtest(code=backtest_code)
     return 0
 
 
