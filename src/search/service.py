@@ -558,16 +558,17 @@ class SearchService:
         for provider in self._providers:
             if not provider.is_available:
                 continue
-            if not isinstance(provider, TavilySearchProvider):
-                continue
             if not hasattr(provider, "search_async"):
                 continue
 
+            search_kwargs: Dict[str, Any] = {}
+            if isinstance(provider, TavilySearchProvider):
+                search_kwargs["topic"] = "news"
             response = await provider.search_async(
                 query,
                 provider_max_results,
                 days=search_days,
-                topic="news",
+                **search_kwargs,
             )
             filtered_response = self._filter_news_response(
                 response,
@@ -864,14 +865,15 @@ class SearchService:
         for provider in self._providers:
             if not provider.is_available:
                 continue
-            if not isinstance(provider, TavilySearchProvider):
-                continue
 
+            search_kwargs: Dict[str, Any] = {}
+            if isinstance(provider, TavilySearchProvider):
+                search_kwargs["topic"] = "news"
             response = provider.search(
                 query,
                 provider_max_results,
                 days=search_days,
-                topic="news",
+                **search_kwargs,
             )
             filtered_response = self._filter_news_response(
                 response,
