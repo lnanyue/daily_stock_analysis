@@ -534,6 +534,8 @@ class SearchService:
                     self._put_cache(cache_key, filtered_response)
                     return filtered_response
             
+        if not had_provider_success:
+            logger.warning("[%s] 所有搜索 provider 均返回空", stock_code)
         return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
 
     async def search_macro_news_async(
@@ -579,6 +581,8 @@ class SearchService:
                 self._put_cache(cache_key, filtered_response)
                 return filtered_response
 
+        if not had_provider_success:
+            logger.warning("[%s] 宏观新闻搜索 provider 均返回空", stock_code)
         return SearchResponse(query=query, results=[], provider="None", success=had_provider_success)
 
     @staticmethod
