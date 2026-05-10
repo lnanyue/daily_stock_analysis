@@ -50,8 +50,12 @@ def run_backtest(backtest_code: Optional[str] = None) -> int:
     """回测模式。"""
     from src.services.backtest_service import BacktestService
     service = BacktestService()
-    service.run_backtest(code=backtest_code)
-    return 0
+    try:
+        service.run_backtest(code=backtest_code)
+        return 0
+    except Exception as e:
+        logger.error("回测失败: %s", e)
+        return 1
 
 
 async def run_market_review_only(config: Config, args) -> int:

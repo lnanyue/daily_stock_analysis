@@ -118,7 +118,7 @@ class BacktestService:
                     continue
 
                 date_col = 'date' if 'date' in df.columns else df.columns[0]
-                mask = df[date_col] <= analysis_date
+                mask = df[date_col] <= pd.Timestamp(analysis_date)
                 if not mask.any():
                     insufficient += 1
                     results_to_save.append(

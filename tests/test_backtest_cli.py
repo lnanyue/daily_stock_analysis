@@ -14,3 +14,15 @@ class TestBacktestCli(unittest.TestCase):
 
         mock_service.run_backtest.assert_called_once_with(code="600519")
         self.assertEqual(result, 0)
+
+    def test_backtest_returns_nonzero_on_failure(self):
+        """backtest 内部异常时 run_backtest 返回非 0。"""
+        from src.core.runner import run_backtest
+
+        with patch("src.services.backtest_service.BacktestService") as mock_cls:
+            mock_service = MagicMock()
+            mock_service.run_backtest.side_effect = RuntimeError("backtest failed")
+            mock_cls.return_value = mock_service
+
+            result = run_backtest(backtest_code="600519")
+            self.assertNotEqual(result, 0)
