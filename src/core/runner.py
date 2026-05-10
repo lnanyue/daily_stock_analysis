@@ -46,12 +46,21 @@ def _log_content_diagnostic(label: str, content: str) -> None:
 # ── 模式路由的具体实现 ──────────────────────────────────────────
 
 
-def run_backtest(backtest_code: Optional[str] = None) -> int:
+def run_backtest(
+    backtest_code: Optional[str] = None,
+    *,
+    force: bool = False,
+    eval_window_days: Optional[int] = None,
+) -> int:
     """回测模式。"""
     from src.services.backtest_service import BacktestService
     service = BacktestService()
     try:
-        service.run_backtest(code=backtest_code)
+        service.run_backtest(
+            code=backtest_code,
+            force=force,
+            eval_window_days=eval_window_days,
+        )
         return 0
     except Exception as e:
         logger.error("回测失败: %s", e)
@@ -276,13 +285,14 @@ async def run_full_analysis(
                 logger.warning("自动回测失败: %s", e)
 
         # 6. 全失败检查
-        if results:
-            all_failed = all(r is None or not r.success for r in results)
+        if stock_codes_to_use and not args.dry_run:
+            all_failed = (not results) or all(r is None or not r.success for r in results)
             if all_failed:
                 raise RuntimeError("所有个股分析均失败")
 
     except Exception as e:
         logger.exception("分析流程执行失败: %s", e)
+        raise
 
 
 # ── 排雷筛选模式 ──────────────────────────────────────────────────

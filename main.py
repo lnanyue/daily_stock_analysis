@@ -89,7 +89,11 @@ def main() -> int:
     try:
         # 模式 A: 回测
         if getattr(args, "backtest", False):
-            return run_backtest(getattr(args, "backtest_code", None))
+            return run_backtest(
+                getattr(args, "backtest_code", None),
+                force=getattr(args, "backtest_force", False),
+                eval_window_days=getattr(args, "backtest_days", None),
+            )
 
         # 模式 A.5: 排雷筛选
         if getattr(args, "risk_screen", False):

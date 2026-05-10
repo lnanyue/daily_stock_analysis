@@ -49,6 +49,9 @@ class MainScheduleModeTestCase(unittest.TestCase):
             "host": "0.0.0.0",
             "port": 8000,
             "backtest": False,
+            "backtest_code": None,
+            "backtest_days": None,
+            "backtest_force": False,
             "market_review": False,
             "schedule": False,
             "no_run_immediately": False,
@@ -113,6 +116,28 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         run_full_analysis.assert_called_once_with(config, args, ["600519", "000001"])
+
+    def test_backtest_mode_passes_optional_cli_flags(self) -> None:
+        args = self._make_args(
+            backtest=True,
+            backtest_code="600519",
+            backtest_days=5,
+            backtest_force=True,
+        )
+        config = self._make_config()
+
+        with patch("main.parse_arguments", return_value=args), \
+             patch("src.config.get_config", return_value=config), \
+             patch("src.logging_config.setup_logging"), \
+             patch("src.core.runner.run_backtest", return_value=0) as run_backtest:
+            exit_code = main.main()
+
+        self.assertEqual(exit_code, 0)
+        run_backtest.assert_called_once_with(
+            "600519",
+            force=True,
+            eval_window_days=5,
+        )
 
 
 class MainCleanupTestCase(unittest.IsolatedAsyncioTestCase):

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [改进] 个股分析综合情报新增宏观新闻维度，会搜索美联储/央行利率、通胀、美债/美元/汇率、政策与流动性变化，并在 Prompt 中要求解释其对估值、资金面和风险偏好的影响。
 - [新功能] 新增 Finnhub 公司新闻源（`FinnhubNewsProvider`），通过 `FINNHUB_API_KEY` 环境变量启用，需安装 `finnhub-python`，免费 300 次/天；`OpenBB` 新闻源因依赖冲突已移除；`lark-oapi` 飞书 SDK 已移除。
+- [修复] CLI 可用性稳定化：`--dry-run` 恢复为预取并缓存行情但跳过 AI 分析；回测入口在失败时返回非 0，并正确透传 `--backtest-days` / `--backtest-force`，同时修复 datetime64 日线与 date 比较导致的回测失败；完整分析在所有个股失败时向外抛错以触发非 0 退出码；补充 `pyarrow` 作为 parquet 缓存依赖。
 - [文档] 修正 README.md CLI 示例（`--code` → `--stocks`）；更新 LLM_CONFIG_GUIDE 中已废弃的 `litellm_config.yaml` 方式三为 deprecation 说明，引导用户使用 `config.yaml` 的 `llm` 段。
 - [改进] `ci_gate.sh flake8` 增加 `--exclude=.claude,.worktrees,.git,__pycache__`，避免扫入临时工作区污染本地 CI 入口。
 - [文档] 更新 `docs/migration-guide.md` FAQ：移除已删除的 `UnifiedConfigLoader` 引用，说明 `settings.yaml` 已移除。

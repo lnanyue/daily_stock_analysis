@@ -118,7 +118,9 @@ class BacktestService:
                     continue
 
                 date_col = 'date' if 'date' in df.columns else df.columns[0]
-                mask = df[date_col] <= pd.Timestamp(analysis_date)
+                df = self._normalize_daily_dates(df, date_col)
+                analysis_ts = pd.Timestamp(analysis_date)
+                mask = df[date_col] <= analysis_ts
                 if not mask.any():
                     insufficient += 1
                     results_to_save.append(
@@ -143,14 +145,17 @@ class BacktestService:
                     start_bar_date = start_bar_date_val
                 start_price = float(start_row.get('close', start_row.get('收盘', 0)))
 
-                forward_df = df[df[date_col] > start_bar_date].head(eval_window_days)
+                start_bar_ts = pd.Timestamp(start_bar_date)
+                forward_df = df[df[date_col] > start_bar_ts].head(eval_window_days)
                 forward_bars = self._df_to_bars(forward_df, date_col)
 
                 if len(forward_bars) < int(eval_window_days):
                     df2 = self._try_fill_daily_data(code=analysis.code, analysis_date=start_bar_date, eval_window_days=eval_window_days)
                     if df2 is not None and not df2.empty:
-                        forward_df2 = df2[df2[date_col] > start_bar_date].head(eval_window_days)
-                        forward_bars = self._df_to_bars(forward_df2, date_col)
+                        date_col2 = date_col if date_col in df2.columns else ('date' if 'date' in df2.columns else df2.columns[0])
+                        df2 = self._normalize_daily_dates(df2, date_col2)
+                        forward_df2 = df2[df2[date_col2] > start_bar_ts].head(eval_window_days)
+                        forward_bars = self._df_to_bars(forward_df2, date_col2)
 
                 evaluation = BacktestEngine.evaluate_single(
                     operation_advice=analysis.operation_advice,
@@ -319,6 +324,13 @@ class BacktestService:
         return None
 
     @staticmethod
+    def _normalize_daily_dates(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
+        """Return a copy with a timestamp-typed date column for stable comparisons."""
+        normalized = df.copy()
+        normalized[date_col] = pd.to_datetime(normalized[date_col])
+        return normalized
+
+    @staticmethod
     def _df_to_bars(df: pd.DataFrame, date_col: str = 'date') -> list:
         """Convert DataFrame rows to list of _DailyBar objects."""
         bars = []
@@ -327,7 +339,7 @@ class BacktestService:
             if isinstance(val, pd.Timestamp):
                 d = val.date()
             else:
-                d = val
+                d = pd.Timestamp(val).date()
             bars.append(
                 _DailyBar(
                     date=d,
