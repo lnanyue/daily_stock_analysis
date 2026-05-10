@@ -21,5 +21,6 @@ class TestTraderAgentCallLiteLlm(TestCase):
         import asyncio
         asyncio.run(agent.run(ctx, timeout_seconds=None))
 
+        agent.analyzer._call_litellm_async.assert_awaited_once()
         call_kwargs = agent.analyzer._call_litellm_async.call_args.kwargs
         self.assertNotIn("timeout", call_kwargs)
